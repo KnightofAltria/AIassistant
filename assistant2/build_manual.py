@@ -15,6 +15,8 @@ def build():
     sec.left_margin=sec.right_margin=Cm(2.1);sec.top_margin=sec.bottom_margin=Cm(1.8)
     for name in ['Normal','Title','Heading 1','Heading 2']:
         style=doc.styles[name];style.font.name='微软雅黑';style._element.get_or_add_rPr().get_or_add_rFonts().set(qn('w:eastAsia'),'微软雅黑');style.font.color.rgb=RGBColor(0,0,0)
+    for style in doc.styles:
+        for border in list(style.element.iter(qn('w:pBdr'))): border.getparent().remove(border)
     normal=doc.styles['Normal'];normal.font.size=Pt(10);normal.paragraph_format.line_spacing=1.25;normal.paragraph_format.space_after=Pt(6)
     code=False
     for line in (ROOT/'README.md').read_text(encoding='utf-8').splitlines():

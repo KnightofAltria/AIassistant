@@ -50,12 +50,12 @@ def collect_commits(repo: Path, day: str) -> list[dict]:
     raw = git(
         repo, "log",
         f"--since={day} 00:00:00", f"--until={day} 23:59:59",
-        "--reverse", f"--pretty=format:%h{SEP}%ad{SEP}%an{SEP}%s",
+        "--reverse", "--shortstat", f"--pretty=format:%h{SEP}%ad{SEP}%an{SEP}%s",
         "--date=format:%H:%M",
     )
     commits = []
     for line in raw.splitlines():
-        if not line.strip():
+        if SEP not in line:
             continue
         sha, when, author, subject = line.split(SEP, 3)
         stat = git(repo, "show", "--shortstat", "--format=", sha).strip()
@@ -197,8 +197,16 @@ def make_table(doc, headers: list[str], rows: list[list[str]], widths_cm: list[f
         add_run(cell.paragraphs[0], text, font=HEAD_FONT, size=9.5, bold=True)
         cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
         shade(cell)
+    header_pr = table.rows[0]._tr.get_or_add_trPr()
+    repeat = OxmlElement("w:tblHeader")
+    header_pr.append(repeat)
+    for cell in table.rows[0].cells:
+        for paragraph in cell.paragraphs:
+            paragraph.paragraph_format.keep_with_next = True
     for row in rows:
-        cells = table.add_row().cells
+        body_row = table.add_row()
+        body_row._tr.get_or_add_trPr().append(OxmlElement("w:cantSplit"))
+        cells = body_row.cells
         for i, text in enumerate(row):
             cells[i].width = Cm(widths_cm[i])
             cells[i].text = ""
