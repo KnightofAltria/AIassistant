@@ -52,7 +52,7 @@ function createField(canvas, opts) {
     for (let x = 0; x < w; x += step) {
       for (let y = 0; y < h; y += step) {
         const d = Math.hypot(x - w / 2, y - h / 2);
-        ctx.globalAlpha = Math.max(0, 0.085 - d / (Math.max(w, h) * 12));
+        ctx.globalAlpha = Math.max(0, 0.055 - d / (Math.max(w, h) * 14));
         ctx.fillStyle = '#4a7fd8';
         ctx.fillRect(x, y, 1.4, 1.4);
       }
@@ -103,7 +103,7 @@ function createField(canvas, opts) {
         const dy = nodes[i].y - nodes[j].y;
         const d = Math.hypot(dx, dy);
         if (d < cfg.linkDist) {
-          ctx.strokeStyle = `rgba(86,136,225,${0.20 * (1 - d / cfg.linkDist)})`;
+          ctx.strokeStyle = `rgba(86,136,225,${0.16 * (1 - d / cfg.linkDist)})`;
           ctx.lineWidth = 0.9;
           ctx.beginPath();
           ctx.moveTo(nodes[i].x, nodes[i].y);
