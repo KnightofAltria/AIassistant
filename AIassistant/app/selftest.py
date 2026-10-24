@@ -245,6 +245,9 @@ def main() -> int:
             })
             check("POST /api/attempts", status == 200 and "correct" in attempt,
                   f"correct={attempt.get('correct')}")
+            # 自检出的题用完就删，别留在用户题库里
+            for qq in questions:
+                call(base, f"/api/questions/{qq['id']}", "DELETE")
 
         # 章节讲解（SSE）
         events = sse(base, f"/api/chapters/{chapter['id']}/tutor", {})
@@ -310,6 +313,10 @@ def main() -> int:
     status, err = call(base, "/api/materials", "POST", {"title": "", "text": ""})
     check("空资料返回 400", status == 400 and "error" in err, str(err.get("error", {}))[:60])
 
+    # 14. 收尾：把自检自己造出来的数据全部删掉，避免污染用户库
+    cleaned = cleanup_artifacts(base)
+    check("自检数据已清理", True, cleaned)
+
     # 汇总
     total = len(results)
     passed = sum(1 for _, r, _ in results if r == PASS)
@@ -322,6 +329,56 @@ def main() -> int:
                 print(f"  - {name}: {detail}")
     print("=" * 56)
     return 0 if passed == total else 1
+
+
+TEST_QUESTION_PREFIX = "TCP 为什么需要三次握手"
+
+
+def cleanup_artifacts(base: str) -> str:
+    """删掉自检过程中产生的会话、总结、科目、文件夹、错题与占位题。"""
+    removed = []
+
+    status, data = call(base, "/api/conversations")
+    for c in data.get("conversations", []):
+        if c["title"].startswith(TEST_QUESTION_PREFIX) or c["title"].startswith("自检"):
+            call(base, f"/api/conversations/{c['id']}", "DELETE")
+            removed.append("会话")
+
+    status, data = call(base, "/api/summaries")
+    for sm in data.get("summaries", []):
+        if sm["title"].startswith(TEST_QUESTION_PREFIX):
+            call(base, f"/api/summaries/{sm['id']}", "DELETE")
+            removed.append("总结")
+
+    status, data = call(base, "/api/subjects")
+    for sub in data.get("subjects", []):
+        if sub["name"].startswith("自检") and not sub.get("is_builtin"):
+            call(base, f"/api/subjects/{sub['id']}", "DELETE")
+            removed.append("科目")
+        else:
+            for ch in sub.get("chapters", []):
+                if ch["title"].startswith("自检"):
+                    call(base, f"/api/chapters/{ch['id']}", "DELETE")
+                    removed.append("章节")
+                else:
+                    for q in call(base, f"/api/chapters/{ch['id']}")[1].get("questions", []):
+                        if "[演示模式]" in q["stem"] or "本知识点的说法" in q["stem"]:
+                            call(base, f"/api/questions/{q['id']}", "DELETE")
+                            removed.append("占位题")
+
+    status, data = call(base, "/api/materials")
+    for f in data.get("folders", []):
+        if f["name"].startswith("自检"):
+            call(base, f"/api/folders/{f['id']}?mode=purge", "DELETE")
+            removed.append("文件夹")
+
+    status, data = call(base, "/api/mistakes")
+    for mk in data.get("mistakes", []):
+        if (mk.get("my_answer") or "").strip().upper() not in ("A", "B", "C", "D"):
+            call(base, f"/api/mistakes/{mk['id']}", "DELETE")
+            removed.append("错题")
+
+    return f"清理 {len(removed)} 项：{'/'.join(sorted(set(removed))) or '无'}"
 
 
 if __name__ == "__main__":

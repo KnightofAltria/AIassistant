@@ -67,6 +67,17 @@ def init(data=None):
                     content=(ROOT/'references'/ref['filename']).read_text(encoding='utf-8');ident=uid();filename=ident+'.md';(DATA/'files'/filename).write_text(content,encoding='utf-8')
                     s['resources'].append(dict(id=ident,name=ref['title']+' · ODS.md',folder='数据结构',course='ds',origin='公开采集',filename=filename,text=content,size=len(content.encode()),created=now(),status='已索引 · 英文原文',source=ref['source']))
             con.execute('INSERT INTO state VALUES(1,?)',(json.dumps(s,ensure_ascii=False),))
+    # One-time reference migration for an existing installation. User deletions
+    # are respected after this marker has been set.
+    with LOCK:
+        s=read_state(); manifest=ROOT/'references'/'manifest.json'
+        if manifest.exists() and not s['settings'].get('references_installed'):
+            for ref in json.loads(manifest.read_text(encoding='utf-8')):
+                if any(r.get('source')==ref['source'] for r in s['resources']): continue
+                content=(ROOT/'references'/ref['filename']).read_text(encoding='utf-8');ident=uid();filename=ident+'.md';(DATA/'files'/filename).write_text(content,encoding='utf-8')
+                if '数据结构' not in s['folders']: s['folders'].append('数据结构')
+                s['resources'].append(dict(id=ident,name=ref['title']+' · ODS.md',folder='数据结构',course='ds',origin='公开采集',filename=filename,text=content,size=len(content.encode()),created=now(),status='已索引 · 英文原文',source=ref['source']))
+            s['settings']['references_installed']=True;save(s)
     cfg=DATA/'credentials.json'
     if cfg.exists():
         try:
@@ -282,6 +293,7 @@ def ai_action(name,p):
             sys+='\n以下是本地检索片段（可能为空）：\n'+'\n'.join(f"[资料{i+1}] {r['name']} {r['locator']}\n{r['text']}" for i,r in enumerate(evidence))
             messages=[dict(role='system',content=sys)]+[dict(role=m['role'],content=m['content']) for m in chat['messages'][-16:]]+[dict(role='user',content=message)]
             answer=llm(messages)
+            answer=re.sub(r'\[资料(\d+)\]',lambda m:m.group(0) if 1<=int(m.group(1))<=len(evidence) else '[引用编号无效，请核对]',answer)
             with LOCK:
                 s=read_state(); live=find(s['chats'],chat['id']); live['messages'].extend([dict(role='user',content=message,created=now()),dict(role='assistant',content=answer,created=now(),sources=evidence)])
                 if live['title']=='新的学习对话': live['title']=message[:24]
