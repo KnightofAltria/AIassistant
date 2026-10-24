@@ -473,31 +473,45 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
 
 /* ---------------------------------------------------------------- 启动：先放主界面 */
 (function startLanding() {
-  let landed = false;
-  const check = setInterval(async () => {
-    if (landed) return;
-    try {
-      const st = await api('/api/state');
-      if (!st || !st.configured) return;
-      landed = true;
-      clearInterval(check);
-      showLanding();
-    } catch (e) { /* 等服务器 */ }
-  }, 500);
+  const landing = $('#landing');
+  let started = false;
+  let bound = false;
 
-  function showLanding() {
-    const landing = $('#landing');
-    landing.classList.remove('hidden');
-    landingField = createField($('#particles'), {
-      count: 96, linkDist: 152, speed: 0.32, glow: true, grid: true, curves: 2,
-      ripples: true,
-    });
-    injectBackBars();
-    setTimeout(() => $('#btn-start').classList.add('show'), 1600);
+  // 粒子立刻开始跑：欢迎界面在 HTML 里就是可见的，不等接口
+  landingField = createField($('#particles'), {
+    count: 96, linkDist: 152, speed: 0.32, glow: true, grid: true, curves: 2,
+    ripples: true,
+  });
 
-    // 先把底下的视图切成主界面，再让欢迎页淡出，这样看不到中间态
+  // 底层视图先切成主界面，避免欢迎界面淡出时看到聊天页
+  const prewarm = setInterval(() => {
+    if (typeof window.switchView !== 'function') return;
+    clearInterval(prewarm);
     goHome();
     refreshHomeSub();
+  }, 120);
+
+  // 再看接口：没配 Key 就把欢迎界面藏起来，让门禁页露出来
+  const check = setInterval(async () => {
+    try {
+      const st = await api('/api/state');
+      if (!st) return;
+      clearInterval(check);
+      if (!st.configured) {
+        landing.classList.add('hidden');
+        if (landingField) { landingField.stop(); landingField = null; }
+        return;
+      }
+      showStart();
+    } catch (e) { /* 等服务器 */ }
+  }, 300);
+
+  function showStart() {
+    if (started) return;
+    started = true;
+    setTimeout(() => $('#btn-start').classList.add('show'), 1600);
+    if (bound) return;
+    bound = true;
 
     $('#btn-start').addEventListener('click', () => {
       $('#btn-start').classList.remove('show');

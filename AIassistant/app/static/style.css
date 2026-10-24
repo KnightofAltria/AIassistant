@@ -593,3 +593,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
 }
 .meta-grid .field { margin-bottom: 0; }
+
+/* 门禁页要盖在欢迎界面之上；欢迎界面从页面加载就存在，避免先闪一下功能页 */
+.gate { position: fixed; inset: 0; z-index: 90; overflow: auto; }
+.landing { will-change: opacity; }
