@@ -39,16 +39,18 @@
 
 ```
 AIassistant/   我们的实现（Python 标准库 + 原生 JS，可运行版本）
-assistant2/    另一个 AI（GPT）写的平行版本，同仓库并行迭代
+assistant2/    另一个 AI（GPT）写的平行版本 —— 只在 gpt-version 分支维护
 文档/          课程要求、交付文档初稿、设计方案、文档生成脚本
 日志/          每日修改日志（.docx）
 ```
 
 关于 `assistant2/`（用户明确交代过，别再重复问）：
 
-- 那是**另一个 AI 在写第二个版本**，和我们这套并行推进，属于要交付的内容。
-- **正常提交它的新增文件**，不要加进 `.gitignore`，不要建议忽略，也不要改动它的代码。
-- 它自己的 `.gitignore` 已经忽略了 `data/`、`__pycache__/`、`test-results/`，不用我们操心。
+- 那是**另一个 AI（GPT）在写第二个版本**，属于要交付的内容。
+- 为避免两套代码在 `main` 上交织，**它只在 `gpt-version` 分支维护**：
+  - `main` 上不跟踪它（`.gitignore` 已加 `assistant2/`），文件仍留在磁盘上供那边的 AI 继续写。
+  - 要提交它的改动：`git switch gpt-version` → `git add -A -- assistant2` → 提交 → `git switch main`。
+  - **不要改动它的代码**，只负责提交。
 
 - 提交信息：`<类型>: <说明>`，类型限 `feat` / `fix` / `docs` / `chore` / `refactor` / `test`。
 - `.gitignore` 已忽略：`__pycache__/`、`~$*`（Office 锁文件）、`*.zip`、`Thumbs.db`、`.vscode/` 等。

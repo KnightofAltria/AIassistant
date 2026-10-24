@@ -232,3 +232,6 @@ desktop.ini
 .idea/
 # 压缩包（如需纳入版本库，删掉下面这行）
 *.zip
+
+# GPT 平行版本在 gpt-version 分支维护，main 不跟踪
+assistant2/
