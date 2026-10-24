@@ -39,7 +39,10 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS folders (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    slug TEXT DEFAULT '',
+    is_shared INTEGER DEFAULT 0,
+    ord INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS materials (
     id TEXT PRIMARY KEY,
@@ -138,6 +141,17 @@ class Store:
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(SCHEMA)
         self.conn.commit()
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """给老库补列，保证升级不用删数据。"""
+        cols = {row["name"] for row in self.conn.execute("PRAGMA table_info(folders)")}
+        for name, ddl in (("slug", "TEXT DEFAULT ''"),
+                          ("is_shared", "INTEGER DEFAULT 0"),
+                          ("ord", "INTEGER DEFAULT 0")):
+            if name not in cols:
+                self.conn.execute(f"ALTER TABLE folders ADD COLUMN {name} {ddl}")
+        self.conn.commit()
 
     # ---------------------------------------------------------------- 配置
     def get_config(self) -> dict:
@@ -228,25 +242,83 @@ class Store:
         self.conn.commit()
 
     # ---------------------------------------------------------------- 文件夹
-    def add_folder(self, name: str) -> dict:
+    def add_folder(self, name: str, slug: str = "", is_shared: bool = False,
+                   ord: int = 100) -> dict:
         fid = new_id()
-        self.conn.execute("INSERT INTO folders(id,name,created_at) VALUES(?,?,?)", (fid, name, now()))
+        self.conn.execute(
+            "INSERT INTO folders(id,name,created_at,slug,is_shared,ord) VALUES(?,?,?,?,?,?)",
+            (fid, name, now(), slug, 1 if is_shared else 0, ord))
         self.conn.commit()
-        return {"id": fid, "name": name}
+        return {"id": fid, "name": name, "slug": slug, "is_shared": bool(is_shared)}
 
     def list_folders(self) -> list[dict]:
-        return [dict(r) for r in self.conn.execute(
-            "SELECT * FROM folders ORDER BY created_at").fetchall()]
+        rows = self.conn.execute(
+            "SELECT f.*, (SELECT COUNT(*) FROM materials m WHERE m.folder_id=f.id) AS count "
+            "FROM folders f ORDER BY f.is_shared DESC, f.ord, f.created_at").fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["is_shared"] = bool(d.get("is_shared"))
+            out.append(d)
+        return out
 
-    def delete_folder(self, folder_id: str) -> None:
-        for m in self.list_materials(folder_id):
-            self.delete_material(m["id"])
+    def folder_by_slug(self, slug: str) -> dict | None:
+        row = self.conn.execute("SELECT * FROM folders WHERE slug=?", (slug,)).fetchone()
+        return dict(row) if row else None
+
+    def folder_by_name(self, name: str) -> dict | None:
+        row = self.conn.execute("SELECT * FROM folders WHERE name=?", (name,)).fetchone()
+        return dict(row) if row else None
+
+    def folder(self, folder_id: str) -> dict | None:
+        row = self.conn.execute("SELECT * FROM folders WHERE id=?", (folder_id,)).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["is_shared"] = bool(d.get("is_shared"))
+        return d
+
+    def rename_folder(self, folder_id: str, name: str) -> None:
+        self.conn.execute("UPDATE folders SET name=? WHERE id=?", (name, folder_id))
+        self.conn.commit()
+
+    def delete_folder(self, folder_id: str, mode: str = "move") -> dict:
+        """mode=move：只删文件夹，资料移到根目录；mode=purge：连资料一起删。"""
+        moved = 0
+        if mode == "purge":
+            for m in self.list_materials(folder_id):
+                self.delete_material(m["id"])
+        else:
+            moved = self.conn.execute(
+                "SELECT COUNT(*) FROM materials WHERE folder_id=?", (folder_id,)).fetchone()[0]
+            self.conn.execute("UPDATE materials SET folder_id='' WHERE folder_id=?", (folder_id,))
         self.conn.execute("DELETE FROM folders WHERE id=?", (folder_id,))
         self.conn.commit()
+        return {"mode": mode, "moved": int(moved)}
 
     def move_material(self, material_id: str, folder_id: str) -> None:
         self.conn.execute("UPDATE materials SET folder_id=? WHERE id=?", (folder_id, material_id))
         self.conn.commit()
+
+    def assign_orphan_materials(self) -> int:
+        """把落在根目录的资料，按科目归入对应文件夹；没有科目的归入共识资料。"""
+        folders = {f["slug"]: f for f in self.list_folders() if f.get("slug")}
+        subjects = {s["slug"]: s["name"] for s in self.subjects()}
+        count = 0
+        for m in self.list_materials(""):
+            target = None
+            for slug, name in subjects.items():
+                if m.get("subject") == name:
+                    target = folders.get(slug)
+                    break
+            if target is None and folders.get("shared"):
+                target = folders["shared"]
+            if target:
+                self.conn.execute("UPDATE materials SET folder_id=? WHERE id=?",
+                                  (target["id"], m["id"]))
+                count += 1
+        self.conn.commit()
+        return count
 
     # ---------------------------------------------------------------- 会话
     def create_conversation(self, title: str, kind: str = "chat") -> dict:

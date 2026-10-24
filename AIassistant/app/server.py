@@ -135,8 +135,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:   # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
+        query = urllib.parse.parse_qs(parsed.query)
         try:
-            self._api_delete(parsed.path)
+            self._api_delete(parsed.path, query)
         except Exception as exc:                      # noqa: BLE001
             self._error(f"删除失败：{exc}", 500)
 
@@ -202,12 +203,26 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"mistakes": STORE.list_mistakes()})
             return
 
+        m = re.fullmatch(r"/api/materials/([\w-]+)/raw", path)
+        if m:
+            self._serve_raw(m.group(1))
+            return
+
+        m = re.fullmatch(r"/api/materials/([\w-]+)", path)
+        if m:
+            self._material_detail(m.group(1))
+            return
+
         if path == "/api/materials":
             folder = query.get("folder", [""])[0]
-            self._json({
-                "materials": STORE.list_materials(folder if folder else None),
-                "folders": STORE.list_folders(),
-            })
+            materials = STORE.list_materials(folder if folder else None)
+            folders = STORE.list_folders()
+            fmap = {f["id"]: f for f in folders}
+            for mat in materials:
+                f = fmap.get(mat.get("folder_id", ""), {})
+                mat["folder_name"] = f.get("name", "")
+                mat["folder_shared"] = bool(f.get("is_shared"))
+            self._json({"materials": materials, "folders": folders})
             return
 
         if path == "/api/rag/search":
@@ -315,7 +330,11 @@ class Handler(BaseHTTPRequestHandler):
             if not name:
                 self._error("文件夹名不能为空", 400)
                 return
-            self._json({"folder": STORE.add_folder(name)}, 201)
+            if STORE.folder_by_name(name):
+                self._error("同名文件夹已存在", 409)
+                return
+            folder = STORE.add_folder(name, is_shared=bool(body.get("is_shared")))
+            self._json({"folder": folder}, 201)
             return
 
         m = re.fullmatch(r"/api/materials/([\w-]+)/move", path)
@@ -327,11 +346,18 @@ class Handler(BaseHTTPRequestHandler):
         self._error("未知接口", 404)
 
     # ------------------------------------------------------------ DELETE API
-    def _api_delete(self, path: str) -> None:
+    def _api_delete(self, path: str, query: dict | None = None) -> None:
+        query = query or {}
+        m = re.fullmatch(r"/api/folders/([\w-]+)", path)
+        if m:
+            mode = query.get("mode", ["move"])[0]
+            mode = "purge" if mode == "purge" else "move"
+            result = STORE.delete_folder(m.group(1), mode)
+            self._json({"ok": True, **result})
+            return
         for pattern, action in (
             (r"/api/conversations/([\w-]+)", STORE.delete_conversation),
             (r"/api/materials/([\w-]+)", STORE.delete_material),
-            (r"/api/folders/([\w-]+)", STORE.delete_folder),
             (r"/api/summaries/([\w-]+)", STORE.delete_summary),
             (r"/api/mistakes/([\w-]+)", STORE.delete_mistake),
             (r"/api/questions/([\w-]+)", STORE.delete_question),
@@ -482,6 +508,41 @@ class Handler(BaseHTTPRequestHandler):
                     "explanation": question.get("explanation", "")})
 
 
+    # ------------------------------------------------------------ 业务：资料文件
+    def _material_detail(self, material_id: str) -> None:
+        materials = [m for m in STORE.list_materials() if m["id"] == material_id]
+        if not materials:
+            self._error("资料不存在", 404)
+            return
+        item = materials[0]
+        text = STORE.get_material_text(material_id)
+        self._json({"material": item, "content": text[:20000],
+                    "path": item.get("path", ""), "exists": bool(text)})
+
+    def _serve_raw(self, material_id: str) -> None:
+        materials = [m for m in STORE.list_materials() if m["id"] == material_id]
+        if not materials:
+            self._error("资料不存在", 404)
+            return
+        item = materials[0]
+        path = Path(item.get("path", ""))
+        if not path.is_file():
+            self._error("源文件已丢失（可能被手动删除）", 404)
+            return
+        data = path.read_bytes()
+        suffix = path.suffix.lower()
+        ctype = {".md": "text/plain; charset=utf-8", ".txt": "text/plain; charset=utf-8",
+                 ".json": "application/json; charset=utf-8",
+                 ".csv": "text/csv; charset=utf-8",
+                 ".html": "text/html; charset=utf-8"}.get(suffix, "application/octet-stream")
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(data)
+
+
 # ---------------------------------------------------------------- 工具函数
 def _parse_questions(raw: str) -> list[dict]:
     """从模型输出里抠出 JSON 数组；容忍 ```json 包裹和前后废话。"""
@@ -526,7 +587,11 @@ def main() -> int:
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     seed.seed(STORE)
-    samples = seed.seed_samples(STORE)
+    seed.ensure_folders(STORE)
+    samples = seed.seed_samples(STORE) + seed.import_shared_samples(STORE)
+    moved = seed.reorganize(STORE)
+    if moved:
+        print(f"  已把 {moved} 份资料归入对应文件夹")
     if samples:
         print(f"  已导入内置示例资料 {samples} 份（可在界面里删除）")
 

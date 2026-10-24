@@ -169,6 +169,29 @@ def seed(store) -> None:
 
 SAMPLE_DIR = Path(__file__).resolve().parent / "samples"
 
+# 资料目录结构：一个共识文件夹 + 四个学科文件夹。
+# 共识文件夹放跨科目通用材料（不推荐用户修改，但允许改）。
+FOLDERS = [
+    {"slug": "shared", "name": "共识资料", "is_shared": True,
+     "desc": "跨科目通用材料：课程地图、学习方法、基础概念速查"},
+    {"slug": "co", "name": "计算机组成原理", "is_shared": False, "desc": "计组课件、笔记、习题"},
+    {"slug": "cn", "name": "计算机网络", "is_shared": False, "desc": "计网课件、笔记、习题"},
+    {"slug": "os", "name": "操作系统", "is_shared": False, "desc": "操作系统课件、笔记、习题"},
+    {"slug": "ds", "name": "数据结构", "is_shared": False, "desc": "数据结构课件、笔记、习题"},
+]
+
+
+def ensure_folders(store) -> int:
+    """建立/补齐五个标准文件夹，返回新建数量。"""
+    created = 0
+    for i, f in enumerate(FOLDERS):
+        if store.folder_by_slug(f["slug"]):
+            continue
+        store.add_folder(name=f["name"], slug=f["slug"],
+                         is_shared=f["is_shared"], ord=i)
+        created += 1
+    return created
+
 
 def seed_samples(store) -> int:
     """库里还没有任何资料时，导入内置示例资料，保证首次启动就能演示检索与引用。"""
@@ -177,13 +200,59 @@ def seed_samples(store) -> int:
     if store.list_materials() or not SAMPLE_DIR.exists():
         return 0
     count = 0
+    shared_folder = store.folder_by_slug("shared") or {}
+    folders = {f["slug"]: f for f in store.list_folders()}
+    subjects = {s["name"]: s["slug"] for s in store.subjects()}
+
+    # 共识资料：samples/shared/*.md
+    shared_dir = SAMPLE_DIR / "shared"
+    if shared_dir.exists():
+        for path in sorted(shared_dir.glob("*.md")):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            title = path.stem.replace("共识-", "")
+            material = store.add_material(
+                title=f"共识 · {title}", text=text, subject="",
+                folder_id=shared_folder.get("id", ""),
+                source_url="内置示例资料（可删除）", ext=".md")
+            store.replace_chunks(material["id"], rag.chunk_text(text))
+            count += 1
+
+    # 学科资料：samples/*.md，文件名前缀是科目
     for path in sorted(SAMPLE_DIR.glob("*.md")):
         text = path.read_text(encoding="utf-8", errors="replace")
-        stem = path.stem
-        subject, _, topic = stem.partition("-")
+        subject, _, topic = path.stem.partition("-")
+        folder = folders.get(subjects.get(subject, ""), {})
         material = store.add_material(
-            title=f"{subject} · {topic or stem}", text=text,
-            subject=subject, source_url="内置示例资料（可删除）", ext=".md")
+            title=f"{subject} · {topic or path.stem}", text=text, subject=subject,
+            folder_id=folder.get("id", ""),
+            source_url="内置示例资料（可删除）", ext=".md")
+        store.replace_chunks(material["id"], rag.chunk_text(text))
+        count += 1
+    return count
+
+
+def reorganize(store) -> int:
+    """把散落在根目录的资料按科目归位，返回移动数量。"""
+    return store.assign_orphan_materials()
+
+def import_shared_samples(store) -> int:
+    """导入 samples/shared 下的共识资料（按标题去重，可重复调用）。"""
+    import rag
+
+    shared_dir = SAMPLE_DIR / "shared"
+    folder = store.folder_by_slug("shared")
+    if not shared_dir.exists() or not folder:
+        return 0
+    existing = {m["title"] for m in store.list_materials()}
+    count = 0
+    for path in sorted(shared_dir.glob("*.md")):
+        title = f"共识 · {path.stem.replace('共识-', '')}"
+        if title in existing:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        material = store.add_material(
+            title=title, text=text, subject="", folder_id=folder["id"],
+            source_url="内置示例资料（可删除）", ext=".md")
         store.replace_chunks(material["id"], rag.chunk_text(text))
         count += 1
     return count

@@ -188,18 +188,47 @@ def main() -> int:
     check("GET /api/mistakes（答错即入本）", ok,
           f"{len(mistakes.get('mistakes', []))} 条")
 
-    # 11. 文件夹
+    # 11. 文件夹体系：共识 + 四学科
+    status, data = call(base, "/api/materials")
+    folders = data.get("folders", [])
+    shared = [f for f in folders if f.get("is_shared")]
+    check("文件夹体系", status == 200 and len(folders) >= 5 and len(shared) == 1,
+          f"{len(folders)} 个文件夹，共识 {len(shared)} 个")
+
+    # 12. 资料详情与源文件
+    if data.get("materials"):
+        mid = data["materials"][0]["id"]
+        status, detail = call(base, f"/api/materials/{mid}")
+        check("GET /api/materials/{id}", status == 200 and bool(detail.get("content")),
+              f"路径 {detail.get('path', '')[-28:]}")
+        req = urllib.request.Request(f"{base}/api/materials/{mid}/raw")
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read()
+            check("GET /api/materials/{id}/raw", resp.status == 200 and len(raw) > 50,
+                  f"源文件 {len(raw)} 字节，Content-Type={resp.headers.get('Content-Type')}")
+
+    # 13. 文件夹删除的两种模式
     status, folder = call(base, "/api/folders", "POST", {"name": "自检文件夹"})
     folder_id = (folder.get("folder") or {}).get("id", "")
     check("POST /api/folders", status == 201 and bool(folder_id), folder_id[:8])
+    if folder_id:
+        call(base, "/api/materials", "POST",
+             {"title": "自检临时资料", "text": "临时资料内容，用于验证文件夹删除。",
+              "folder_id": folder_id})
+        status, res = call(base, f"/api/folders/{folder_id}?mode=move", "DELETE")
+        check("DELETE 文件夹（保留资料）", status == 200 and res.get("mode") == "move",
+              f"移出 {res.get('moved')} 份")
+
+    status, folder2 = call(base, "/api/folders", "POST", {"name": "自检文件夹2"})
+    fid2 = (folder2.get("folder") or {}).get("id", "")
+    if fid2:
+        status, res = call(base, f"/api/folders/{fid2}?mode=purge", "DELETE")
+        check("DELETE 文件夹（连资料删除）", status == 200 and res.get("mode") == "purge", "")
 
     # 12. 删除链路
     if material_id:
         status, _ = call(base, f"/api/materials/{material_id}", "DELETE")
         check("DELETE /api/materials/{id}", status == 200, "已删除并清理切片")
-    if folder_id:
-        status, _ = call(base, f"/api/folders/{folder_id}", "DELETE")
-        check("DELETE /api/folders/{id}", status == 200, "已删除")
 
     # 13. 错误处理
     status, err = call(base, "/api/materials", "POST", {"title": "", "text": ""})

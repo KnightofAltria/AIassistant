@@ -141,6 +141,7 @@
           <button id="btn-new-folder" class="btn">新建文件夹</button>
         </div>
       </header>
+      <div id="shared-warning" class="banner hidden"></div>
       <div id="folder-bar" class="folder-bar"></div>
       <div id="material-list" class="card-list"></div>
     </section>
@@ -165,6 +166,20 @@
       <button id="imp-save" class="btn primary">导入</button>
     </div>
     <p id="imp-msg" class="muted small"></p>
+  </div>
+</div>
+
+<!-- ============ 删除文件夹弹窗 ============ -->
+<div id="modal-folder-del" class="modal hidden">
+  <div class="modal-card narrow">
+    <h3>删除文件夹「<span id="fdel-name"></span>」</h3>
+    <p class="muted small">该文件夹里有 <b id="fdel-count">0</b> 份资料，请选择处理方式：</p>
+    <p id="fdel-shared" class="small"></p>
+    <div class="modal-actions column">
+      <button id="fdel-move" class="btn wide">只删文件夹，资料移到根目录（安全）</button>
+      <button id="fdel-purge" class="btn danger wide">连同资料一起删除（不可恢复）</button>
+      <button id="fdel-cancel" class="btn wide">取消</button>
+    </div>
   </div>
 </div>
 
