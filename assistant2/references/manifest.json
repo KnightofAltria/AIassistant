@@ -1,0 +1,23 @@
+[
+  {
+    "id": "array-lists",
+    "title": "顺序表与数组",
+    "filename": "array-lists.md",
+    "source": "https://opendatastructures.org/ods-python/2_Array_Based_Lists.html",
+    "sha256": "4fd8515cf0b8d1b1fe8c31306ce1c0b1676c032b67c1900ac3be3232291c139e"
+  },
+  {
+    "id": "linked-lists",
+    "title": "链表",
+    "filename": "linked-lists.md",
+    "source": "https://opendatastructures.org/ods-python/3_Linked_Lists.html",
+    "sha256": "f112f6e3d4f9cbda35bbebd72bf005617bff29630c3e5a85de39b663952e2a7f"
+  },
+  {
+    "id": "binary-trees",
+    "title": "二叉树",
+    "filename": "binary-trees.md",
+    "source": "https://opendatastructures.org/ods-python/6_Binary_Trees.html",
+    "sha256": "feb3cf9fff0861748f8dec3d0d4440c5a9297631e7ed5c658188d0675fd6cdc2"
+  }
+]

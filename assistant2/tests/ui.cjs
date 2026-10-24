@@ -1,0 +1,46 @@
+// Browser smoke test. npm install --no-save playwright in a separate tools directory,
+// then set NODE_PATH to that node_modules. Starts an isolated local server.
+const {chromium}=require('playwright');
+const {spawn}=require('node:child_process');
+const fs=require('node:fs');const path=require('node:path');const assert=require('node:assert/strict');
+const root=path.resolve(__dirname,'..');const out=path.join(root,'test-results');fs.mkdirSync(out,{recursive:true});
+const data=fs.mkdtempSync(path.join(out,'ui-data-'));
+const server=spawn(process.env.PYTHON||'python',[path.join(root,'server.py'),'--no-browser','--port','8768','--data-dir',data],{cwd:root,windowsHide:true});
+let browser;
+(async()=>{
+ await new Promise((resolve,reject)=>{server.stdout.on('data',d=>{if(d.toString().includes('CSLA is ready'))resolve();});server.on('error',reject);server.on('exit',c=>reject(Error('server exit '+c)));setTimeout(()=>reject(Error('server timeout')),10000).unref();});
+ browser=await chromium.launch({headless:true,channel:'msedge'});
+ const page=await browser.newPage({viewport:{width:1440,height:1000},deviceScaleFactor:1});const errors=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('http://127.0.0.1:8768');await page.getByRole('button',{name:'开始学习',exact:true}).click();
+ await page.getByRole('button',{name:'暂不配置，开始本地学习'}).click();await page.getByRole('heading',{name:'今天学点什么？'}).waitFor();
+ await page.screenshot({path:path.join(out,'home.png'),fullPage:true});
+ await page.locator('[data-action="course.open"][data-id="ds"]').click();
+ await page.getByRole('button',{name:'开始本章练习'}).click();
+ await page.locator('input[name="ds-1-q0"][value="0"]').check();await page.locator('input[name="ds-1-q1"][value="0"]').check();await page.locator('input[name="ds-1-q2"][value="1"]').check();
+ await page.getByRole('button',{name:'提交练习'}).click();await page.locator('.score-banner').waitFor();assert.match(await page.locator('.score-banner').innerText(),/2\/3/);
+ await page.screenshot({path:path.join(out,'lesson.png'),fullPage:true});
+ await page.getByRole('button',{name:'查看近期总结'}).click();await page.getByRole('button',{name:'易错提示本'}).click();
+ await page.locator('#dialog input[value="2"]').check();await page.getByRole('button',{name:'验证答案'}).click();await page.waitForFunction(()=>document.querySelector('#dialog .explanation')?.textContent.includes('回答正确'));
+ await page.locator('#dialog [data-action="modal.close"]').first().click();
+ await page.locator('.sidebar [data-page="resources"]').click();await page.getByRole('button',{name:'导入资料',exact:true}).click();
+ await page.locator('#import-files').setInputFiles({name:'test-note.md',mimeType:'text/markdown',buffer:Buffer.from('# 测试资料\n\n栈采用后进先出。')});
+ await page.locator('#modal-form select').selectOption({label:'core'});await page.locator('#dialog button[type="submit"]').click();
+ await page.getByRole('button',{name:/test-note.md/}).waitFor();await page.getByRole('button',{name:/test-note.md/}).click();await page.locator('#dialog .prose').waitFor();assert.match(await page.locator('#dialog').innerText(),/栈采用后进先出/);
+ await page.locator('#dialog [data-action="modal.close"]').first().click();
+ const row=page.locator('tr').filter({hasText:'test-note.md'});await row.locator('[data-action="resource.move"]').click();await page.locator('#modal-form select').selectOption({label:'数据结构'});await page.locator('#dialog button[type="submit"]').click();
+ await page.locator('[data-action="folder.open"][data-name="数据结构"]').click();await page.getByRole('button',{name:/test-note.md/}).waitFor();
+ await page.screenshot({path:path.join(out,'resources.png'),fullPage:true});
+ await page.locator('.sidebar [data-page="chat"]').click();await page.locator('#chat-input').fill('测试问题：解释栈');await page.locator('#chat-form button[type="submit"]').click();await page.locator('#api-key').waitFor();
+ await page.locator('.sidebar [data-page="chat"]').click();assert.equal(await page.locator('#chat-input').inputValue(),'测试问题：解释栈');
+ await page.screenshot({path:path.join(out,'chat.png'),fullPage:true});
+ await page.locator('.sidebar [data-page="profile"]').click();await page.locator('#profile-name').fill('验收学习者');await page.locator('#profile-form button[type="submit"]').click();await page.waitForFunction(()=>document.querySelector('.user-mini strong')?.textContent==='验收学习者');
+ await page.reload();await page.getByRole('button',{name:'开始学习',exact:true}).click();await page.locator('#dialog [data-action="modal.close"]').first().click();
+ assert.match(await page.locator('.user-mini').innerText(),/验收学习者/);
+ await page.locator('.sidebar [data-page="courses"]').click();await page.getByRole('button',{name:'添加科目',exact:true}).click();await page.locator('input[name="name"]').fill('数据库验收');await page.locator('#dialog button[type="submit"]').click();await page.getByRole('button',{name:'手动编写'}).click();
+ await page.getByRole('button',{name:'添加章节',exact:true}).click();await page.locator('input[name="title"]').fill('关系模型');await page.locator('textarea[name="body"]').fill('## 定义\n关系是一张表。');await page.locator('#dialog button[type="submit"]').click();await page.getByRole('heading',{name:'关系模型',exact:true}).waitFor();
+ await page.setViewportSize({width:1280,height:800});await page.locator('.sidebar [data-page="home"]').last().click();
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'ui-report.json'),JSON.stringify({passed:true,viewport:[1440,1000],secondaryViewport:[1280,800],checks:['onboarding','dashboard','quiz grading','mistake retry','summary','file import preview move','missing API key preserves draft','profile persistence','custom course and chapter','no horizontal overflow','no browser JS errors'],errors},null,2));
+ console.log('UI smoke checks passed. Screenshots: '+out);
+})().catch(e=>{console.error(e);process.exitCode=1;}).finally(async()=>{if(browser)await browser.close();server.kill();});
