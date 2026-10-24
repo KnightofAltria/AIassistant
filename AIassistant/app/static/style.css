@@ -597,3 +597,29 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 /* 门禁页要盖在欢迎界面之上；欢迎界面从页面加载就存在，避免先闪一下功能页 */
 .gate { position: fixed; inset: 0; z-index: 90; overflow: auto; }
 .landing { will-change: opacity; }
+
+/* ---------- 总结放大 ---------- */
+.summary-card { width: min(860px, 100%); }
+.summary-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.summary-head h3 { margin: 0; flex: 1; font-size: 18px; }
+.summary-meta { color: var(--ink-3); font-size: 12.5px; margin-bottom: 14px; }
+.summary-body {
+  font-size: 14.5px; line-height: 1.85; color: var(--ink);
+  max-height: 62vh; overflow: auto; padding-right: 6px;
+}
+.summary-body h1 { font-size: 18px; margin: 18px 0 8px; }
+.summary-body h2 { font-size: 16px; margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.summary-body h3 { font-size: 14.5px; margin: 14px 0 6px; }
+.summary-body p { margin: 8px 0; }
+.summary-body ul { margin: 8px 0 8px 20px; padding: 0; }
+.summary-body li { margin: 4px 0; }
+.summary-body blockquote {
+  margin: 10px 0; padding: 8px 12px; background: #f7faff;
+  border-left: 3px solid var(--brand-2); color: var(--ink-2); border-radius: 0 8px 8px 0;
+}
+.summary-body code { background: #f2f5fa; padding: 1px 5px; border-radius: 5px; font-size: 13px; }
+.summary-body pre { background: #f7f9fc; padding: 10px 12px; border-radius: 10px; overflow: auto; }
+.summary-card-item { cursor: default; }
+.summary-card-item h4 { cursor: pointer; }
+.summary-card-item h4:hover { color: var(--brand); }
+.summary-preview { color: var(--ink-2); font-size: 12.5px; line-height: 1.7; margin: 6px 0 0; }

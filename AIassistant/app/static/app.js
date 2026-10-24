@@ -363,6 +363,19 @@ $('#btn-summarize').addEventListener('click', async () => {
 });
 
 /* ---------------------------------------------------------------- 近期总结 */
+const KIND_LABEL = { recent: '对话总结', chapter: '章节小结', tips: '易错提示本' };
+
+function openSummary(s) {
+  $('#sumv-title').textContent = s.title || '总结';
+  $('#sumv-meta').textContent = `${KIND_LABEL[s.kind] || s.kind} · ${s.created_at}`;
+  // 渲染成易读的排版（标题/列表/表格），不把 markdown 原文甩给用户
+  $('#sumv-body').innerHTML = md(s.content || '');
+  $('#modal-summary-view').classList.remove('hidden');
+  $('#sumv-close').onclick = () => $('#modal-summary-view').classList.add('hidden');
+  $('#modal-summary-view').onclick = (e) => {
+    if (e.target.id === 'modal-summary-view') $('#modal-summary-view').classList.add('hidden');
+  };
+}
 async function loadSummaries() {
   const { summaries } = await api('/api/summaries');
   const box = $('#summary-list');
@@ -373,11 +386,19 @@ async function loadSummaries() {
   }
   summaries.forEach((s) => {
     const el = document.createElement('div');
-    el.className = 'card';
-    el.innerHTML = `<h4>${esc(s.title)}</h4><div class="meta">${esc(s.created_at)} · ${esc(s.kind)}</div>
-      <pre>${esc(s.content)}</pre>
-      <div class="card-actions"><button class="btn danger">删除</button></div>`;
-    el.querySelector('.btn.danger').addEventListener('click', async () => {
+    el.className = 'card summary-card-item';
+    const firstLine = (s.content || '').replace(/[#*`>-]/g, '').split('\n').map((x) => x.trim()).filter(Boolean)[0] || '';
+    el.innerHTML = `<h4>${esc(s.title)}</h4>
+      <div class="meta">${esc(s.created_at)} · ${KIND_LABEL[s.kind] || s.kind}</div>
+      <p class="summary-preview">${esc(firstLine.slice(0, 90))}…</p>
+      <div class="card-actions">
+        <button class="btn" data-act="open">放大查看</button>
+        <button class="btn danger" data-act="del">删除</button>
+      </div>`;
+    el.querySelector('[data-act="open"]').addEventListener('click', () => openSummary(s));
+    el.querySelector('h4').addEventListener('click', () => openSummary(s));
+    el.querySelector('[data-act="del"]').addEventListener('click', async (ev) => {
+      ev.stopPropagation();
       if (!confirm('删除这份总结？')) return;
       await api(`/api/summaries/${s.id}`, { method: 'DELETE' });
       loadSummaries(); toast('已删除');
