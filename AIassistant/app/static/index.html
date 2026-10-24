@@ -216,6 +216,26 @@
   </div>
 </div>
 
+<!-- ============ 添加科目弹窗 ============ -->
+<div id="modal-subject" class="modal hidden">
+  <div class="modal-card narrow">
+    <h3>添加科目</h3>
+    <p class="banner warn small" style="margin-bottom:14px">
+      ⏳ 新增科目需要一点时间：程序会自动生成章节与例题，并把资料整理到该科目的文件夹里。
+      你也可以先粘贴几段视频链接，它们会被存进该科目的资料夹，方便复习时跳转。
+    </p>
+    <label class="field"><span>科目名称</span>
+      <input id="subj-name" placeholder="例如：数据库系统概论" /></label>
+    <label class="field"><span>视频链接（可选，一行一个）</span>
+      <textarea id="subj-videos" rows="3" placeholder="https://www.bilibili.com/video/BV..."></textarea></label>
+    <div class="modal-actions">
+      <button id="subj-cancel" class="btn">取消</button>
+      <button id="subj-ok" class="btn primary">创建并生成章节</button>
+    </div>
+    <p id="subj-msg" class="muted small"></p>
+  </div>
+</div>
+
 <!-- ============ API 设置弹窗 ============ -->
 <div id="modal-settings" class="modal hidden">
   <div class="modal-card narrow">

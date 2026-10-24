@@ -86,21 +86,39 @@ document.querySelectorAll('[data-agent-preset]').forEach((btn) => {
 });
 
 /* ---------------------------------------------------------------- 科目 / 章节管理 */
-async function createSubject() {
-  const name = prompt('新科目名称（例如：数据库系统概论）');
-  if (!name) return;
+function openCreateSubject() {
+  $('#subj-name').value = '';
+  $('#subj-videos').value = '';
+  $('#subj-msg').textContent = '';
+  $('#modal-subject').classList.remove('hidden');
+  setTimeout(() => $('#subj-name').focus(), 60);
+}
+
+async function submitCreateSubject() {
+  const name = $('#subj-name').value.trim();
+  const videos = $('#subj-videos').value.split(/\n+/).map((v) => v.trim()).filter(Boolean);
+  if (!name) { $('#subj-msg').textContent = '请填写科目名称'; return; }
+  const btn = $('#subj-ok');
+  btn.disabled = true; btn.textContent = '创建中…';
+  $('#subj-msg').textContent = '正在创建科目、整理资料文件夹…';
   try {
-    const { subject } = await api('/api/subjects', {
-      method: 'POST', body: JSON.stringify({ name }),
+    const res = await api('/api/subjects', {
+      method: 'POST', body: JSON.stringify({ name, videos }),
     });
-    toast(`已创建科目「${name}」，正在自动生成章节…`);
-    // 交给 AI 生成章节与例题
+    $('#modal-subject').classList.add('hidden');
+    toast(`科目「${name}」已创建${res.videos ? `，已收录 ${res.videos} 个视频链接` : ''}，正在生成章节…`);
+    // 关掉弹窗后交给 AI 生成章节与例题
     await sendAgent('study',
-      `我刚创建了科目「${name}」。请调用 list_subjects 确认，然后为它添加 4~5 个章节，`
-      + '每个章节给一段 3~5 条的大纲。只添加章节，不要新增其他科目。', null);
+      `我刚创建了科目「${name}」（资料文件夹也已建好）。请调用 list_subjects 确认，`
+      + '然后为它添加 4~5 个章节，每个章节给一段 3~5 条的大纲。只加章节，不要新增别的科目。', null);
     loadSubjects();
-    window.__lastSubjectId = subject.id;
-  } catch (err) { toast(err.message, true); }
+    loadMaterials();
+  } catch (err) {
+    $('#subj-msg').textContent = err.message;
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = '创建并生成章节';
+  }
 }
 
 async function deleteSubject(subject) {
@@ -259,7 +277,9 @@ async function generateTips() {
 
   $('#btn-gen-profile').addEventListener('click', generateProfile);
   $('#btn-gen-tips').addEventListener('click', generateTips);
-  $('#btn-add-subject').addEventListener('click', createSubject);
+  $('#btn-add-subject').addEventListener('click', openCreateSubject);
+  $('#subj-cancel').addEventListener('click', () => $('#modal-subject').classList.add('hidden'));
+  $('#subj-ok').addEventListener('click', submitCreateSubject);
 
   /* 进入"近期总结"页时刷新档案面板 */
   const navBtn = document.querySelector('.nav-item[data-view="summary"]');

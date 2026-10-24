@@ -281,7 +281,19 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 self._error(str(exc), 409)
                 return
-            self._json({"subject": subject}, 201)
+            # 新科目同时建一个同名资料文件夹，保持"资料按科目分文件夹"
+            folder = STORE.folder_by_name(name) or STORE.add_folder(name, ord=50)
+            videos = [v.strip() for v in (body.get("videos") or []) if v.strip()]
+            saved = []
+            for url in videos[:20]:
+                text = (f"# 视频资料：{name}\n\n来源链接：{url}\n\n"
+                        f"> 这是用户在创建科目「{name}」时粘贴的视频链接，供复习时跳转使用。\n")
+                material = STORE.add_material(
+                    title=f"视频 · {url[:60]}", text=text, subject=name,
+                    folder_id=folder["id"], source_url=url, ext=".md")
+                STORE.replace_chunks(material["id"], rag.chunk_text(text))
+                saved.append(url)
+            self._json({"subject": subject, "folder": folder, "videos": len(saved)}, 201)
             return
 
         m = re.fullmatch(r"/api/subjects/([\w-]+)/chapters", path)
