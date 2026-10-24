@@ -8,7 +8,7 @@
 /* ---------------------------------------------------------------- 粒子 / 波浪场 */
 /**
  * 可复用的动态背景：
- *   · 漂浮粒子 + 距离连线（科技感）
+ *   · 漂浮粒子 + 稀疏的距离连线（每点最多连 maxLinks 条）
  *   · 缓慢摆动的长曲线 + 点阵网格（都压得很淡）
  *   · 可选：鼠标移动时出现的水波纹（ripples）
  * 设计文档要求"简洁明快"，所以不做波纹、不做高密度装饰。
@@ -17,7 +17,7 @@
 function createField(canvas, opts) {
   const cfg = Object.assign({
     count: 90, linkDist: 140, speed: 0.32, glow: true, grid: true, curves: 2,
-    ripples: false,
+    ripples: false, maxLinks: 2,
   }, opts || {});
 
   const ctx = canvas.getContext('2d');
@@ -159,20 +159,29 @@ function createField(canvas, opts) {
       if (n.y > h + 20) n.y = -20;
     }
 
+    // 连线只保留"最近的几条"：每个节点最多连 maxLinks 条，
+    // 否则节点一多，两两都在阈值内，画面就糊成一片了。
+    const degree = new Array(nodes.length).fill(0);
+    const pairs = [];
     for (let i = 0; i < nodes.length; i += 1) {
       for (let j = i + 1; j < nodes.length; j += 1) {
         const dx = nodes[i].x - nodes[j].x;
         const dy = nodes[i].y - nodes[j].y;
         const d = Math.hypot(dx, dy);
-        if (d < cfg.linkDist) {
-          ctx.strokeStyle = `rgba(86,136,225,${0.16 * (1 - d / cfg.linkDist)})`;
-          ctx.lineWidth = 0.9;
-          ctx.beginPath();
-          ctx.moveTo(nodes[i].x, nodes[i].y);
-          ctx.lineTo(nodes[j].x, nodes[j].y);
-          ctx.stroke();
-        }
+        if (d < cfg.linkDist) pairs.push([d, i, j]);
       }
+    }
+    pairs.sort((a, b) => a[0] - b[0]);          // 优先连最近的
+    for (const [d, i, j] of pairs) {
+      if (degree[i] >= cfg.maxLinks || degree[j] >= cfg.maxLinks) continue;
+      degree[i] += 1;
+      degree[j] += 1;
+      ctx.strokeStyle = `rgba(86,136,225,${0.16 * (1 - d / cfg.linkDist)})`;
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(nodes[i].x, nodes[i].y);
+      ctx.lineTo(nodes[j].x, nodes[j].y);
+      ctx.stroke();
     }
 
     if (cfg.glow) ctx.shadowBlur = 8;
@@ -214,7 +223,8 @@ function startHomeField() {
   const canvas = $('#home-particles');
   if (!canvas) return;
   homeField = createField(canvas, {
-    count: 38, linkDist: 156, speed: 0.2, glow: false, grid: true, curves: 1,
+    count: 46, linkDist: 130, speed: 0.2, glow: false, grid: true, curves: 1,
+    maxLinks: 2,
   });
 }
 
@@ -479,8 +489,8 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
 
   // 粒子立刻开始跑：欢迎界面在 HTML 里就是可见的，不等接口
   landingField = createField($('#particles'), {
-    count: 96, linkDist: 152, speed: 0.32, glow: true, grid: true, curves: 2,
-    ripples: true,
+    count: 130, linkDist: 120, speed: 0.30, glow: true, grid: true, curves: 2,
+    ripples: true, maxLinks: 1,
   });
 
   // 底层视图先切成主界面，避免欢迎界面淡出时看到聊天页
