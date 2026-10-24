@@ -214,7 +214,7 @@ def seed_samples(store) -> int:
             text = path.read_text(encoding="utf-8", errors="replace")
             title = path.stem.replace("共识-", "")
             material = store.add_material(
-                title=f"共识 · {title}", text=text, subject="",
+                title=f"核心 · {title}", text=text, subject="",
                 folder_id=shared_folder.get("id", ""),
                 source_url="内置示例资料（可删除）", ext=".md")
             store.replace_chunks(material["id"], rag.chunk_text(text))
@@ -249,7 +249,7 @@ def import_shared_samples(store) -> int:
     existing = {m["title"] for m in store.list_materials()}
     count = 0
     for path in sorted(shared_dir.glob("*.md")):
-        title = f"共识 · {path.stem.replace('共识-', '')}"
+        title = f"核心 · {path.stem.replace('共识-', '')}"
         if title in existing:
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
