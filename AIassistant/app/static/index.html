@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>计算机课程学习助手</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+<!-- ============ 首次进入：填写 API Key ============ -->
+<div id="gate" class="gate hidden">
+  <div class="gate-card">
+    <div class="gate-logo">CS</div>
+    <h1>计算机课程学习助手</h1>
+    <p class="gate-sub">本地运行 · 资料不出本机 · 模型走 DeepSeek API</p>
+    <label class="field">
+      <span>DeepSeek API Key</span>
+      <input id="gate-key" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+    </label>
+    <label class="field">
+      <span>模型</span>
+      <select id="gate-model">
+        <option value="deepseek-chat">deepseek-chat（快，便宜）</option>
+        <option value="deepseek-reasoner">deepseek-reasoner（慢，会思考）</option>
+      </select>
+    </label>
+    <button id="gate-submit" class="btn primary wide">进入</button>
+    <p id="gate-msg" class="gate-msg"></p>
+    <p class="gate-hint">Key 只保存在本机 <code>app/data/config.json</code>，不会上传到任何第三方。可在 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">platform.deepseek.com</a> 申请。</p>
+  </div>
+</div>
+
+<!-- ============ 主界面 ============ -->
+<div id="app" class="app hidden">
+  <aside id="sidebar" class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">CS</div>
+      <div class="brand-text">
+        <strong>课程学习助手</strong>
+        <span id="brand-sub">本地版</span>
+      </div>
+    </div>
+
+    <div class="profile-card" id="profile-card" title="点击自定义头像">
+      <div class="avatar" id="avatar">学</div>
+      <div class="profile-meta">
+        <div class="profile-name" id="profile-name">本机用户</div>
+        <div class="profile-desc" id="profile-desc">点击头像可自定义</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item" data-view="summary"><i>📄</i><span>近期总结</span></button>
+      <button class="nav-item active" data-view="chat"><i>💬</i><span>AI 聊天</span></button>
+      <button class="nav-item" data-view="study"><i>📚</i><span>科目学习</span></button>
+      <button class="nav-item" data-view="materials"><i>🗂️</i><span>资料管理</span></button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="mini-stats" id="mini-stats"></div>
+      <button id="btn-settings" class="link-btn">API 设置</button>
+      <span class="dot">·</span>
+      <button id="btn-collapse" class="link-btn">收起侧栏</button>
+    </div>
+  </aside>
+
+  <button id="btn-expand" class="expand-btn hidden" title="展开侧栏">☰</button>
+
+  <main class="main">
+    <!-- ---------------- AI 聊天 ---------------- -->
+    <section id="view-chat" class="view active">
+      <header class="view-head">
+        <div>
+          <h2>AI 聊天</h2>
+          <p class="muted">回答会尽量依据你导入的资料，并标注出处编号</p>
+        </div>
+        <div class="head-actions">
+          <button id="btn-new-chat" class="btn">新对话</button>
+          <button id="btn-summarize" class="btn">生成近期总结</button>
+        </div>
+      </header>
+      <div class="chat-wrap">
+        <div id="conv-list" class="conv-list"></div>
+        <div class="chat-main">
+          <div id="messages" class="messages">
+            <div class="empty" id="chat-empty">
+              <div class="empty-icon">💬</div>
+              <h3>开始提问吧</h3>
+              <p>比如「TCP 为什么需要三次握手」<br/>先在「资料管理」导入课件，回答就会带出处</p>
+            </div>
+          </div>
+          <form id="chat-form" class="composer">
+            <textarea id="chat-input" rows="1" placeholder="输入问题，Enter 发送，Shift+Enter 换行"></textarea>
+            <button type="submit" class="btn primary">发送</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------- 近期总结 ---------------- -->
+    <section id="view-summary" class="view">
+      <header class="view-head">
+        <div>
+          <h2>近期总结</h2>
+          <p class="muted">每次对话可生成一份总结，也会据此更新你的学习者画像</p>
+        </div>
+      </header>
+      <div id="summary-list" class="card-list"></div>
+    </section>
+
+    <!-- ---------------- 科目学习 ---------------- -->
+    <section id="view-study" class="view">
+      <header class="view-head">
+        <div>
+          <h2 id="study-title">科目学习</h2>
+          <p class="muted" id="study-sub">选择科目与章节，先看讲解再做题</p>
+        </div>
+        <div class="head-actions">
+          <button id="btn-study-back" class="btn hidden">返回科目</button>
+        </div>
+      </header>
+      <div id="subject-grid" class="subject-grid"></div>
+      <div id="chapter-list" class="chapter-list hidden"></div>
+      <div id="chapter-detail" class="chapter-detail hidden"></div>
+      <form id="study-ask-form" class="composer floating hidden">
+        <textarea id="study-ask-input" rows="1" placeholder="随时提问这一章的内容…"></textarea>
+        <button type="submit" class="btn primary">问</button>
+      </form>
+    </section>
+
+    <!-- ---------------- 资料管理 ---------------- -->
+    <section id="view-materials" class="view">
+      <header class="view-head">
+        <div>
+          <h2>资料管理</h2>
+          <p class="muted">导入的资料会被切片建索引，聊天与章节讲解时按相关度检索</p>
+        </div>
+        <div class="head-actions">
+          <button id="btn-import" class="btn primary">导入资料</button>
+          <button id="btn-new-folder" class="btn">新建文件夹</button>
+        </div>
+      </header>
+      <div id="folder-bar" class="folder-bar"></div>
+      <div id="material-list" class="card-list"></div>
+    </section>
+  </main>
+</div>
+
+<!-- ============ 导入资料弹窗 ============ -->
+<div id="modal-import" class="modal hidden">
+  <div class="modal-card">
+    <h3>导入资料</h3>
+    <label class="field"><span>标题</span><input id="imp-title" placeholder="例如：计算机网络 第 3 章 传输层" /></label>
+    <label class="field"><span>科目（可选）</span>
+      <select id="imp-subject"><option value="">不指定</option></select>
+    </label>
+    <label class="field"><span>文件夹</span><select id="imp-folder"><option value="">根目录</option></select></label>
+    <label class="field"><span>内容</span><textarea id="imp-text" rows="10" placeholder="粘贴文本，或点下方选择文件（.txt / .md / .csv / .json）"></textarea></label>
+    <div class="modal-actions">
+      <input type="file" id="imp-file" accept=".txt,.md,.markdown,.csv,.json" hidden />
+      <button id="imp-pick" class="btn">选择文件</button>
+      <span class="spacer"></span>
+      <button id="imp-cancel" class="btn">取消</button>
+      <button id="imp-save" class="btn primary">导入</button>
+    </div>
+    <p id="imp-msg" class="muted small"></p>
+  </div>
+</div>
+
+<!-- ============ API 设置弹窗 ============ -->
+<div id="modal-settings" class="modal hidden">
+  <div class="modal-card narrow">
+    <h3>API 设置</h3>
+    <p class="muted small">当前 Key：<code id="set-mask">未设置</code></p>
+    <label class="field"><span>更换 API Key</span><input id="set-key" type="password" placeholder="sk-..." /></label>
+    <label class="field"><span>模型</span>
+      <select id="set-model">
+        <option value="deepseek-chat">deepseek-chat</option>
+        <option value="deepseek-reasoner">deepseek-reasoner</option>
+      </select>
+    </label>
+    <div class="modal-actions">
+      <button id="set-cancel" class="btn">取消</button>
+      <button id="set-save" class="btn primary">保存并校验</button>
+    </div>
+    <p id="set-msg" class="muted small"></p>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<script src="/app.js"></script>
+</body>
+</html>
