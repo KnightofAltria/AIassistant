@@ -10,12 +10,14 @@
  * 可复用的动态背景：
  *   · 漂浮粒子 + 距离连线（科技感）
  *   · 缓慢摆动的长曲线 + 点阵网格（都压得很淡）
+ *   · 可选：鼠标移动时出现的水波纹（ripples）
  * 设计文档要求"简洁明快"，所以不做波纹、不做高密度装饰。
  * opts: { count, linkDist, speed, glow, grid, curves }
  */
 function createField(canvas, opts) {
   const cfg = Object.assign({
     count: 90, linkDist: 140, speed: 0.32, glow: true, grid: true, curves: 2,
+    ripples: false,
   }, opts || {});
 
   const ctx = canvas.getContext('2d');
@@ -24,6 +26,55 @@ function createField(canvas, opts) {
   let t = 0;
   let running = true;
   let w = 0, h = 0;
+  let ripples = [];
+  let lastRipple = { x: -999, y: -999 };
+
+  function addRipple(x, y) {
+    if (Math.hypot(x - lastRipple.x, y - lastRipple.y) < 16) return;   // 太密就不加
+    lastRipple = { x, y };
+    ripples.push({ x, y, r: 3, life: 1 });
+    if (ripples.length > 24) ripples.shift();
+  }
+
+  function bindRipples() {
+    if (!cfg.ripples) return;
+    const host = canvas.parentElement || canvas;
+    host.addEventListener('pointermove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      addRipple(e.clientX - rect.left, e.clientY - rect.top);
+    });
+    host.addEventListener('pointerdown', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      for (let i = 0; i < 3; i += 1) {   // 点击时来一圈更明显的
+        ripples.push({ x, y, r: 3 + i * 14, life: 1 });
+      }
+    });
+  }
+
+  function drawRipples() {
+    if (!cfg.ripples || !ripples.length) return;
+    ctx.save();
+    for (const rp of ripples) {
+      rp.r += 2.7;
+      rp.life -= 0.013;
+      if (rp.life <= 0) continue;
+      ctx.beginPath();
+      ctx.arc(rp.x, rp.y, rp.r, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(90,150,240,${0.30 * rp.life})`;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(rp.x, rp.y, rp.r * 0.6, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(120,195,225,${0.16 * rp.life})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ripples = ripples.filter((rp) => rp.life > 0);
+    ctx.restore();
+  }
 
   function resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -86,6 +137,7 @@ function createField(canvas, opts) {
 
     drawGrid();
     drawCurves();
+    drawRipples();
 
     for (const n of nodes) {
       // 漂移里叠加正弦，整体呈起伏的波浪感
@@ -130,6 +182,7 @@ function createField(canvas, opts) {
   }
 
   resize();
+  bindRipples();
   frame();
   const onResize = () => resize();
   window.addEventListener('resize', onResize);
@@ -391,9 +444,14 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
     landing.classList.remove('hidden');
     landingField = createField($('#particles'), {
       count: 96, linkDist: 152, speed: 0.32, glow: true, grid: true, curves: 2,
+      ripples: true,
     });
     injectBackBars();
     setTimeout(() => $('#btn-start').classList.add('show'), 1600);
+
+    // 先把底下的视图切成主界面，再让欢迎页淡出，这样看不到中间态
+    goHome();
+    refreshHomeSub();
 
     $('#btn-start').addEventListener('click', () => {
       $('#btn-start').classList.remove('show');
@@ -402,8 +460,6 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
       setTimeout(() => {
         landing.classList.add('hidden');
         landing.classList.remove('fade-out');
-        goHome();
-        refreshHomeSub();
       }, 420);
     });
   }
