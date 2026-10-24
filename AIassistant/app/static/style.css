@@ -587,3 +587,9 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 #view-home .home-hero { position: relative; z-index: 1; }
 .home-card { backdrop-filter: blur(4px); background: rgba(255,255,255,.86); }
 .home-card:hover { background: #fff; }
+
+.meta-grid {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+.meta-grid .field { margin-bottom: 0; }

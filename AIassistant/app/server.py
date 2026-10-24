@@ -225,7 +225,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/profile":
             self._json({"profile": STORE.ensure_user().get("profile", ""),
-                        "files": STORE.list_profiles()})
+                        "files": STORE.list_profiles(),
+                        "meta": STORE.get_meta(),
+                        "user": STORE.ensure_user().get("name", "")})
             return
 
         if path == "/api/subjects":
@@ -380,6 +382,12 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/api/chapters/([\w-]+)/videos", path)
         if m:
             self._chapter_videos(m.group(1))
+            return
+
+        # ---- 用户画像字段
+        if path == "/api/profile/meta":
+            meta = STORE.set_meta(body or {})
+            self._json({"ok": True, "meta": meta}, 201)
             return
 
         # ---- 用户档案
@@ -549,6 +557,9 @@ class Handler(BaseHTTPRequestHandler):
                    for m in STORE.messages(cid)][-8:] if cid else []
 
         system = prompts.CHAT_SYSTEM
+        meta_line = STORE.meta_summary()
+        if meta_line:
+            system += (f"\n\n学习者信息（供你调整讲解深浅与举例方式，不要主动复述这些信息）：{meta_line}")
         if ctx.evidence:
             system += f"\n\n参考资料（只能引用这些编号）：\n\n{ctx.evidence}"
         if ctx.insufficient:
@@ -605,6 +616,9 @@ class Handler(BaseHTTPRequestHandler):
                           subject=chapter.get("subject_name", ""))
         system = prompts.SUBJECT_TUTOR_SYSTEM.format(
             chapter=chapter["title"], subject=chapter["subject_name"])
+        meta_line = STORE.meta_summary()
+        if meta_line:
+            system += f"\n\n学习者信息（用于调整讲解深浅）：{meta_line}"
         if ctx.evidence:
             system += f"\n\n参考资料（只能引用这些编号）：\n\n{ctx.evidence}"
 
@@ -823,7 +837,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         material = "\n\n".join(f"[{s['title']}]\n{s['content'][:800]}" for s in summaries)
         titles = "、".join(c["title"] for c in convs)
-        prompt = (f"以下是这位学生最近的学习总结与会话标题。\n\n{material}\n\n"
+        meta_line = STORE.meta_summary()
+        prompt = (f"学习者基本信息：{meta_line or '（未填写）'}\n\n"
+                  f"以下是这位学生最近的学习总结与会话标题。\n\n{material}\n\n"
                   f"最近的会话：{titles}\n\n请生成一份学习者画像。")
         text = client().complete(
             [{"role": "system", "content": prompts.PROFILE_SYSTEM},

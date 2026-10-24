@@ -115,7 +115,12 @@ function createField(canvas, opts) {
     if (!cfg.curves) return;
     ctx.save();
     for (let i = 0; i < cfg.curves; i += 1) {
-      const off = (t * (6 + i * 3)) % (h + 220) - 110;
+      // 每条线有自己的生命周期：大部分时间几乎透明，偶尔浮现并轻轻跃动
+      const life = 0.5 + 0.5 * Math.sin(t * 0.34 + i * 2.3 + 0.7);
+      const alpha = 0.11 * Math.pow(life, 2.2);
+      if (alpha < 0.004) continue;
+      ctx.globalAlpha = 1;
+      const off = (t * (7 + i * 4)) % (h + 240) - 120;
       ctx.beginPath();
       for (let y = -20; y <= h + 20; y += 12) {
         const x = w * (0.22 + i * 0.34)
@@ -123,8 +128,8 @@ function createField(canvas, opts) {
           + Math.cos(y * 0.0021 - t * 0.3) * 70;
         if (y <= -20) ctx.moveTo(x, y + off); else ctx.lineTo(x, y + off);
       }
-      ctx.strokeStyle = 'rgba(120,170,235,0.075)';
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = `rgba(120,170,235,${alpha.toFixed(4)})`;
+      ctx.lineWidth = 1.1;
       ctx.stroke();
     }
     ctx.restore();
@@ -140,9 +145,14 @@ function createField(canvas, opts) {
     drawRipples();
 
     for (const n of nodes) {
-      // 漂移里叠加正弦，整体呈起伏的波浪感
-      n.x += n.vx + Math.sin(t * 0.7 + n.ph) * 0.16;
-      n.y += n.vy + Math.cos(t * 0.5 + n.ph * 1.3) * 0.22;
+      // 流场驱动：每个点的方向由它所在位置的正弦/余弦叠加决定，
+      // 于是整片粒子会像水流或波纹一样成束游弋，而不是各走各的直线。
+      const ang = Math.sin(n.x * 0.0046 + t * 0.26)
+                + Math.cos(n.y * 0.0051 - t * 0.21)
+                + Math.sin((n.x + n.y) * 0.0027 + t * 0.17) * 0.6;
+      const sp = cfg.speed * 1.15;
+      n.x += Math.cos(ang) * sp + Math.sin(t * 0.6 + n.ph) * 0.10;
+      n.y += Math.sin(ang) * sp + Math.cos(t * 0.45 + n.ph * 1.2) * 0.14;
       if (n.x < -20) n.x = w + 20;
       if (n.x > w + 20) n.x = -20;
       if (n.y < -20) n.y = h + 20;
@@ -263,7 +273,42 @@ function injectBackBars() {
 }
 
 /* ---------------------------------------------------------------- 个人信息页 */
+async function loadMeta() {
+  try {
+    const { meta, user } = await api('/api/profile');
+    if (meta) {
+      $('#meta-age').value = meta.age || '';
+      $('#meta-gender').value = meta.gender || '';
+      $('#meta-major').value = meta.major || '';
+      $('#meta-needs').value = meta.needs || '';
+    }
+    if (user) {
+      $('#profile-name-big').textContent = user;
+      $('#avatar-big').textContent = user.slice(0, 1);
+    }
+  } catch (e) { /* 忽略 */ }
+}
+
+async function saveMeta() {
+  const btn = $('#btn-save-meta');
+  btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    await api('/api/profile/meta', {
+      method: 'POST',
+      body: JSON.stringify({
+        age: $('#meta-age').value.trim(),
+        gender: $('#meta-gender').value.trim(),
+        major: $('#meta-major').value.trim(),
+        needs: $('#meta-needs').value.trim(),
+      }),
+    });
+    toast('基本信息已保存，之后的讲解会参考它');
+  } catch (err) { toast(err.message, true); }
+  finally { btn.disabled = false; btn.textContent = '保存'; }
+}
+
 function loadProfilePage() {
+  loadMeta();
   const name = $('#profile-name').textContent;
   $('#profile-name-big').textContent = name;
   $('#avatar-big').textContent = name.slice(0, 1);
@@ -404,6 +449,7 @@ window.genProfileFromPage = async function genProfileFromPage() {
   finally { btn.disabled = false; btn.textContent = '生成本月档案'; }
 };
 $('#btn-gen-profile-2').addEventListener('click', () => window.genProfileFromPage());
+$('#btn-save-meta').addEventListener('click', saveMeta);
 
 /* 侧边栏点击时记录导航栈 */
 document.querySelectorAll('.nav-item').forEach((btn) => {

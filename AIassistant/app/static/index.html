@@ -116,7 +116,30 @@
           <p class="muted small" id="profile-summary-line">还没有档案</p>
         </div>
       </div>
-      <div id="profile-panel-2" class="panel"><div class="panel-body"></div></div>
+      <div class="panel">
+        <div class="panel-head">
+          <h3>基本信息</h3>
+          <button id="btn-save-meta" class="btn primary">保存</button>
+        </div>
+        <p class="muted small" style="margin:0 0 10px">
+          这四项会作为背景信息提供给模型，用来调整讲解的深浅和举例方式；不填也能用。
+        </p>
+        <div class="panel-body meta-grid">
+          <label class="field"><span>年龄</span>
+            <input id="meta-age" placeholder="例如 21" /></label>
+          <label class="field"><span>性别</span>
+            <input id="meta-gender" placeholder="例如 男 / 女 / 不便透露" /></label>
+          <label class="field"><span>专业</span>
+            <input id="meta-major" placeholder="例如 计算机科学与技术" /></label>
+          <label class="field"><span>需求</span>
+            <input id="meta-needs" placeholder="例如 期末冲刺 / 打牢基础 / 项目实践" /></label>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>学习者档案（按月）</h3></div>
+        <div id="profile-panel-2" class="panel-body"></div>
+      </div>
     </section>
 
     <!-- ---------------- AI 聊天 ---------------- -->

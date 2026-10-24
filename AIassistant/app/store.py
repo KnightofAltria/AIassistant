@@ -34,7 +34,11 @@ CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     profile TEXT DEFAULT '',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    age TEXT DEFAULT '',
+    gender TEXT DEFAULT '',
+    major TEXT DEFAULT '',
+    needs TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS folders (
     id TEXT PRIMARY KEY,
@@ -161,6 +165,10 @@ class Store:
                           ("ord", "INTEGER DEFAULT 0")):
             if name not in cols:
                 self.conn.execute(f"ALTER TABLE folders ADD COLUMN {name} {ddl}")
+        user_cols = {row["name"] for row in self.conn.execute("PRAGMA table_info(users)")}
+        for name in ("age", "gender", "major", "needs"):
+            if name not in user_cols:
+                self.conn.execute(f"ALTER TABLE users ADD COLUMN {name} TEXT DEFAULT ''")
         for table in ("subjects", "chapters"):
             have = {row["name"] for row in self.conn.execute(f"PRAGMA table_info({table})")}
             if "is_builtin" not in have:
@@ -201,6 +209,38 @@ class Store:
                           (uid, name, "", now()))
         self.conn.commit()
         return dict(self.conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone())
+
+    META_FIELDS = ("age", "gender", "major", "needs")
+
+    def get_meta(self) -> dict:
+        user = self.ensure_user()
+        return {k: (user.get(k) or "") for k in self.META_FIELDS}
+
+    def set_meta(self, data: dict) -> dict:
+        user = self.ensure_user()
+        for k in self.META_FIELDS:
+            if k in data:
+                self.conn.execute(f"UPDATE users SET {k}=? WHERE id=?",
+                                  (str(data.get(k) or "")[:200], user["id"]))
+        if data.get("name"):
+            self.conn.execute("UPDATE users SET name=? WHERE id=?",
+                              (str(data["name"])[:60], user["id"]))
+        self.conn.commit()
+        return self.get_meta()
+
+    def meta_summary(self) -> str:
+        """给模型看的一行学习者信息；全空时返回空串。"""
+        m = self.get_meta()
+        parts = []
+        if m.get("age"):
+            parts.append(f"年龄：{m['age']}")
+        if m.get("gender"):
+            parts.append(f"性别：{m['gender']}")
+        if m.get("major"):
+            parts.append(f"专业：{m['major']}")
+        if m.get("needs"):
+            parts.append(f"需求：{m['needs']}")
+        return "；".join(parts)
 
     def update_profile(self, profile: str) -> None:
         user = self.ensure_user()
