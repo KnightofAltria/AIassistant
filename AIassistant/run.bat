@@ -1,10 +1,48 @@
 @echo off
-chcp 65001 >nul
+title ¼ÆËã»ú¿Î³ÌÑ§Ï°ÖúÊÖ
+
+echo ==============================================
+echo   ¼ÆËã»ú¿Î³ÌÑ§Ï°ÖúÊÖ - ±¾µØÆô¶¯Æ÷
+echo ==============================================
+echo.
+
 cd /d "%~dp0app"
-echo æ­£åœ¨å¯åŠ¨è®¡ç®—æœºè¯¾ç¨‹å­¦ä¹ åŠ©æ‰‹...
-python server.py --open
-if errorlevel 1 (
-  echo.
-  echo å¯åŠ¨å¤±è´¥ã€‚è¯·ç¡®è®¤å·²å®‰è£… Python 3.10 ä»¥ä¸Šç‰ˆæœ¬ï¼Œå¹¶åœ¨å‘½ä»¤è¡Œæ‰§è¡Œ python --version æŸ¥çœ‹ã€‚
+if not exist "server.py" (
+  echo [´íÎó] ÕÒ²»µ½ app\server.py
+  echo Çë°Ñ±¾ÎÄ¼þ·ÅÔÚ AIassistant Ä¿Â¼ÏÂÔÙÔËÐÐ¡£
   pause
+  exit /b 1
 )
+
+set "PY="
+where python >nul 2>nul && set "PY=python"
+if not defined PY ( where py >nul 2>nul && set "PY=py -3" )
+if not defined PY (
+  if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+)
+if not defined PY (
+  if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+)
+if not defined PY (
+  if exist "C:\Python312\python.exe" set "PY=C:\Python312\python.exe"
+)
+
+if not defined PY (
+  echo [´íÎó] Ã»ÓÐÕÒµ½ Python¡£
+  echo ÇëÏÈ°²×° Python 3.10 »ò¸ü¸ß°æ±¾£º https://www.python.org/downloads/
+  echo °²×°Ê±¼ÇµÃ¹´Ñ¡ Add python.exe to PATH
+  pause
+  exit /b 1
+)
+
+echo Ê¹ÓÃ Python: %PY%
+echo ÕýÔÚÆô¶¯£¬ÉÔºó»á×Ô¶¯´ò¿ªä¯ÀÀÆ÷
+echo ·ÃÎÊµØÖ·: http://127.0.0.1:8737
+echo ¹Ø±Õ±¾´°¿Ú¼´Í£Ö¹·þÎñ
+echo ----------------------------------------------
+
+%PY% server.py --open
+
+echo.
+echo ·þÎñÒÑÍ£Ö¹¡£
+pause

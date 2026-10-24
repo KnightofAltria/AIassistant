@@ -202,51 +202,13 @@ async function askForSummary(pending) {
 }
 
 /* ---------------------------------------------------------------- 档案 / 易错提示本 */
+/* 学习者档案已移到「个人信息」页，由 landing.js 负责渲染。这里保留空实现以兼容调用。 */
 async function loadProfilePanel() {
-  const box = $('#profile-panel');
-  try {
-    const { profile, files } = await api('/api/profile');
-    box.innerHTML = '';
-    if (!files.length) {
-      box.innerHTML = '<p class="muted small">还没有生成过学习者档案。点下面按钮生成。</p>';
-    } else {
-      const head = document.createElement('div');
-      head.className = 'meta';
-      head.textContent = `共 ${files.length} 份档案：` + files.map((f) => f.month).join('、');
-      box.appendChild(head);
-      files.forEach((f) => {
-        const row = document.createElement('div');
-        row.className = 'profile-row';
-        row.innerHTML = `<b>${esc(f.month)}</b>
-          <span class="muted small">${(f.size / 1024).toFixed(1)} KB</span>
-          <button class="mini-btn" data-m="${esc(f.month)}">删除</button>`;
-        row.querySelector('button').addEventListener('click', async () => {
-          if (!confirm(`删除 ${f.month} 的档案？`)) return;
-          await api(`/api/profile/${f.month}`, { method: 'DELETE' });
-          loadProfilePanel();
-        });
-        box.appendChild(row);
-      });
-      if (profile) {
-        const pre = document.createElement('pre');
-        pre.className = 'profile-pre';
-        pre.textContent = profile.slice(0, 1200);
-        box.appendChild(pre);
-      }
-    }
-  } catch (err) { box.innerHTML = `<span class="muted">${esc(err.message)}</span>`; }
+  if (typeof window.loadProfilePage === 'function') window.loadProfilePage();
 }
 
 async function generateProfile() {
-  const btn = $('#btn-gen-profile');
-  btn.disabled = true; btn.textContent = '生成中…';
-  try {
-    await api('/api/profile/generate', { method: 'POST', body: JSON.stringify({}) });
-    toast('学习者档案已更新');
-    await loadProfilePanel();
-    loadProfile();
-  } catch (err) { toast(err.message, true); }
-  finally { btn.disabled = false; btn.textContent = '生成/更新本月档案'; }
+  if (typeof window.genProfileFromPage === 'function') return window.genProfileFromPage();
 }
 
 async function generateTips() {
@@ -275,13 +237,11 @@ async function generateTips() {
     } catch (e) { /* 服务还没起来，继续等 */ }
   }, 700);
 
-  $('#btn-gen-profile').addEventListener('click', generateProfile);
   $('#btn-gen-tips').addEventListener('click', generateTips);
   $('#btn-add-subject').addEventListener('click', openCreateSubject);
   $('#subj-cancel').addEventListener('click', () => $('#modal-subject').classList.add('hidden'));
   $('#subj-ok').addEventListener('click', submitCreateSubject);
 
   /* 进入"近期总结"页时刷新档案面板 */
-  const navBtn = document.querySelector('.nav-item[data-view="summary"]');
-  if (navBtn) navBtn.addEventListener('click', () => setTimeout(loadProfilePanel, 120));
+  /* 档案面板已迁到个人信息页，由 landing.js 处理 */
 })();

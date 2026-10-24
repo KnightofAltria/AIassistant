@@ -105,6 +105,7 @@ async function refreshHomeSub() {
 /* ---------------------------------------------------------------- 返回按钮（每个界面） */
 function injectBackBars() {
   document.querySelectorAll('.view').forEach((view) => {
+    if (view.id === 'view-home') return;          // 主界面本身不需要返回按钮
     if (view.querySelector('.view-nav')) return;
     const bar = document.createElement('div');
     bar.className = 'view-nav';
@@ -250,8 +251,9 @@ document.addEventListener('click', (e) => {
 
 $('#btn-view-summary').addEventListener('click', viewConversationSummary);
 $('#btn-edit-avatar').addEventListener('click', () => $('#profile-card').click());
-$('#btn-gen-profile-2').addEventListener('click', async () => {
+window.genProfileFromPage = async function genProfileFromPage() {
   const btn = $('#btn-gen-profile-2');
+  if (!btn) return;
   btn.disabled = true; btn.textContent = '生成中…';
   try {
     await api('/api/profile/generate', { method: 'POST', body: '{}' });
@@ -260,7 +262,8 @@ $('#btn-gen-profile-2').addEventListener('click', async () => {
     loadProfile();
   } catch (err) { toast(err.message, true); }
   finally { btn.disabled = false; btn.textContent = '生成本月档案'; }
-});
+};
+$('#btn-gen-profile-2').addEventListener('click', () => window.genProfileFromPage());
 
 /* 侧边栏点击时记录导航栈 */
 document.querySelectorAll('.nav-item').forEach((btn) => {
