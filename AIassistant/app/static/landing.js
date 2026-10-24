@@ -1,53 +1,146 @@
 /* ============================================================
-   主界面（粒子动画）、首页、返回导航、推荐视频、个人信息页
+   主界面（粒子 / 波浪 / 科技线条）、首页背景、返回导航、
+   推荐视频、个人信息页、主界面隐藏侧边栏
    依赖 app.js 的全局：$ $$ api toast esc md state switchView
    ============================================================ */
 'use strict';
 
-/* ---------------------------------------------------------------- 粒子背景 */
-function initParticles(canvas) {
+/* ---------------------------------------------------------------- 粒子 / 波浪场 */
+/**
+ * 可复用的动态背景：
+ *   · 漂浮粒子 + 距离连线（科技感）
+ *   · 多条横向正弦波纹 + 流动光点（波浪感）
+ *   · 缓慢摆动的长曲线花纹 + 点阵网格
+ * opts: { count, linkDist, speed, waves, waveAmp, glow, grid }
+ */
+function createField(canvas, opts) {
+  const cfg = Object.assign({
+    count: 90, linkDist: 140, speed: 0.35, waves: 4,
+    waveAmp: 26, glow: true, grid: true,
+  }, opts || {});
+
   const ctx = canvas.getContext('2d');
   let nodes = [];
   let raf = 0;
+  let t = 0;
   let running = true;
+  let w = 0, h = 0;
 
   function resize() {
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = canvas.clientWidth * dpr;
-    canvas.height = canvas.clientHeight * dpr;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    w = canvas.clientWidth || canvas.parentElement.clientWidth || 800;
+    h = canvas.clientHeight || canvas.parentElement.clientHeight || 600;
+    canvas.width = Math.max(1, Math.round(w * dpr));
+    canvas.height = Math.max(1, Math.round(h * dpr));
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const count = Math.min(90, Math.floor(canvas.clientWidth * canvas.clientHeight / 16000));
-    nodes = Array.from({ length: Math.max(30, count) }, () => ({
-      x: Math.random() * canvas.clientWidth,
-      y: Math.random() * canvas.clientHeight,
-      vx: (Math.random() - 0.5) * 0.28,
-      vy: (Math.random() - 0.5) * 0.28,
-      r: 1 + Math.random() * 1.8,
+    const scale = Math.min(1.6, Math.max(0.5, (w * h) / (1280 * 760)));
+    const n = Math.round(cfg.count * scale);
+    nodes = Array.from({ length: Math.max(26, n) }, () => ({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      vx: (Math.random() - 0.5) * cfg.speed,
+      vy: (Math.random() - 0.5) * cfg.speed,
+      r: 0.8 + Math.random() * 2.1,
+      ph: Math.random() * Math.PI * 2,
+      warm: Math.random() < 0.2,
     }));
+  }
+
+  function drawGrid() {
+    if (!cfg.grid) return;
+    const step = 46;
+    ctx.save();
+    for (let x = 0; x < w; x += step) {
+      for (let y = 0; y < h; y += step) {
+        const d = Math.hypot(x - w / 2, y - h / 2);
+        ctx.globalAlpha = Math.max(0, 0.085 - d / (Math.max(w, h) * 12));
+        ctx.fillStyle = '#4a7fd8';
+        ctx.fillRect(x, y, 1.4, 1.4);
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawWaves() {
+    ctx.save();
+    for (let i = 0; i < cfg.waves; i += 1) {
+      const base = h * (0.2 + i * 0.16);
+      const amp = cfg.waveAmp * (0.6 + i * 0.22);
+      const freq = 0.0055 + i * 0.0016;
+      const phase = t * (0.9 + i * 0.24) + i * 1.7;
+      ctx.beginPath();
+      for (let x = -10; x <= w + 10; x += 8) {
+        const y = base + Math.sin(x * freq + phase) * amp
+          + Math.sin(x * freq * 2.3 - phase * 0.7) * (amp * 0.32);
+        if (x <= -10) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = i % 2 ? 'rgba(74,168,138,0.20)' : 'rgba(63,122,224,0.24)';
+      ctx.lineWidth = 1.1;
+      ctx.stroke();
+
+      // 波纹上的流动光点，强化"波浪在动"的感觉
+      const dots = 4 + i * 2;
+      for (let k = 0; k < dots; k += 1) {
+        const px = ((t * 46 + k * (w / dots) + i * 90) % (w + 80)) - 40;
+        const py = base + Math.sin(px * freq + phase) * amp
+          + Math.sin(px * freq * 2.3 - phase * 0.7) * (amp * 0.32);
+        const g = ctx.createRadialGradient(px, py, 0, px, py, 10);
+        g.addColorStop(0, 'rgba(90,150,240,0.55)');
+        g.addColorStop(1, 'rgba(90,150,240,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(px, py, 10, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawCurves() {
+    ctx.save();
+    for (let i = 0; i < 3; i += 1) {
+      const off = (t * (6 + i * 3)) % (h + 220) - 110;
+      ctx.beginPath();
+      for (let y = -20; y <= h + 20; y += 12) {
+        const x = w * (0.16 + i * 0.3)
+          + Math.sin(y * 0.006 + t * 0.5 + i) * 46
+          + Math.cos(y * 0.0021 - t * 0.3) * 70;
+        if (y <= -20) ctx.moveTo(x, y + off); else ctx.lineTo(x, y + off);
+      }
+      ctx.strokeStyle = 'rgba(120,170,235,0.13)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   function frame() {
     if (!running) return;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
+    t += 0.016;
     ctx.clearRect(0, 0, w, h);
 
+    drawGrid();
+    drawWaves();
+    drawCurves();
+
     for (const n of nodes) {
-      n.x += n.vx; n.y += n.vy;
-      if (n.x < 0 || n.x > w) n.vx *= -1;
-      if (n.y < 0 || n.y > h) n.vy *= -1;
-      n.x = Math.max(0, Math.min(w, n.x));
-      n.y = Math.max(0, Math.min(h, n.y));
+      // 漂移里叠加正弦，整体呈起伏的波浪感
+      n.x += n.vx + Math.sin(t * 0.7 + n.ph) * 0.16;
+      n.y += n.vy + Math.cos(t * 0.5 + n.ph * 1.3) * 0.22;
+      if (n.x < -20) n.x = w + 20;
+      if (n.x > w + 20) n.x = -20;
+      if (n.y < -20) n.y = h + 20;
+      if (n.y > h + 20) n.y = -20;
     }
-    // 连线
+
     for (let i = 0; i < nodes.length; i += 1) {
       for (let j = i + 1; j < nodes.length; j += 1) {
         const dx = nodes[i].x - nodes[j].x;
         const dy = nodes[i].y - nodes[j].y;
         const d = Math.hypot(dx, dy);
-        if (d < 130) {
-          ctx.strokeStyle = `rgba(90,140,230,${0.16 * (1 - d / 130)})`;
-          ctx.lineWidth = 1;
+        if (d < cfg.linkDist) {
+          ctx.strokeStyle = `rgba(86,136,225,${0.20 * (1 - d / cfg.linkDist)})`;
+          ctx.lineWidth = 0.9;
           ctx.beginPath();
           ctx.moveTo(nodes[i].x, nodes[i].y);
           ctx.lineTo(nodes[j].x, nodes[j].y);
@@ -55,22 +148,51 @@ function initParticles(canvas) {
         }
       }
     }
-    // 点
+
+    if (cfg.glow) ctx.shadowBlur = 8;
     for (const n of nodes) {
+      const pulse = 0.6 + 0.4 * Math.sin(t * 2 + n.ph);
       ctx.beginPath();
-      ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(70,120,215,0.55)';
+      ctx.arc(n.x, n.y, n.r * (0.85 + pulse * 0.35), 0, Math.PI * 2);
+      ctx.fillStyle = n.warm
+        ? `rgba(80,190,160,${0.42 + pulse * 0.3})`
+        : `rgba(70,120,215,${0.42 + pulse * 0.35})`;
+      ctx.shadowColor = n.warm ? 'rgba(80,190,160,.7)' : 'rgba(70,120,215,.7)';
       ctx.fill();
     }
+    ctx.shadowBlur = 0;
+
     raf = requestAnimationFrame(frame);
   }
 
   resize();
   frame();
-  window.addEventListener('resize', resize);
+  const onResize = () => resize();
+  window.addEventListener('resize', onResize);
   return {
-    stop() { running = false; cancelAnimationFrame(raf); },
+    stop() {
+      running = false;
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+    },
   };
+}
+
+/* 两个背景场 */
+let landingField = null;
+let homeField = null;
+
+function startHomeField() {
+  if (homeField) return;
+  const canvas = $('#home-particles');
+  if (!canvas) return;
+  homeField = createField(canvas, {
+    count: 52, linkDist: 150, speed: 0.24, waves: 3, waveAmp: 16, glow: false, grid: true,
+  });
+}
+
+function stopHomeField() {
+  if (homeField) { homeField.stop(); homeField = null; }
 }
 
 /* ---------------------------------------------------------------- 视图导航栈 */
@@ -80,7 +202,7 @@ function go(view, opts) {
   if (state.view !== view) navStack.push(state.view);
   switchView(view);
   if (view === 'profile') loadProfilePage();
-  if (view === 'home') refreshHomeSub();
+  if (view === 'home') { startHomeField(); refreshHomeSub(); }
 }
 
 function goHome() {
@@ -102,10 +224,10 @@ async function refreshHomeSub() {
   } catch (e) { /* 忽略 */ }
 }
 
-/* ---------------------------------------------------------------- 返回按钮（每个界面） */
+/* ---------------------------------------------------------------- 返回按钮（主界面除外） */
 function injectBackBars() {
   document.querySelectorAll('.view').forEach((view) => {
-    if (view.id === 'view-home') return;          // 主界面本身不需要返回按钮
+    if (view.id === 'view-home') return;
     if (view.querySelector('.view-nav')) return;
     const bar = document.createElement('div');
     bar.className = 'view-nav';
@@ -251,6 +373,7 @@ document.addEventListener('click', (e) => {
 
 $('#btn-view-summary').addEventListener('click', viewConversationSummary);
 $('#btn-edit-avatar').addEventListener('click', () => $('#profile-card').click());
+
 window.genProfileFromPage = async function genProfileFromPage() {
   const btn = $('#btn-gen-profile-2');
   if (!btn) return;
@@ -273,6 +396,18 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
   });
 });
 
+/* ---------------------------------------------------------------- 主界面隐藏侧边栏 */
+(function wrapSwitchView() {
+  const original = window.switchView;
+  if (typeof original !== 'function') return;
+  window.switchView = function patchedSwitchView(view) {
+    original(view);
+    const app = $('#app');
+    if (app) app.classList.toggle('hide-sidebar', view === 'home');
+    if (view === 'home') startHomeField(); else stopHomeField();
+  };
+})();
+
 /* ---------------------------------------------------------------- 启动：先放主界面 */
 (function startLanding() {
   let landed = false;
@@ -280,7 +415,7 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
     if (landed) return;
     try {
       const st = await api('/api/state');
-      if (!st || !st.configured) return;          // 还没配 Key，停在门禁页
+      if (!st || !st.configured) return;
       landed = true;
       clearInterval(check);
       showLanding();
@@ -290,14 +425,16 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
   function showLanding() {
     const landing = $('#landing');
     landing.classList.remove('hidden');
-    const anim = initParticles($('#particles'));
+    landingField = createField($('#particles'), {
+      count: 130, linkDist: 150, speed: 0.42, waves: 5, waveAmp: 30, glow: true, grid: true,
+    });
     injectBackBars();
     setTimeout(() => $('#btn-start').classList.add('show'), 1600);
 
     $('#btn-start').addEventListener('click', () => {
       $('#btn-start').classList.remove('show');
       landing.classList.add('fade-out');
-      anim.stop();
+      if (landingField) { landingField.stop(); landingField = null; }
       setTimeout(() => {
         landing.classList.add('hidden');
         landing.classList.remove('fade-out');
