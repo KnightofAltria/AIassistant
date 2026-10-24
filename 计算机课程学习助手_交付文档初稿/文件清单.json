@@ -1,0 +1,197 @@
+[
+  {
+    "file": "00_先读我.md",
+    "bytes": 3865,
+    "sha256": "b188ad8aa291939d600d4a6be2bc76671a97b4fc27fa3ff7246877c5c6be56a4"
+  },
+  {
+    "file": "01_需求与可行方案.md",
+    "bytes": 10326,
+    "sha256": "7aed90c6e7453d43d57f1b41105c70b778b06cf47e553a1dfb2a2695ad3ae956"
+  },
+  {
+    "file": "02_各份文档怎么填.md",
+    "bytes": 3135,
+    "sha256": "12ec641925b99dabed095d53edbd6184cc90fbec408faea97a9198cb2dce573b"
+  },
+  {
+    "file": "03_内容范围与首版边界.md",
+    "bytes": 2295,
+    "sha256": "233717786d58fd3e85da7eba94610d3e4ce9d95bfeb3bac375d04d627e422174"
+  },
+  {
+    "file": "工作记录/00_本次材料阅读与需求调整记录.md",
+    "bytes": 2109,
+    "sha256": "2d239b4c89bd8ab7710f0361a3a08f54d8c32783edae0ff771799b7c06d4e7ec"
+  },
+  {
+    "file": "工作记录/01_会议纪要预填.md",
+    "bytes": 930,
+    "sha256": "fb9990909a49b89a9d675fb60dffd2951e8db4ccd91099f406710c1420fe88a4"
+  },
+  {
+    "file": "工作记录/02_变更与风险台账.md",
+    "bytes": 1841,
+    "sha256": "fb15d731ff1e46dc7895f7f83bc1b0ea7e32f1633ead78cb98e1e842f2ce7c22"
+  },
+  {
+    "file": "工作记录/03_测试执行与性能记录.md",
+    "bytes": 2875,
+    "sha256": "5f41fe8e4c0014b558a75c6eadd8e9a9e5e972eb775c57658e7d29331a4de943"
+  },
+  {
+    "file": "工作记录/04_缺陷与回归记录示例.md",
+    "bytes": 823,
+    "sha256": "5707610fcb7c3225da1674749292f7fbfddd64f63f45c20afb9cfae636ad17d2"
+  },
+  {
+    "file": "工作记录/05_训练与数据审核记录.md",
+    "bytes": 1385,
+    "sha256": "0f2fa8e0566011c44aa0e11d39bc0f0d544d096911100ddefcb18709023170fb"
+  },
+  {
+    "file": "工作记录/06_个人贡献与提交清单.md",
+    "bytes": 1077,
+    "sha256": "2aff695286ec941825c44979825dd77bee5fa94efe09653f59004a12a18dd165"
+  },
+  {
+    "file": "工作记录/周报/第01周_预填计划.md",
+    "bytes": 1527,
+    "sha256": "90722c944fcffb139f0ef63e2e44f4781927b2c7f81bcf312770186fb0119e0a"
+  },
+  {
+    "file": "工作记录/周报/第02周_预填计划.md",
+    "bytes": 1010,
+    "sha256": "4ebcc01a364d498e19286a431a4145aca10fb3ab120a001d715689dcdd36d8f3"
+  },
+  {
+    "file": "工作记录/周报/第03周_预填计划.md",
+    "bytes": 1028,
+    "sha256": "0dda3dcd0f01b23b7e2d58866e8a8973b7e17a3c8d844f32320da8af67efe2ea"
+  },
+  {
+    "file": "工作记录/周报/第04周_预填计划.md",
+    "bytes": 987,
+    "sha256": "1ac6cd99b75e83cd4bca05b334c7e79ad8c418e17bd5e86d58e32d4f8a5c5f4c"
+  },
+  {
+    "file": "工作记录/周报/第05周_预填计划.md",
+    "bytes": 1037,
+    "sha256": "1ffbda323efcfc8ac2432c8652cbf5c2e7fb52a7b1878d25bf803305916a4d2a"
+  },
+  {
+    "file": "工作记录/周报/第06周_预填计划.md",
+    "bytes": 988,
+    "sha256": "939b339704605a99111083e9788bf659ab3d5c45351044d3c69de1d198a86d8f"
+  },
+  {
+    "file": "工作记录/周报/第07周_预填计划.md",
+    "bytes": 987,
+    "sha256": "5625df4ca41d42970b32df5fc2dee7abfa60ba4ba8be5ebfe1460f7c71760f59"
+  },
+  {
+    "file": "工作记录/周报/第08周_预填计划.md",
+    "bytes": 1021,
+    "sha256": "b415bc7c22df6022ee700c17a314f33e30ae8227dded756e15be122e256cd0a3"
+  },
+  {
+    "file": "补充交付/01_问题陈述与范围确认.md",
+    "bytes": 1831,
+    "sha256": "550adc8f1b09e8e4c0892c186468f2eed7f5571af8798311e1c1ca8a84a037b1"
+  },
+  {
+    "file": "补充交付/02_用户手册初稿.md",
+    "bytes": 2035,
+    "sha256": "a132d5d930f1fe1a8d556deb05be50a11b8b8f862d165dc3b872ad024d0880cb"
+  },
+  {
+    "file": "补充交付/03_安装手册与交付约定.md",
+    "bytes": 2798,
+    "sha256": "d0e60a3979beb668671feb846f51ca192e7ec0e4ebb2b00f1b5bc594c4b32701"
+  },
+  {
+    "file": "补充交付/04_模型训练与验收方案.md",
+    "bytes": 2159,
+    "sha256": "e9072093e9fb6d15e892b829d056bf0313a8f19965d1d6178caf36642330fbfe"
+  },
+  {
+    "file": "补充交付/05_项目总结报告初稿.md",
+    "bytes": 1438,
+    "sha256": "7247bb5ace9143382da3f243302bc6da75f830a7e395c173dce2caa425dabcf8"
+  },
+  {
+    "file": "补充交付/06_需求追踪与完成表.md",
+    "bytes": 1537,
+    "sha256": "6e182399eacf44b08211753d10926b083aa0a26f96c66d5fb427fa94a4dc3c88"
+  },
+  {
+    "file": "补充交付/07_中期与最终答辩提纲.md",
+    "bytes": 1266,
+    "sha256": "4748b40014efef5f1232644a992f42174d687b4d8e2bf6eb5e89fc75e2b39150"
+  },
+  {
+    "file": "补充交付/08_小组评分填写说明.md",
+    "bytes": 333,
+    "sha256": "820d0584290f4f569a1f7b24eb29158fdced811575528ee276198316fe9f2f36"
+  },
+  {
+    "file": "补充交付/数据格式示例/教学样本示例.jsonl",
+    "bytes": 3195,
+    "sha256": "11e5e93e31c158b4da438a534d462ae470003f425a388499c8c0bee741a843f6"
+  },
+  {
+    "file": "补充交付/数据格式示例/说明.md",
+    "bytes": 318,
+    "sha256": "2d4bf9511075932ce636c267a77769d97bf1973199325c3cd673077343bc225f"
+  },
+  {
+    "file": "阅读版.html",
+    "bytes": 123023,
+    "sha256": "fe0a6974a3b2a4a8e1874da263fdb5559fa4d9365f31fb628fa5714ba0f3f54a"
+  },
+  {
+    "file": "项目文档/01_C-2_项目计划.md",
+    "bytes": 6099,
+    "sha256": "c4a8a31359e650a17b318f4b611527169fceb9ab50f5c157603446c1f1677fb8"
+  },
+  {
+    "file": "项目文档/02_G-2_产品需求规格说明书.md",
+    "bytes": 7001,
+    "sha256": "be3f0415dc378dbd680ebc51126e5b14d61aeb051bd3988c4749bc8e100020b1"
+  },
+  {
+    "file": "项目文档/03_I-1_体系结构设计报告.md",
+    "bytes": 4593,
+    "sha256": "79bc019e1fd2f3c3e568e7e575849d75052cba6554f5f6cf2e826960ddc42c66"
+  },
+  {
+    "file": "项目文档/04_I-2_用户界面设计.md",
+    "bytes": 4054,
+    "sha256": "97a20a5453aff09306e8bb37254ab9d569d5764cad9f493252f9433065485330"
+  },
+  {
+    "file": "项目文档/05_I-3_数据库设计报告.md",
+    "bytes": 7688,
+    "sha256": "4a5be06bc134dd0105e2cbfaafe1e25013dbd91ba08648287e7761f402cf9ede"
+  },
+  {
+    "file": "项目文档/06_I-4_模块设计报告.md",
+    "bytes": 5611,
+    "sha256": "d5823108fb77ec89d00cbb7914e603db81104de65acfd51fa4ec7da9b2aaa214"
+  },
+  {
+    "file": "项目文档/07_K-1_系统测试计划.md",
+    "bytes": 3651,
+    "sha256": "2d969bc3ac4c3118f8f323b1e99bf3ed72cac25317765ab491218c158ba805c2"
+  },
+  {
+    "file": "项目文档/08_K-2_测试用例.md",
+    "bytes": 10157,
+    "sha256": "7f3f98f0e884b10e5ae526adc9aef34db9929e6905f44b3b9bcac4eb4b80af9e"
+  },
+  {
+    "file": "项目文档/09_K-3_测试报告.md",
+    "bytes": 2318,
+    "sha256": "b3dac57de7b7daeab1201835d4ed28e2f42522a9aae08cecf04fec613da6ac5c"
+  }
+]

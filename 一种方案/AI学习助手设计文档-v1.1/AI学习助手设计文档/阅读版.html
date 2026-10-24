@@ -1,0 +1,765 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>AI学习助手 导师汇报与设计文档</title><style>*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#f5f7fb;color:#182230;font:16px/1.75 "Microsoft YaHei","PingFang SC",sans-serif}header{padding:48px max(28px,calc((100vw - 1380px)/2));background:#122b4b;color:white}header p{color:#d4e2f4;max-width:850px}header h1{font-size:34px;line-height:1.35;margin:10px 0}header small{letter-spacing:2px;color:#a9c6eb}.shell{display:grid;grid-template-columns:260px minmax(0,1fr);max-width:1440px;margin:auto;gap:32px;padding:32px}nav{position:sticky;top:20px;align-self:start;max-height:94vh;overflow:auto}nav a{display:block;color:#37516d;padding:7px 12px;border-radius:6px;text-decoration:none;font-size:14px}nav a:hover{background:#e5edf9}main{min-width:0}article{background:white;padding:38px 44px;margin-bottom:28px;border:1px solid #dce3ed;border-radius:12px;scroll-margin-top:20px}article h1{font-size:27px;line-height:1.5;margin:0 0 22px;color:#112d4e}h2{font-size:21px;margin-top:32px;color:#19375d}h3{font-size:18px}p{margin:12px 0 18px}a{color:#2457b9;text-underline-offset:3px}code{font:14px/1.6 Consolas,monospace;background:#eef2f7;padding:1px 4px;border-radius:3px}pre{background:#11243b;color:#e7effa;padding:20px;overflow:auto;border-radius:8px;font:14px/1.7 Consolas,monospace}pre code{background:none;color:inherit;padding:0}.table-scroll{overflow:auto;margin:20px 0}table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.65}th,td{border:1px solid #d9e1ec;text-align:left;padding:11px 13px;vertical-align:top;min-width:90px}th{background:#edf2f9;color:#19375d;font-weight:600}tbody tr:nth-child(even){background:#fafbfd}details{font-size:14px;color:#475467}summary{cursor:pointer;padding:8px 0}.diagram{margin:20px 0}.diagram svg{width:100%;height:auto;min-width:450px}.diagram{overflow:auto}figcaption{font-size:12px;color:#62718a}footer{text-align:center;padding:28px;color:#667085;font-size:13px}@media(max-width:900px){.shell{display:block;padding:16px}nav{position:static;display:flex;overflow:auto;white-space:nowrap;margin-bottom:16px;gap:8px}nav a{background:white;flex-shrink:0;padding:10px}article{padding:24px 20px}header{padding:30px 24px}header h1{font-size:26px}article h1{font-size:24px}}@media print{header{background:white;color:black;padding:0}header p,header small{color:#333}nav{display:none}.shell{display:block;padding:0}article{padding:0;border:0;border-radius:0;page-break-before:always}article:first-child{page-break-before:auto}pre{white-space:pre-wrap;background:#f4f4f4;color:black}table{font-size:10px}a{color:inherit}details{display:block}footer{display:none}}</style></head><body><header><small>COURSE PROJECT · DESIGN BASELINE v1.1</small><h1>AI 学习助手<br>导师汇报与软件设计</h1><p>三人团队 · 八周开发 · 面向多类课程。先讲项目目标与学习流程，再讲技术路线、人员分工、每周成果与验收证据。</p><p>2026-10-23 · 方案评审稿 · 预期目标与实际成果分别说明</p></header><div class="shell"><nav aria-label="文档目录"><a href="#doc-15">15 导师汇报稿</a><a href="#doc-00">00 阅读指南</a><a href="#doc-01">01 需求规格</a><a href="#doc-02">02 总体架构</a><a href="#doc-03">03 数据设计</a><a href="#doc-04">04 RAG与模型</a><a href="#doc-05">05 学习诊断</a><a href="#doc-06">06 知识更新</a><a href="#doc-07">07 界面与移动端</a><a href="#doc-08">08 接口设计</a><a href="#doc-09">09 安全与隐私</a><a href="#doc-10">10 部署与分发</a><a href="#doc-11">11 测试与验收</a><a href="#doc-12">12 实施计划</a><a href="#doc-13">13 决策与参考</a><a href="#doc-14">14 需求追踪矩阵</a></nav><main><article id="doc-15"><h1>AI学习助手项目方案汇报</h1>
+<p>汇报阶段：立项与方案评审｜团队：3人｜周期：8周｜版本：v1.1｜日期：2026-10-23。</p>
+<h2>项目概览</h2>
+<p>我们计划开发一个支持多类课程的AI学习助手，让学生能够围绕课程资料提问、通过练习发现误区，并持续获得审核后的知识更新。项目以可运行、可解释、可验证的课程作业成果为目标，使用三门课程的单章样例验证通用性，选择其中一门开展领域微调实验。</p>
+<div class="table-scroll"><table><thead><tr><th>汇报要点</th><th>项目安排</th></tr></thead><tbody>
+<tr><td>要解决的问题</td><td>通用问答缺少课程出处，聊天记录难形成学习反馈，资料更新难以持续维护</td></tr>
+<tr><td>学生使用流程</td><td>选课→带出处提问→练习→查看误区证据→复测与复习→阅读课程更新</td></tr>
+<tr><td>技术路线</td><td>课程RAG＋可选领域微调＋基于作答证据的学习分析</td></tr>
+<tr><td>三人分工</td><td>A前端与手机体验；B后端、资料更新与部署；C模型、学习诊断与微调</td></tr>
+<tr><td>八周成果</td><td>第3周问答可用，第4周学习闭环，第5周资料更新，第6周功能冻结，最后两周测试交付</td></tr>
+<tr><td>验证范围</td><td>三门课程各一个章节；90条问答、30例诊断；一门课程微调四组对照</td></tr>
+<tr><td>当前状态</td><td>已形成设计方案；后续按计划实现，文中指标为目标，尚无实测成绩</td></tr>
+</tbody></table></div>
+<h2>第一部分 为什么做这个项目</h2>
+<p>老师好，我们小组有三名成员，计划用八周完成一个面向多类课程的AI学习助手。我们关注的是学生学习过程中三个相互关联的问题。</p>
+<p>第一，学生可以向通用模型提问，但很难判断回答是否依据本课程教材，也不方便回到原文核对。第二，提问和做题往往是一次性的，学生很难从这些记录中看出自己反复混淆了什么。第三，资料会更新，但新增内容与当前课程有什么关系，通常还需要学生自己筛选。</p>
+<p>因此，我们把课程问答、作答记录、误区复测和资料更新组织成一套连续流程。最终希望交付的成果是一个电脑和手机都能使用的学习工具，并能够说明回答来源、分析依据和各项功能的实际效果。</p>
+<h2>第二部分 学生如何使用</h2>
+<p>学生进入平台后，先选择一门课程。每门课都有自己的资料、题目和知识点，同一平台可以配置不同课程，学习记录分别保存。</p>
+<p>学生提问时，系统先从当前课程资料中检索相关内容，再让模型生成解释，并显示教材页码或段落出处。资料不足时，系统说明限制并请求补充背景，避免给出看似确定却没有依据的答案。</p>
+<p>学生完成练习后，系统保存作答、提示使用情况和评分依据。若发现可能的概念混淆，先整理成误区候选，并给一道不同题目的复测。只有得到足够证据，才确认需要重点复习的知识点。学生也可以提出异议，查看为什么得出这个建议。</p>
+<p>与此同时，后台按计划检查指定的课程资料来源。新增内容先进入待审核列表，由维护者查看差异和出处，确认后发布。学生会在更新中心看到新增了什么、影响哪个知识点，以及是否值得复习。这样的流程把回答问题与后续学习行动连接起来。</p>
+<h2>第三部分 技术上如何实现</h2>
+<p>我们计划采用三个相互配合的部分。</p>
+<p>第一部分是RAG，可以理解为“先查课程资料，再组织回答”。资料导入后按章节和段落拆分，保留文档版本和定位；提问时结合关键词与语义检索查找证据，再生成带出处的回答。每门课程单独限定检索范围。</p>
+<p>第二部分是领域微调。RAG负责提供课程事实，微调主要改善术语使用、讲解顺序和提示方式。八周内我们选择一门课程的一个章节，整理目标500条审核样本，训练一个轻量适配器。随后比较基础模型、基础模型加RAG、微调模型、微调模型加RAG四种情况，验证微调是否真的带来改进。若结果不佳，会保留实验记录并使用效果更好的路由。</p>
+<p>第三部分是学习分析。首版使用透明规则统计作答证据，并根据课程知识点的先修关系提出待验证的问题。例如学生连续混淆相关与因果，系统会给出对应证据和验证题。单纯提问多、阅读久，不会被直接当作已经掌握或没有掌握的依据。</p>
+<p>工程上，前端采用Vue，后端采用FastAPI，使用PostgreSQL保存课程、学习记录和检索数据。问答、学习分析和资料更新在同一个后端中按模块组织，耗时工作交给后台任务。模型通过统一入口接入云端API或本地小模型；手机采用响应式网页与PWA，优先保证核心学习流程完整。</p>
+<h2>第四部分 三人如何分工</h2>
+<div class="table-scroll"><table><thead><tr><th>成员</th><th>负责内容</th><th>向导师展示的成果</th></tr></thead><tbody>
+<tr><td>A 前端与体验</td><td>学习首页、问答和出处、练习与面板、维护台、手机适配、试用和汇报</td><td>学生能顺利完成学习流程，手机操作清晰，异常有提示</td></tr>
+<tr><td>B 后端与交付</td><td>账号和课程隔离、资料版本、作答存储、后台任务、定时更新、审核发布、安装恢复</td><td>数据归属正确，资料更新可审核、可撤回，运行包可复现安装</td></tr>
+<tr><td>C AI与学习分析</td><td>检索与引用、模型接入、误区规则、复测建议、微调实验和AI评价</td><td>回答与诊断有证据，云端和本地均可验证，模型实验有真实对照</td></tr>
+</tbody></table></div>
+<p>学习诊断由C主责、B提供记录与任务支撑；网络更新由B主责、A完成审核与更新页面。三人共同整理和交叉审核课程样例，每周检查一次可运行成果。这样每块工作都有明确负责人，也能及时发现接口和数据问题。</p>
+<h2>第五部分 八周如何推进</h2>
+<div class="table-scroll"><table><thead><tr><th>周次</th><th>阶段目标</th><th>每周向导师说明的成果</th></tr></thead><tbody>
+<tr><td>第1周</td><td>确定范围并验证技术</td><td>三课单章样例、界面原型、问答小样、模型与微调资源检查</td></tr>
+<tr><td>第2周</td><td>建立多课程基础</td><td>登录选课、资料导入、数据隔离和稳定接口</td></tr>
+<tr><td>第3周</td><td>完成有出处问答</td><td>三门课程可提问、可查看原文、可停止和重试</td></tr>
+<tr><td>第4周</td><td>完成学习闭环</td><td>练习、记录、误区候选、复测和学习面板</td></tr>
+<tr><td>第5周</td><td>完成资料更新与试训</td><td>定时收集、审核发布、学生摘要、撤回，以及微调试验记录</td></tr>
+<tr><td>第6周</td><td>完成功能和实验</td><td>手机核心流程、云与本地验证、四组模型比较，冻结新增功能</td></tr>
+<tr><td>第7周</td><td>集中测试与修复</td><td>问答和诊断评测、安全隔离、安装及备份恢复记录</td></tr>
+<tr><td>第8周</td><td>整理交付与答辩</td><td>固定版本、演示、实验报告、文档和成员贡献说明</td></tr>
+</tbody></table></div>
+<p>为保证三人八周可完成，我们把试点限制在三门课各一个章节，微调只做其中一门。题型先支持单选和短答，网络更新使用指定来源，手机先完成网页和PWA。最后两周用于测试、修复和答辩准备。</p>
+<h2>第六部分 如何判断项目完成</h2>
+<p>我们从功能、AI质量和交付三个方面验收。</p>
+<p>功能方面，需要能完整演示选课、带出处问答、练习记录、误区复测、审核更新和手机使用；不同学生、不同课程的数据不能混用；重复提交不能重复计分。</p>
+<p>AI质量方面，准备三门课程共90条问答和30例诊断，检查答案是否正确、引用是否支持结论、误区是否有证据，以及资料不足时是否合理回应。初步目标是可回答问题的正确率达到85%以上、引用支持率达到90%以上；最终按课程分别报告实际计数和失败样例。这些是小样本验收目标，不能据此宣称适用于所有学科。微调另用独立测试集做四组比较，不把模型自评分作为唯一证据。</p>
+<p>交付方面，需要另一台设备能够按说明启动系统，手机能完成核心流程，云端和严格本地模式各完成一次验证，同时提供代码、安装说明、设计文档、测试报告和训练实验记录。最终答辩使用实际实现和实测结果，不把设计中的预期效果写成已达成成果。</p>
+<h2>第七部分 风险与希望导师指导的事项</h2>
+<p>当前主要风险是跨学科材料准备、微调资源和三人的联调工作量。我们准备在第1周检查资料与硬件，第2周固定接口，第4周检查学习闭环，第6周冻结功能。如果工时不足，先减少额外题型、来源数量和装饰性图表，同时如实同步受影响的功能和评价范围。</p>
+<p>我们希望老师重点帮助判断：三门单章样例是否适合作为课程通用性的验证；一门课程的微调对照是否符合本作业要求；功能演示、实验结果和软件工程材料在评分中各占多大比重。此外，需要确认可使用的课程资料和训练设备。获得这些意见后，我们会据此确定实际课程、预算和每周交付内容。</p>
+<h2>导师可能追问的问题</h2>
+<h3>与通用聊天工具有什么区别</h3>
+<p>区别体现在课程范围和学习流程：回答绑定课程资料并可查出处；练习转化为有证据的误区复测；资料更新经过审核并说明对学习的影响。答辩时应通过完整流程演示这些差异。</p>
+<h3>为什么同时使用RAG和微调</h3>
+<p>两者承担不同任务。RAG让事实可更新、可追溯；微调调整表达和教学行为。我们通过四组比较检验组合是否有收益，也接受实验没有明显改善的结果。</p>
+<h3>支持各类课程是否范围过大</h3>
+<p>平台支持课程配置，但验证只覆盖三门课的单章样例。每门课需要自己的材料、知识点和评价标准，不承诺所有学科开箱即有同样效果。</p>
+<h3>如何避免误判学生</h3>
+<p>先保存可定位作答，区分提示完成和独立完成，先提出候选再用不同题目复测；学生可以提出异议。对没有可靠量规的开放题只提供建议。</p>
+<h3>三人能否在八周内完成</h3>
+<p>计划总量约300个人工小时，对应每人每周约12.5小时，仍需成员核实。我们通过单章样例、单课微调、固定模型路由、指定网络来源和现成界面组件控制工作量，第6周后不再扩功能。若前两周验证显示资源不够，应立即调整并向老师说明。</p>
+<h3>网络更新是否会把错误资料加入知识库</h3>
+<p>新增资料先作为候选，比较内容变化，由维护者审核后发布；发布失败不影响旧资料，已发布内容可以撤回。模型只辅助筛选和摘要，不自行决定知识库发布。</p>
+<h3>手机端和本地模型分别意味着什么</h3>
+<p>手机通过网页或PWA访问系统；本地模型运行在电脑或服务器。严格本地模式要求生成、嵌入和学习分析都在本地，失败时不自动转云；这不等于手机自己运行大模型。</p>
+<h3>项目的创新和贡献如何表述</h3>
+<p>目前适合表述为面向课程学习的应用整合与工程验证，重点是把证据问答、可复测诊断、可审核更新和多端部署串成可演示流程。是否有算法创新，需要新的方法和实验支撑，当前不作这类声明。</p>
+<h3>最后具体交什么</h3>
+<p>可运行系统、三课单章样例、一课微调产物与实验、手机和两类模型模式演示、安装运行包、设计与测试文档、限制说明及三人的贡献记录。各项是否完成以交付证据为准。</p>
+<h2>时间与分段建议</h2>
+<p>本稿适合约8至10分钟的方案介绍，首次使用应彩排计时。开场与问题约1分钟，学习流程约1.5分钟，技术路线约2分钟，分工和排期约2分钟，验收及指导事项约1.5分钟。概览表和常见问答用于投屏与追问，不需要逐行朗读。三人轮流汇报时，A讲问题、体验和分工，C讲模型与诊断，B讲排期、更新、部署和验收。</p>
+<p>详细依据：<a href="#doc-01">需求规格</a>、<a href="#doc-02">技术架构</a>、<a href="#doc-04">模型与训练</a>、<a href="#doc-05">学习诊断</a>、<a href="#doc-11">验收标准</a>、<a href="#doc-12">三人八周详细计划</a>。</p></article><article id="doc-00"><h1>AI 学习助手软件工程设计文档</h1>
+<p>版本：v1.1｜修订日期：2026-10-23｜状态：导师汇报与设计评审稿｜团队：3人｜开发周期：8周。</p>
+<p>本项目为支持多类课程的 AI 学习助手。学生进入课程后，使用该课程资料获得带出处的回答，通过练习积累学习证据，查看可纠正的误区分析和复习建议。课程维护者审核网络新增资料，发布后生成更新摘要。平台支持远程 API 和本机或局域网模型，手机通过响应式网页与 PWA 使用。</p>
+<p>这套文档用于向导师说明我们准备做什么、如何在三人八周内完成，以及用什么证据验收。已确认条件为课程作业、支持多类课程、三名成员和八周周期。试点课程、每周投入时间、硬件和效果指标仍为建议值。示例仓库作为技术参考；当前交付为设计文档，不代表系统和训练已经完成。</p>
+<h2>向导师汇报时如何使用</h2>
+<p>首次汇报直接使用<a href="#doc-15">15 导师汇报稿</a>，按“问题与目标—功能闭环—技术路线—三人分工—八周计划—验收与风险”讲解，约8至10分钟。单独的导师汇报版HTML适合投屏或提前发给导师；它不是已完成项目的成果汇报。</p>
+<p>导师询问实现细节时，再查阅下表的设计附录。人员和排期以12章为准，功能以01章为准，验收以11章为准。领域微调与RAG分别评价，不能把提示词调整写成已完成微调。</p>
+<h2>建议阅读顺序</h2>
+<div class="table-scroll"><table><thead><tr><th>文档</th><th>主要读者</th><th>可据此开展的工作</th></tr></thead><tbody>
+<tr><td><a href="#doc-15">15 导师汇报稿</a></td><td>导师与三名成员</td><td>可直接讲解的项目方案、分工排期和常见问答</td></tr>
+<tr><td><a href="#doc-01">01 需求规格</a></td><td>全体成员</td><td>确认功能和验收边界</td></tr>
+<tr><td><a href="#doc-02">02 总体架构</a></td><td>前后端与集成人员</td><td>模块拆分和调用链</td></tr>
+<tr><td><a href="#doc-03">03 数据设计</a></td><td>后端</td><td>数据模型、事务与版本管理</td></tr>
+<tr><td><a href="#doc-04">04 RAG与模型</a></td><td>AI与后端</td><td>检索、回答、微调与模型路由</td></tr>
+<tr><td><a href="#doc-05">05 学习诊断</a></td><td>AI与产品</td><td>学习事件、误区与潜在问题</td></tr>
+<tr><td><a href="#doc-06">06 知识更新</a></td><td>后端与课程维护者</td><td>定时收集、审核、发布、撤回</td></tr>
+<tr><td><a href="#doc-07">07 界面与移动端</a></td><td>前端与设计</td><td>页面、引导、手机适配</td></tr>
+<tr><td><a href="#doc-08">08 接口设计</a></td><td>前后端</td><td>联调、流式协议与错误处理</td></tr>
+<tr><td><a href="#doc-09">09 安全与隐私</a></td><td>后端与测试</td><td>账号隔离和数据生命周期</td></tr>
+<tr><td><a href="#doc-10">10 部署与分发</a></td><td>集成与交付</td><td>云API、本地模型、分发与恢复</td></tr>
+<tr><td><a href="#doc-11">11 测试与验收</a></td><td>全体成员</td><td>功能、AI、安全与手机验收</td></tr>
+<tr><td><a href="#doc-12">12 实施计划</a></td><td>组长与全体成员</td><td>分工、里程碑、风险与答辩</td></tr>
+<tr><td><a href="#doc-13">13 决策与参考</a></td><td>评审人员</td><td>示例仓库审阅证据和决策依据</td></tr>
+<tr><td><a href="#doc-14">14 需求追踪矩阵</a></td><td>组长与测试</td><td>从八项原始诉求追溯到验收</td></tr>
+<tr><td><a href="contracts/openapi.json">OpenAPI契约</a></td><td>开发与测试</td><td>核心接口机器可读契约</td></tr>
+</tbody></table></div>
+<h2>交付与范围</h2>
+<p>提供16份Markdown源文档、独立导师汇报版HTML、完整HTML阅读版、核心OpenAPI 3.1契约及ZIP文档包。汇报版突出项目目标、范围与可行性，完整阅读版保留开发细节。契约用于约束首版核心接口，并非可直接运行的后端。</p>
+<p>首版必须完成多课程隔离、带引用问答、练习记录、误区候选与复测、定时收集及审核发布、更新中心、两种模型部署模式、手机适配与安装说明。领域微调保留独立实验里程碑：需有授权语料与硬件，提交训练记录、基线对比和可加载适配器，才能称为完成；若资源不满足，应如实报告未完成，不能用提示词替代微调成果。</p>
+<p>暂不承诺所有学科同等准确、手机运行大模型、任意网站自由抓取、视频实时理解、商业级高并发或原生应用商店上架。跨课程通用指业务流程和数据结构可复用，学科资料、评分量规和模型能力仍需逐课验证。</p>
+<h2>已确认条件与工程假设</h2>
+<div class="table-scroll"><table><thead><tr><th>项目</th><th>初始设计值</th><th>调整依据</th></tr></thead><tbody>
+<tr><td>团队与周期</td><td>3人，8周</td><td>用户已确认；不设置第4名成员</td></tr>
+<tr><td>时间投入</td><td>建议每人每周12至15小时</td><td>待成员核实，共约288至360小时；不等于已承诺工时</td></tr>
+<tr><td>试点</td><td>3门课程，每课一个章节，6至10名同学试用</td><td>课程与人数待定；100账号仅作为容量测试上限</td></tr>
+<tr><td>负载</td><td>20个在线会话，最多5个并行生成</td><td>超限排队；本地模式单独测量</td></tr>
+<tr><td>资料量</td><td>每课不超过100份，合计10万切片以内</td><td>不作为正式容量承诺</td></tr>
+<tr><td>学生范围</td><td>默认非实名测试账号</td><td>真实未成年人使用前另行确认政策</td></tr>
+<tr><td>通知</td><td>站内更新中心</td><td>外部推送另行实施和授权</td></tr>
+</tbody></table></div>
+<h2>待项目组确认的决策</h2>
+<p>开工前确认三名成员姓名与角色对应、具体起止日期、每周可用工时、三门试点课程、资料授权、API预算和本地硬件。第1周验证微调资源，第2周冻结微调课程与数据集方案。默认采用计算机基础、数学基础、文史阅读三个单章样例，不限定产品学科范围。无可靠量规的主观题仅给建议。</p>
+<p>v1.1修订内容：确认三人八周约束；重新分配学习诊断与资料更新的责任；补充逐人逐周安排和导师讲解稿；将课内验证集与扩展测试区分；保留原有详细设计和核心接口。</p>
+<p>文档变更采用小版本更新并同步修改追踪矩阵、接口契约与验收用例。需求增减需写明对工期、测试和模型成本的影响。</p></article><article id="doc-01"><h1>软件需求规格说明书</h1>
+<p>版本与状态同阅读指南。产品目标是形成“课程资料问答—练习—证据积累—误区复测—资料更新”的学习闭环。</p>
+<h2>角色与边界</h2>
+<p>学生只访问已加入课程的公开资料、自己的学习记录与私人上传资料。课程维护者管理被授权课程的知识点、题目、来源、审核和发布，默认不能阅读学生私人对话。管理员管理账号、成员关系、模型配置与运行状态，查看原文需明确授权并留下审计记录。个人离线安装也保留学生和维护者视图，初始安装者可拥有两类角色。</p>
+<p>课程包含标题、学科标签、教学目标、资料版本、知识点先修关系、题库和可选模型策略。学生可同时加入多门课程；会话、检索、练习和诊断必须绑定一门课程。跨课程检索留待后续明确授权设计。</p>
+<h2>业务需求与验收</h2>
+<div class="table-scroll"><table><thead><tr><th>编号</th><th>优先级</th><th>需求</th><th>可观察验收</th></tr></thead><tbody>
+<tr><td>FR-01</td><td>P0</td><td>注册登录、课程加入与切换</td><td>切换后会话和学习记录分别显示，越权访问失败</td></tr>
+<tr><td>FR-02</td><td>P0</td><td>PDF、DOCX、TXT、Markdown导入</td><td>显示解析状态、定位信息与失败原因，损坏文件不入库</td></tr>
+<tr><td>FR-03</td><td>P0</td><td>课程内RAG问答</td><td>重要资料性结论附出处，点开可看到文档版本和页码或段落</td></tr>
+<tr><td>FR-04</td><td>P0</td><td>多轮对话与教学引导</td><td>支持提示优先、完整解释和停止生成；缺资料时说明限制</td></tr>
+<tr><td>FR-05</td><td>P0</td><td>练习、提交和复测</td><td>客观题按题库答案评分；主观题按量规输出建议及可申诉说明</td></tr>
+<tr><td>FR-06</td><td>P0</td><td>学习事件与进度</td><td>同一提交重试不重复计分，设备重连后记录可查询</td></tr>
+<tr><td>FR-07</td><td>P0</td><td>整理误区与潜在问题</td><td>展示证据、状态和验证题；证据不足只列待验证假设</td></tr>
+<tr><td>FR-08</td><td>P0</td><td>学习面板与复习建议</td><td>显示最近变化、证据数量与下一步，不用单一分数断言能力</td></tr>
+<tr><td>FR-09</td><td>P0</td><td>定时联网收集资料</td><td>按课程来源列表运行，收集失败可重试，未审核不能被检索</td></tr>
+<tr><td>FR-10</td><td>P0</td><td>审核、发布、撤回与摘要</td><td>对比新旧内容，发布后站内通知；撤回后新问答不能引用</td></tr>
+<tr><td>FR-11</td><td>P0</td><td>云API与本地模型两种运行配置</td><td>两类环境各通过一次完整问答，本地严格模式无外呼</td></tr>
+<tr><td>FR-12</td><td>P0</td><td>手机端和学习引导</td><td>手机完成加入课程、提问、查看出处、练习和查看误区</td></tr>
+<tr><td>FR-13</td><td>P0</td><td>封装分发</td><td>提供版本化安装包及指南，另一台干净设备按说明启动</td></tr>
+<tr><td>FR-14</td><td>P1必验</td><td>一门课程的领域微调实验</td><td>授权数据、训练配置、适配器、独立测试和基线对比齐全</td></tr>
+<tr><td>FR-15</td><td>P0</td><td>个人数据管理</td><td>可导出、删除记录，退出登录后清理本设备敏感缓存</td></tr>
+<tr><td>FR-16</td><td>P0</td><td>模型与成本状态</td><td>展示可用模式与额度不足提示；管理员查看脱敏用量</td></tr>
+</tbody></table></div>
+<p>P0为首个可演示版本，P1必验为完整作业范围中的后续里程碑，不能在最终报告中自动省略。若课程评分规则要求微调优先，调整第12章顺序，先完成微调可行性验证。</p>
+<h2>关键用例</h2>
+<p>UC-01 首次学习：登录→选择或加入课程→设置学习目标→可跳过的3题摸底→首页出现“开始提问”和“建议复习”。没有测试结果时显示“尚无足够证据”。</p>
+<p>UC-02 有依据问答：学生提出问题→系统锁定课程与知识库版本→检索可访问资料→流式显示解释→引用校验→保存回答。检索不到时给澄清问题或建议导入资料，不捏造课程出处。</p>
+<p>UC-03 误区验证：提交练习→保存不可变作答版本→规则评分或量规建议→生成误区候选→学生查看证据→完成不同题目的复测→证据满足条件后确认或驳回→更新复习计划。</p>
+<p>UC-04 资料更新：定时发现候选→去重和比对→维护者审核→构建待发布索引→质量检查→原子发布→向课程成员提交摘要。无变化不产生新通知。</p>
+<p>UC-05 本地部署：安装依赖运行包→首次启动创建管理员→导入模型和课程包→选择严格本地模式→关闭网络验证问答和诊断。联网收集在离线期间暂停并提示最后成功时间。</p>
+<h2>非功能目标</h2>
+<p>下列均为待实测目标，测量环境见测试文档。云模式首个答案文本p95≤5秒，完整输出p95≤30秒（输入≤6000 tokens、输出≤600 tokens、5并发）；本地不预设同等速度，测试后公布硬件、模型和指标。后台索引不阻塞Web启动；问答可取消；异步任务可恢复。试运行可用性目标99%按服务端成功请求计算，观察至少7天，不等同全年SLA。</p>
+<p>移动端360px宽度下核心页面无整体横向滚动；常用按钮触摸目标至少44px；正文16px起；键盘和读屏可完成核心操作。普通业务数据跨用户、跨课程泄露测试必须为零。学习事件入库后5秒内进入投影的目标以测试报告为准。</p>
+<h2>异常与限制</h2>
+<p>模型超时保存已输入内容并允许重试，不将中断答复作为正确答案。导入失败允许修复后重试；无OCR能力的扫描PDF显示“需要OCR”，不能静默成功。网络更新任务失败不影响现有已发布资料。本地推理缺少显存时提示模型不可用，不能自动转云。学生不同意云处理时使用本地配置或停止对应功能。</p>
+<h2>不在首版范围</h2>
+<p>手写拍照批改、语音课堂、视频解析、自动训练所有课程模型、教师班级监控、复杂社交、支付、原生App商店发行及手机端大模型推理。上述项目需要独立排期。</p></article><article id="doc-02"><h1>系统总体架构与模块设计</h1>
+<h2>架构选择</h2>
+<p>采用模块化单体后端加独立后台任务进程。初期以一个后端代码库、一套数据库和一个前端交付，减少课程作业的运维负担。推理进程从Web进程分离，避免模型加载、长时间生成和索引任务阻塞用户请求。暂不引入微服务、图数据库或专用向量集群。</p>
+<div class="table-scroll"><table><thead><tr><th>层级</th><th>推荐组件</th><th>职责</th></tr></thead><tbody>
+<tr><td>客户端</td><td>Vue 3、TypeScript、Vite、响应式PWA</td><td>课程切换、问答、学习面板、更新中心</td></tr>
+<tr><td>接入层</td><td>Caddy或等效反向代理</td><td>HTTPS、静态文件、流式透传、请求限制</td></tr>
+<tr><td>应用层</td><td>FastAPI、Pydantic、SQLAlchemy、Alembic</td><td>鉴权、业务规则、API、数据库迁移</td></tr>
+<tr><td>AI编排</td><td>自有服务接口，复用LlamaIndex适配能力</td><td>检索、提示词、引用、模型能力适配</td></tr>
+<tr><td>数据层</td><td>PostgreSQL、pgvector、受控文件卷</td><td>业务真相、向量、原始资料</td></tr>
+<tr><td>后台层</td><td>PostgreSQL任务表、独立Python worker</td><td>导入、收集、诊断、摘要和导出</td></tr>
+<tr><td>模型层</td><td>API提供商或本机Ollama，GPU场景可用vLLM</td><td>对话、嵌入、可选重排、结构化输出</td></tr>
+</tbody></table></div>
+<p>选型是设计建议，依赖版本在实施时锁定并做集成测试。pgvector提供PostgreSQL内的向量检索能力，适合本项目合并存储的设计；权限过滤与近似检索召回仍需共同测试。<a href="https://github.com/pgvector/pgvector">官方说明</a></p>
+<h2>组件关系</h2>
+<figure class="diagram"><svg role="img" aria-label="设计关系概览，详细关系见下方源码" viewBox="0 0 770 200"><defs><marker id="arrow-1" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3z" fill="#627b9b"/></marker></defs><rect x="20" y="20" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="130" y="54" text-anchor="middle" font-size="16" fill="#19375d">定时收集</text><path d="M244 48h20" stroke="#627b9b" marker-end="url(#arrow-1)"/><rect x="270" y="20" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="380" y="54" text-anchor="middle" font-size="16" fill="#19375d">内容差异</text><path d="M494 48h20" stroke="#627b9b" marker-end="url(#arrow-1)"/><rect x="520" y="20" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="630" y="54" text-anchor="middle" font-size="16" fill="#19375d">人工审核</text><rect x="20" y="120" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="130" y="154" text-anchor="middle" font-size="16" fill="#19375d">构建快照</text><path d="M244 148h20" stroke="#627b9b" marker-end="url(#arrow-1)"/><rect x="270" y="120" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="380" y="154" text-anchor="middle" font-size="16" fill="#19375d">发布与通知</text><path d="M494 148h20" stroke="#627b9b" marker-end="url(#arrow-1)"/><rect x="520" y="120" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="630" y="154" text-anchor="middle" font-size="16" fill="#19375d">可撤回回滚</text></svg><figcaption>结构概览；精确分支、关系和时序以下方 Mermaid 源码为准。</figcaption></figure><details><summary>查看精确图示源码</summary><pre><code>flowchart LR
+  U[学生和维护者 手机或电脑] --&gt; W[Web与PWA]
+  W --&gt; G[HTTPS接入]
+  G --&gt; A[FastAPI业务模块]
+  A --&gt; P[(PostgreSQL 与 pgvector)]
+  A --&gt; F[原始资料文件卷]
+  A --&gt; M[模型网关]
+  M --&gt; C[受控云API]
+  M --&gt; L[本地推理进程]
+  P --&gt; J[任务Worker]
+  J --&gt; P
+  J --&gt; F
+  J --&gt; M
+  J --&gt; X[限域抓取器]
+  X --&gt; S[批准的网络来源]</code></pre></details>
+<h2>模块职责与边界</h2>
+<p>Identity处理登录、会话、课程成员及权限。Course管理课程和知识点先修图。Knowledge维护资料、版本、切片、来源和快照。Chat仅组织本课程对话，调用Retrieval与ModelGateway，不能自行越过权限检索。Assessment管理题目版本、作答和评分量规。Learning记录事件并构建掌握度、误区和复习投影。Update负责来源收集与审核发布。Notification只创建站内收件项。Ops管理任务状态、运行模式和审计。</p>
+<p>各模块通过应用服务调用；数据库可共用但禁止绕过所属模块直接修改关键状态。KnowledgePublisher是唯一能切换已发布快照的服务；LearningProjector是唯一能修改学习投影的服务。模型输出不能直接执行SQL或修改发布状态。</p>
+<h2>问答顺序与一致性</h2>
+<figure class="diagram"><svg role="img" aria-label="设计关系概览，详细关系见下方源码" viewBox="0 0 770 200"><defs><marker id="arrow-2" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3z" fill="#627b9b"/></marker></defs><rect x="20" y="20" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="130" y="54" text-anchor="middle" font-size="16" fill="#19375d">学生提问</text><path d="M244 48h20" stroke="#627b9b" marker-end="url(#arrow-2)"/><rect x="270" y="20" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="380" y="54" text-anchor="middle" font-size="16" fill="#19375d">鉴权与快照</text><path d="M494 48h20" stroke="#627b9b" marker-end="url(#arrow-2)"/><rect x="520" y="20" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="630" y="54" text-anchor="middle" font-size="16" fill="#19375d">权限内检索</text><rect x="20" y="120" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="130" y="154" text-anchor="middle" font-size="16" fill="#19375d">模型真实增量</text><path d="M244 148h20" stroke="#627b9b" marker-end="url(#arrow-2)"/><rect x="270" y="120" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="380" y="154" text-anchor="middle" font-size="16" fill="#19375d">核验引用</text><path d="M494 148h20" stroke="#627b9b" marker-end="url(#arrow-2)"/><rect x="520" y="120" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="630" y="154" text-anchor="middle" font-size="16" fill="#19375d">保存并完成</text></svg><figcaption>结构概览；精确分支、关系和时序以下方 Mermaid 源码为准。</figcaption></figure><details><summary>查看精确图示源码</summary><pre><code>sequenceDiagram
+  participant S as 学生
+  participant A as API
+  participant D as 数据库
+  participant R as 检索
+  participant M as 模型网关
+  S-&gt;&gt;A: 提问与幂等键
+  A-&gt;&gt;D: 鉴权 保存请求 锁定快照
+  A--&gt;&gt;S: request_id与流地址
+  A-&gt;&gt;R: 课程 快照 可访问范围
+  R-&gt;&gt;D: 权限过滤后的词法与向量检索
+  R--&gt;&gt;A: 证据切片
+  A-&gt;&gt;M: 教学提示与证据
+  M--&gt;&gt;A: 真实生成增量
+  A--&gt;&gt;S: delta与引用状态
+  A-&gt;&gt;D: 校验后保存最终答复与事件
+  A--&gt;&gt;S: completed</code></pre></details>
+<p>问题入库和任务创建用同一事务。先返回请求对象，再订阅SSE；前端断线重连不会再创建生成任务。一个请求固定一个知识快照、提示词版本和模型路由；新发布资料只影响后续请求。资料因安全原因撤回时，即使快照固定也必须经过实时撤回过滤。</p>
+<h2>异步任务</h2>
+<p>任务表保存payload、状态、attempt、run_at、lease_until、dedupe_key、错误码和检查点。Worker用行锁与SKIP LOCKED认领任务，默认租约60秒，每20秒续租。失联租约过期可再领取，处理采用至少一次语义；结果以唯一业务键去重。重试间隔初始1、5、30分钟共3次，之后进入failed，维护者手动重试。永久性授权或格式错误直接失败。</p>
+<p>核心业务事务同时写入outbox记录，分发器将其转为任务；消费者提交结果时记录已消费事件。数据库提交后进程崩溃也可补发。发送站内通知以用户、发布批次和类型唯一，避免重复提醒。</p>
+<h2>演进与兼容</h2>
+<p>示例中的资料分组、解析和教学提示思路可复用；现有文件索引应通过导入管道重新解析和生成新向量，不能把pickle当作可信分发格式。旧API如需保留，可暂时映射至新应用服务；不得接受旧请求体中的user_id作为身份。第1周先制作小样验证解析、中文检索、手机SSE和本地模型，再扩大功能。</p></article><article id="doc-03"><h1>数据模型与一致性设计</h1>
+<h2>通用约定</h2>
+<p>主键用UUID，时间以UTC保存并按用户时区显示，中文全文用UTF-8。业务表通常含created_at、updated_at与revision。所属课程资源具有course_id；私人资源同时带owner_id。成员身份从服务端会话获得，客户端不能指定生效的用户身份。跨表引用应以(course_id,id)复合外键或等价约束防止串课。</p>
+<p>软删除用于短期恢复，物理清除由删除任务完成。软删除行必须立即从业务查询和检索排除。原始作答和学习事件保留版本，纠错采用追加更正事件；不能覆盖历史导致诊断证据失真。</p>
+<h2>实体关系</h2>
+<figure class="diagram"><svg role="img" aria-label="设计关系概览，详细关系见下方源码" viewBox="0 0 770 200"><defs><marker id="arrow-3" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3z" fill="#627b9b"/></marker></defs><rect x="20" y="20" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="130" y="54" text-anchor="middle" font-size="16" fill="#19375d">用户与课程</text><path d="M244 48h20" stroke="#627b9b" marker-end="url(#arrow-3)"/><rect x="270" y="20" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="380" y="54" text-anchor="middle" font-size="16" fill="#19375d">资料版本与切片</text><path d="M494 48h20" stroke="#627b9b" marker-end="url(#arrow-3)"/><rect x="520" y="20" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="630" y="54" text-anchor="middle" font-size="16" fill="#19375d">快照与引用</text><rect x="20" y="120" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="130" y="154" text-anchor="middle" font-size="16" fill="#19375d">题目与作答</text><path d="M244 148h20" stroke="#627b9b" marker-end="url(#arrow-3)"/><rect x="270" y="120" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="380" y="154" text-anchor="middle" font-size="16" fill="#19375d">学习事件</text><path d="M494 148h20" stroke="#627b9b" marker-end="url(#arrow-3)"/><rect x="520" y="120" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="630" y="154" text-anchor="middle" font-size="16" fill="#19375d">诊断与证据</text></svg><figcaption>结构概览；精确分支、关系和时序以下方 Mermaid 源码为准。</figcaption></figure><details><summary>查看精确图示源码</summary><pre><code>erDiagram
+  USER ||--o{ MEMBERSHIP : joins
+  COURSE ||--o{ MEMBERSHIP : contains
+  COURSE ||--o{ DOCUMENT : owns
+  DOCUMENT ||--o{ DOCUMENT_VERSION : versions
+  DOCUMENT_VERSION ||--o{ CHUNK : splits
+  SNAPSHOT ||--o{ SNAPSHOT_ITEM : includes
+  DOCUMENT_VERSION ||--o{ SNAPSHOT_ITEM : indexed_in
+  COURSE ||--o{ KNOWLEDGE_POINT : defines
+  USER ||--o{ CONVERSATION : owns
+  CONVERSATION ||--o{ MESSAGE : contains
+  QUESTION_VERSION ||--o{ ATTEMPT : answered_as
+  ATTEMPT ||--o{ LEARNING_EVENT : produces
+  USER ||--o{ LEARNING_EVENT : produces
+  LEARNING_EVENT ||--o{ DIAGNOSIS_EVIDENCE : supports
+  DIAGNOSIS ||--o{ DIAGNOSIS_EVIDENCE : cites</code></pre></details>
+<h2>逻辑表与关键字段</h2>
+<div class="table-scroll"><table><thead><tr><th>表</th><th>核心字段</th><th>约束与索引</th></tr></thead><tbody>
+<tr><td>users</td><td>id、login_name、password_hash、status</td><td>login_name唯一；密码使用专用慢哈希</td></tr>
+<tr><td>sessions</td><td>id_hash、user_id、expires_at、revoked_at</td><td>仅保存令牌摘要，过期索引</td></tr>
+<tr><td>courses</td><td>id、name、domain、settings、active_snapshot_id</td><td>活动快照必须属于本课程</td></tr>
+<tr><td>memberships</td><td>user_id、course_id、role、status</td><td>联合唯一；角色student/maintainer/admin</td></tr>
+<tr><td>knowledge_points</td><td>id、course_id、code、label、rubric_version</td><td>(course_id,code)唯一</td></tr>
+<tr><td>prerequisite_edges</td><td>course_id、before_id、after_id</td><td>禁止自环，应用层检查环路</td></tr>
+<tr><td>documents</td><td>id、course_id、owner_id、visibility、status</td><td>visibility为course或private</td></tr>
+<tr><td>document_versions</td><td>id、document_id、sha256、storage_key、origin_url、license、parser_version</td><td>(document_id,sha256)唯一；不可变</td></tr>
+<tr><td>chunks</td><td>id、course_id、document_version_id、ordinal、text、locator、token_count</td><td>(document_version_id,ordinal)唯一</td></tr>
+<tr><td>embedding_spaces</td><td>id、provider、model_revision、dimension、normalization</td><td>指纹唯一，不能混合空间</td></tr>
+<tr><td>chunk_embeddings</td><td>chunk_id、space_id、vector</td><td>联合唯一；按空间分区与建向量索引</td></tr>
+<tr><td>snapshots</td><td>id、course_id、space_id、state、published_at</td><td>state为building/ready/active/retired</td></tr>
+<tr><td>snapshot_items</td><td>snapshot_id、document_version_id</td><td>联合唯一；固定文档版本集合</td></tr>
+<tr><td>conversations</td><td>id、course_id、user_id、title</td><td>(user_id,course_id,updated_at)索引</td></tr>
+<tr><td>generation_requests</td><td>id、conversation_id、user_id、key、status、snapshot_id、route_version</td><td>用户+key唯一；同键异体返回409</td></tr>
+<tr><td>messages</td><td>id、conversation_id、request_id、role、content、status</td><td>request+assistant角色唯一</td></tr>
+<tr><td>citations</td><td>message_id、chunk_id、claim_id、locator、check_status</td><td>引用必须属于该请求可访问快照</td></tr>
+<tr><td>question_versions</td><td>id、course_id、question_id、type、prompt、answer、rubric、kp_weights</td><td>版本不可变；答案不下发到作答页</td></tr>
+<tr><td>attempts</td><td>id、user_id、course_id、question_version_id、answer、hint_level、score、review_status</td><td>client_submission_id按用户唯一</td></tr>
+<tr><td>learning_events</td><td>id、user_id、course_id、type、entity_id、occurred_at、received_at、schema_version、payload</td><td>用户+client_event_id唯一</td></tr>
+<tr><td>mastery_states</td><td>user_id、course_id、kp_id、alpha、beta、effective_n、algorithm_version</td><td>联合唯一；可由事件重建</td></tr>
+<tr><td>diagnoses</td><td>id、user_id、course_id、kp_id、type、state、rule_version、counterevidence</td><td>状态迁移受应用约束</td></tr>
+<tr><td>diagnosis_evidence</td><td>diagnosis_id、event_id、weight、reason</td><td>联合唯一；必须同用户同课程</td></tr>
+<tr><td>review_tasks</td><td>id、user_id、course_id、kp_id、due_at、state、source_diagnosis_id</td><td>查询(user_id,due_at,state)</td></tr>
+<tr><td>source_configs</td><td>id、course_id、url、allowed_hosts、schedule、enabled、last_success_at</td><td>(course_id,canonical_url)唯一</td></tr>
+<tr><td>update_candidates</td><td>id、source_id、content_hash、diff、review_status、review_revision</td><td>(source_id,content_hash)唯一</td></tr>
+<tr><td>releases</td><td>id、course_id、snapshot_id、summary、status、revision</td><td>活动发布通过课程指针确定</td></tr>
+<tr><td>notifications</td><td>id、user_id、release_id、read_at、kind</td><td>(user_id,release_id,kind)唯一</td></tr>
+<tr><td>tasks / outbox</td><td>id、type、dedupe_key、payload、status、run_at、lease_until</td><td>dedupe_key唯一；run_at索引</td></tr>
+<tr><td>audit_logs</td><td>id、actor_id、action、resource_id、trace_id、result、at</td><td>追加写；正文与密钥不得入日志</td></tr>
+<tr><td>model_routes</td><td>id、version、policy、capabilities、secret_ref、adapter_revision</td><td>密钥为引用，普通接口不可回显</td></tr>
+<tr><td>export_jobs / deletion_jobs</td><td>id、user_id、state、expires_at、storage_key</td><td>下载需二次鉴权与短期签名</td></tr>
+</tbody></table></div>
+<p>这是逻辑模型；正式迁移需落实所有外键、NOT NULL、枚举检查、唯一约束与RLS策略。JSON字段不能替代关键权限和状态字段。向量维度随空间固定，各空间可采用独立物理表，不能把不同维度直接写入同一固定维度列。</p>
+<h2>定位与版本</h2>
+<p>PDF定位包含页码和可选bbox，DOCX与Markdown包含标题路径、段落序号和字符范围。网页含规范URL、抓取时间、原始内容哈希和段落序号。没有页码的资料不能显示虚构页码。资料更新生成新版本，历史答案引用旧版本并标注“已有新版”；授权撤回时隐藏原文，只保留允许保留的元数据。</p>
+<h2>事务与并发</h2>
+<ol>
+<li>发布事务校验审核版本、快照就绪、嵌入空间匹配，使用课程revision做乐观锁，一次切换active_snapshot_id并写outbox。并发发布者得到409后重新比对。</li>
+<li>作答事务保存attempt、评分版本与learning_event；异步诊断失败不能丢失作答。</li>
+<li>学习投影以(user_id,course_id)串行或锁行更新，processed_events登记与投影同事务；重复事件不重复计分。</li>
+<li>时间乱序事件按occurred_at重放，received_at记录接收顺序；设备时钟偏差超过5分钟则标记并以服务端时间参与日程，不盲信客户端时间。</li>
+<li>删除事件触发原文、向量、缓存、导出文件与投影清理；新查询立即拒绝，后台清理可重试。</li>
+</ol>
+<h2>隔离与留存</h2>
+<p>服务端显式过滤加RLS纵深防护；连接池每个事务用SET LOCAL设置已认证主体，事务结束自动清理上下文。应用运行账号非表所有者、非superuser、无BYPASSRLS；迁移账号分离。RLS启用后无策略默认拒绝，但表所有者等例外必须显式处理。<a href="https://www.postgresql.org/docs/current/ddl-rowsecurity.html">PostgreSQL文档</a></p>
+<p>初始项目政策：学习记录默认保留180天，可导出后删除；诊断与证据同生命周期；运行日志30天；非正文审计90天；备份30天滚动。上述是设计默认值，不是法律结论。删除请求7天内完成在线物理清理；备份随周期过期，恢复后必须重放删除清单再开放服务。</p></article><article id="doc-04"><h1>RAG与领域模型设计</h1>
+<h2>责任分配</h2>
+<p>RAG提供有版本、可引用的课程事实；领域微调改善术语、讲解方式、误区识别格式和教学行为。实时知识变化通过资料发布进入RAG；学生个人画像存放业务数据库。不能用微调替代可更新知识库，也不能把私人学习记录自动加入训练集。</p>
+<p>系统按课程配置知识库、知识点和可选适配器。不同课程共用基础模型时仍隔离检索上下文。未配置微调模型的课程显示基础模型路由；一门课程的微调结果不能作为所有课程效果的证据。</p>
+<h2>入库管道</h2>
+<p>上传或网络候选→格式及大小校验→隔离解析→文本质量检查→按标题和段落切片→补充定位和权限元数据→嵌入→待发布快照→回归检查→发布。</p>
+<p>首版允许PDF、DOCX、TXT、MD；文件上限30MB、PDF最多300页、解析超时120秒均为初始配置。扫描PDF无有效文本时转入needs_ocr，首版可选OCR插件；没有插件即人工补充文字。公式表格解析不确定时保留原文定位并提示维护者核对，不将乱码入库。</p>
+<p>初始切片400至700 tokens、重叠80 tokens，题目与答案分区，尽量不拆开公式说明和表格行。使用嵌入模型对应tokenizer计数；切片长度经三门课测试调整。每片记录course、visibility、owner、document_version、locator、hash和parser_version。</p>
+<h2>检索和生成</h2>
+<ol>
+<li>校验课程成员和会话归属，固定active_snapshot；根据学生当前追问做保守查询改写，改写失败用原问题。</li>
+<li>在可访问、已发布、未撤回的资料中并行取词法top20和向量top20。首版中文词法采用固定版本分词器加PostgreSQL simple词典，不假定默认英文分词能处理中文。私有上传资料仅对所有者参与检索。</li>
+<li>使用RRF合并，初始常数60，取top12；可选重排取top5，无重排器则直接用融合结果。ANN过滤后结果不足应扩大候选或回退精确搜索，不能放宽权限。</li>
+<li>控制证据总预算≤4000 tokens，并为系统指令、历史和输出预留空间。超长历史做有来源摘要，原始历史可追溯；禁止把别的课程摘要拼入。</li>
+<li>先给简要解释，再给分步提示或例子，并提供验证理解的问题。学生可主动选择完整解答。引用用服务端生成的片段编号，模型只能选择已给编号。</li>
+<li>生成后验证引用存在、属于课程、版本和权限合法；重点结论抽样做证据蕴含检查。无证据、冲突或引用不支持时应限定回答或请求澄清。</li>
+</ol>
+<p>初始topK、预算、阈值均是待调参数。相似度分数不等于答案正确概率，不能把“0.8相似度”展示为“80%正确”。拒答阈值在开发集上按可回答/不可回答样本校准，冻结后测独立测试集。</p>
+<h2>结构化输出</h2>
+<p>最终回答对象包含answer、claims、citations、limitations、followup_questions、snapshot_id和model_route_version。claims把需支持的结论与引用关联。结构化解析失败最多一次修复；仍失败则保留普通文本并标记结构化不可用，不更新学习诊断。题目评分服务单独调用，不从聊天中推断已做对或做错。</p>
+<h2>模型网关</h2>
+<p>统一接口：generate、stream、embed、rerank、health、capabilities。路由包含provider、endpoint、model_revision、adapter_revision、context_limit、structured_output、locality、max_concurrency和secret_ref。生成、嵌入、重排可分别配置，不因生成本地就宣称全链路本地。</p>
+<div class="table-scroll"><table><thead><tr><th>模式</th><th>生成与嵌入</th><th>网络策略</th><th>故障处理</th></tr></thead><tbody>
+<tr><td>cloud</td><td>受控API；嵌入可本地</td><td>经明确配置的外部端点</td><td>同授权域内重试或显示不可用</td></tr>
+<tr><td>hybrid</td><td>本地生成+经同意的云嵌入</td><td>页面明确显示数据流向</td><td>不自动改用其他云服务</td></tr>
+<tr><td>strict_local</td><td>生成、嵌入、重排、诊断均本地</td><td>禁止应用模型外呼</td><td>失败关闭能力，保留记录</td></tr>
+</tbody></table></div>
+<p>Ollama提供本地HTTP接口和兼容接口，适合本机或局域网演示；GPU服务可评估vLLM。两者的兼容能力需按实际模型和版本做契约测试，不假定所有扩展参数一致。<a href="https://docs.ollama.com/api/introduction">Ollama官方API</a>、<a href="https://docs.vllm.ai/en/latest/serving/online_serving/">vLLM官方服务文档</a></p>
+<p>本地与云模型同时失败时不生成假答案。已经输出部分内容后禁止在同一流偷偷切换模型；标记interrupted，重试创建新请求并关联旧请求。初始模型调用首token超时15秒、总超时60秒；最多一次同端点重试，仅限未输出阶段。</p>
+<h2>领域微调实验</h2>
+<p>三人八周内只选择一门课程的一个章节开展领域微调，其他课程使用共享基础模型和独立RAG资料。目标准备500条人工审核高质量样本，不把1000至3000条作为本次作业前置要求；样本不足时可做小样实验，但必须说明规模和结论限制。样本包括术语解释、由浅入深提示、常见错误纠正、引用格式和资料不足响应。合成样本必须核对；测试答案不得进入训练。</p>
+<p>按章节、知识点及题目模板分组后再做70/15/15训练、开发和测试划分。相同原题的改写、近重复切片不能跨集合。保留训练来源与授权账本；不收集学生身份和私人对话作为默认训练数据。</p>
+<p>采用LoRA或显存受限时QLoRA。LoRA属于减少可训练参数的适配方法；是否支持量化、哪些模块可训练需以选定模型实现验证。<a href="https://huggingface.co/docs/peft/main/package_reference/lora">PEFT官方LoRA说明</a></p>
+<p>正式试训最多两组初始配置：rank=8且学习率1e-4；rank=16且学习率2e-4。两组均最多3 epochs、有效batch 16、序列2048，用开发集监控早停；不是保证最优配置。先做20条样本过拟合检查，再跑正式训练；完整记录seed、库版本、基础模型哈希、数据哈希、训练损失、验证结果和资源用量。第1周做资源验证，第2至4周准备并审核数据，第5周试训，第6周完成四组比较，避免把训练集中在最后两周。</p>
+<p>四组对比必须保持检索快照和题集一致：基础模型、基础+RAG、微调模型、微调+RAG。采用盲评教学质量与事实正确性，记录失败样本。目标是相对基础+RAG教学量规平均分提升≥0.3/5，引用支持率下降不超过2个百分点；未达标保留基础+RAG路由并报告负结果。不能为了通过门槛反复调整独立测试集。</p>
+<p>微调交付包括adapter文件、配置、数据清单、训练脚本或命令、日志、模型卡、评测报告和加载验证。适配器与基础模型版本绑定；修改适配器无需重建向量，修改嵌入空间必须重建。模型包分发需单独确认基础模型与训练语料的许可。</p></article><article id="doc-05"><h1>学习记录与误区诊断设计</h1>
+<h2>教育含义与限制</h2>
+<p>系统记录具体学习行为，提出可验证的学习假设。学生提问、阅读时长和聊天次数可说明兴趣或参与情况，不能单独说明知识掌握或概念误解。潜在问题限于课程知识、先修基础、方法和易混概念，不推断心理健康、智力或人格。</p>
+<p>数学、语言和文史课程的评价方式不同。客观题用题库规则；计算题用步骤量规并允许教师复核；开放问答提供“建议评价”。没有经过审核量规的主观题结果不进入高置信诊断。</p>
+<h2>事件词典</h2>
+<div class="table-scroll"><table><thead><tr><th>事件</th><th>必备业务字段</th><th>用途</th></tr></thead><tbody>
+<tr><td>question_asked</td><td>conversation_id、message_id、kp_tags</td><td>主题关注与推荐，不计掌握</td></tr>
+<tr><td>explanation_viewed</td><td>message_id、visible_duration_bucket</td><td>体验统计，可关闭，不计掌握</td></tr>
+<tr><td>attempt_submitted</td><td>attempt_id、question_version、kp_weights</td><td>诊断证据原始入口</td></tr>
+<tr><td>assessment_finalized</td><td>attempt_id、score、rubric_version、hint_level、review_status</td><td>掌握度有效证据</td></tr>
+<tr><td>hint_requested</td><td>attempt_id、level</td><td>区分独立完成与提示完成</td></tr>
+<tr><td>diagnosis_disputed</td><td>diagnosis_id、reason</td><td>停止直接使用争议标签并触发复核</td></tr>
+<tr><td>review_completed</td><td>review_task_id、attempt_id</td><td>间隔复习调整</td></tr>
+<tr><td>correction_applied</td><td>original_event_id、replacement_event_id、reason</td><td>重建投影和诊断</td></tr>
+</tbody></table></div>
+<p>公共信封包括event_id、client_event_id、user_id（服务端注入）、course_id、occurred_at、received_at、schema_version。前端只能提交交互类事件；评分和assessment_finalized只能由可信后端生成。payload不重复保存完整聊天正文，引用业务实体即可。</p>
+<h2>可解释的掌握度基线</h2>
+<p>首版采用可重建的Beta证据累计，属于启发式学习指标，未校准前不称为真实掌握概率。每个知识点alpha=1、beta=1，暂无证据时不显示50%为能力评分。</p>
+<p>对经审核有效作答，得分s归一化至[0,1]，知识点权重w来自题目映射并且每题权重之和=1；证据质量q为独立完成1.0、轻提示0.6、已见答案后的重做0.2，未复核主观题为0。更新alpha+=w*q*s，beta+=w*q*(1-s)，展示指数alpha/(alpha+beta)并同时展示effective_n=sum(w*q)。</p>
+<p>同一原题族每日累计q上限1，避免反复刷同题抬高指标；不同知识点不得各记一整道题。effective_n&lt;3时只显示“证据较少”。初始区间为&lt;0.4需补基础、0.4至0.7继续练习、≥0.7较稳定，均需开发集调整。不根据不活跃天数直接降低能力值；时间衰减只影响复习优先级。</p>
+<p>提示等级由后端已经发出的提示与答案展示记录决定，不能仅相信客户端声明。若学生主动报告使用外部提示，可降低证据权重；系统不声称能检测所有外部辅助行为。</p>
+<p>示例：一道概念题独立答错，w=1、q=1，指标从先验0.5变为1/3，但effective_n=1，界面只显示“有一次待复测记录”，不直接贴“不掌握”标签。换题独立答对后alpha=2、beta=2，仍需更多证据。</p>
+<h2>误区状态机</h2>
+<figure class="diagram"><svg role="img" aria-label="设计关系概览，详细关系见下方源码" viewBox="0 0 770 200"><defs><marker id="arrow-4" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3z" fill="#627b9b"/></marker></defs><rect x="20" y="20" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="130" y="54" text-anchor="middle" font-size="16" fill="#19375d">误区候选</text><path d="M244 48h20" stroke="#627b9b" marker-end="url(#arrow-4)"/><rect x="270" y="20" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="380" y="54" text-anchor="middle" font-size="16" fill="#19375d">独立题复测</text><path d="M494 48h20" stroke="#627b9b" marker-end="url(#arrow-4)"/><rect x="520" y="20" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="630" y="54" text-anchor="middle" font-size="16" fill="#19375d">确认或驳回</text><rect x="20" y="120" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="130" y="154" text-anchor="middle" font-size="16" fill="#19375d">后续改进</text><path d="M244 148h20" stroke="#627b9b" marker-end="url(#arrow-4)"/><rect x="270" y="120" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="380" y="154" text-anchor="middle" font-size="16" fill="#19375d">间隔复测</text><path d="M494 148h20" stroke="#627b9b" marker-end="url(#arrow-4)"/><rect x="520" y="120" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="630" y="154" text-anchor="middle" font-size="16" fill="#19375d">解决或重查</text></svg><figcaption>结构概览；精确分支、关系和时序以下方 Mermaid 源码为准。</figcaption></figure><details><summary>查看精确图示源码</summary><pre><code>stateDiagram-v2
+  [*] --&gt; candidate: 首次出现可定位错误
+  candidate --&gt; investigating: 提供复测题
+  investigating --&gt; confirmed: 两道独立题出现同类错误且量规支持
+  investigating --&gt; dismissed: 反证或识别为题目问题
+  confirmed --&gt; improving: 后续复测通过
+  improving --&gt; resolved: 不同日两道独立题通过
+  improving --&gt; confirmed: 再次出现同类错误
+  candidate --&gt; disputed: 学生提出异议
+  confirmed --&gt; disputed: 学生提出异议
+  disputed --&gt; investigating: 重新验证</code></pre></details>
+<p>独立题指不同原题族，不是同题改几个数字。模型可以建议误区类型，但服务端规则决定状态。知识点映射不确定、题目答案有争议或评分待复核时，只允许candidate。误区记录包含错误描述、证据attempt_id、反证、量规版本、算法版本、验证题和最后更新时间。</p>
+<p>候选文案：“你在两道题中都把相关关系解释为因果，可能需要区分这两个概念。做一道验证题看看。”不显示未经校准的置信百分比。学生可标记“我只是看错题”“评分有误”“已理解”，这些反馈触发复核，而不是直接删除证据或自动确认掌握。</p>
+<h2>潜在问题推断</h2>
+<p>对当前难点沿课程先修图最多向前两层寻找低证据或表现不稳定的知识点，以规则给出一至三个待验证假设。先修图由维护者审核，禁止模型自行改图。假设需要说明来源，例如“函数复合连续出错，可能与映射概念有关”，并给短诊断题。先修点无作答记录时标为未知，不能判定薄弱。</p>
+<p>不使用复杂知识追踪模型作为首版必要依赖。后续可将规则与BKT等方案做离线对比，但必须先验证数据足够、指标适用和学生分组公平性。</p>
+<h2>复习计划与纠错</h2>
+<p>初始复习间隔1、3、7、14天；完成复习答错回到1天，独立通过进入下一档，提示完成维持当前档。每天最多推荐3项、约15分钟，允许改期和暂停。间隔是产品初值，不能宣称最佳学习策略。修改题目答案或评分量规时发更正事件，重算受影响投影，旧诊断显示“已因评分更正更新”。</p>
+<p>诊断Worker只读取当前用户当前课程最小证据。处理失败保持“学习记录已保存，分析稍后更新”；消息页不得先显示最终误区再在失败时丢失证据。</p></article><article id="doc-06"><h1>网络知识收集与发布设计</h1>
+<h2>目标与来源</h2>
+<p>定期收集课程相关的新资料，向维护者提交可审查差异，发布后向学生提交简明更新。首版站内通知足够完成需求，邮件和手机推送可后续增加。</p>
+<p>维护者为每门课程配置来源URL、允许域名、RSS或网页抓取方式、主题标签、频率、内容许可、每日数量与最后成功时间。优先RSS、官方文档、开放教材和课程负责人提供页面。搜索发现可作为后续扩展，不依赖全网开放抓取。不能绕过登录、付费墙或来源限制；网页可访问不代表可整篇转载。</p>
+<h2>状态与调度</h2>
+<figure class="diagram"><svg role="img" aria-label="设计关系概览，详细关系见下方源码" viewBox="0 0 770 200"><defs><marker id="arrow-5" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3z" fill="#627b9b"/></marker></defs><rect x="20" y="20" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="130" y="54" text-anchor="middle" font-size="16" fill="#19375d">定时收集</text><path d="M244 48h20" stroke="#627b9b" marker-end="url(#arrow-5)"/><rect x="270" y="20" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="380" y="54" text-anchor="middle" font-size="16" fill="#19375d">内容差异</text><path d="M494 48h20" stroke="#627b9b" marker-end="url(#arrow-5)"/><rect x="520" y="20" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="630" y="54" text-anchor="middle" font-size="16" fill="#19375d">人工审核</text><rect x="20" y="120" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="130" y="154" text-anchor="middle" font-size="16" fill="#19375d">构建快照</text><path d="M244 148h20" stroke="#627b9b" marker-end="url(#arrow-5)"/><rect x="270" y="120" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="380" y="154" text-anchor="middle" font-size="16" fill="#19375d">发布与通知</text><path d="M494 148h20" stroke="#627b9b" marker-end="url(#arrow-5)"/><rect x="520" y="120" width="220" height="56" rx="9" fill="#edf3ff" stroke="#b8caec"/><text x="630" y="154" text-anchor="middle" font-size="16" fill="#19375d">可撤回回滚</text></svg><figcaption>结构概览；精确分支、关系和时序以下方 Mermaid 源码为准。</figcaption></figure><details><summary>查看精确图示源码</summary><pre><code>flowchart LR
+ A[定时任务或手动触发] --&gt; B[限域抓取]
+ B --&gt; C[去重与内容差异]
+ C --&gt; D[主题与质量检查]
+ D --&gt; E[待审核候选]
+ E --&gt; F[批准]
+ E --&gt; R[拒绝或要求修订]
+ F --&gt; G[构建快照并回归]
+ G --&gt; H[原子发布]
+ H --&gt; I[站内摘要与通知]
+ H --&gt; J[撤回或回滚]</code></pre></details>
+<p>每课默认每日本地时间02:00检查，来源每轮最多20页、抓取超时15秒、总任务上限5分钟；每域名每秒不超过1次。调度保存时区和下次UTC时间；相同来源同一天的任务dedupe_key唯一。错过计划后恢复只补跑一次最新检查，避免堆积。失败按1、5、30分钟重试，三次失败标记并展示最后成功时间。学校网络不可达时继续使用现有知识库。</p>
+<h2>差异与相关性</h2>
+<p>URL规范化去除跟踪参数但保留会改变正文的参数；同URL不同正文创建新候选，同正文不同URL记录别名。先比较ETag或Last-Modified，随后用净化正文SHA-256确认；只改导航和广告不创建知识更新。保存抓取时间、原始页面哈希和提取器版本，以便复现。</p>
+<p>检查课程关键词、知识点映射、来源可信度、发布日期与内容有效期。模型只提供相关性和摘要建议；涉及公式、答案、政策、事实冲突需要人工核对。与教材冲突时并列展示旧说法、新说法和来源，不自动覆盖。对于文史等存在多种解释的课程，保持出处和观点归属，不将“更新”简单等同“旧观点错误”。</p>
+<h2>审核与发布协议</h2>
+<p>候选状态为discovered、parsed、pending_review、approved、rejected；解析失败为failed，可重试。批准请求必须带review_revision，内容变化后旧批准失效。只有课程维护者能批准。批次内任一关键文件构建失败，整体不发布；维护者可明确移除失败条目后创建新批次。</p>
+<p>发布先构建ready快照并运行检索冒烟、引用定位、权限与嵌入指纹检查，再用数据库事务切换活动指针。期间学生始终读取旧版本，禁止读到半个索引。发布与通知通过outbox衔接，通知失败不回滚知识库，重试也不重复发。</p>
+<p>用户更新卡示例：标题“统计基础新增相关与因果辨析”，正文包含新增2条、修订1条、涉及知识点、对学习的影响、原始来源、发布日期和资料版本，并提供“查看差异”“去复习”。无实质变化不提醒。摘要不得把模型猜测写成来源已证实内容。</p>
+<h2>撤回和回滚</h2>
+<p>普通质量问题回滚到上一完整快照，保留撤回记录与原因。版权或有害内容撤回时先把document_version加入全局拒绝检索列表，再清理所有快照、缓存和可见原文；不能只切回仍包含该内容的旧快照。历史答案加“相关资料已撤回”标识，必要时隐藏对应片段并创建更正通知。回滚后执行一次受影响问题回归测试。</p>
+<h2>抓取安全</h2>
+<p>抓取器仅能访问维护者批准的公网HTTP/HTTPS域名；禁止file、ftp、localhost、私网、链路本地和云元数据地址。每次DNS解析和每次重定向均重新检查，阻止DNS重绑定。限制响应大小和解压比，移除脚本、隐藏指令和可执行内容。抓取环境无数据库管理员权限、无模型密钥、无任意工具执行权限。</p>
+<p>外部文档按不可信数据处理，不能授权调用工具、修改权限或自动发布。仅靠提示词或微调不能消除间接提示注入，应配合权限、格式校验和隔离。<a href="https://genai.owasp.org/llmrisk/llm01-prompt-injection/">OWASP说明</a></p></article><article id="doc-07"><h1>界面交互与移动端设计</h1>
+<h2>体验目标与导航</h2>
+<p>用户每次进入课程都能知道“现在可以学什么、依据是什么、下一步做什么”。首页优先呈现学习目标和行动入口，不让图表压过学习任务。所有诊断使用尊重学生、可验证和可纠正的语言。</p>
+<p>桌面左侧课程与导航，中间主内容，右侧按需打开出处或学习建议；手机为单列内容和底部“学习、提问、复习、我的”四项导航，更新入口显示小徽标。课程切换位于页首，切换时清晰显示课程名并清理上课会话上下文。</p>
+<h2>页面与状态</h2>
+<div class="table-scroll"><table><thead><tr><th>页面</th><th>核心内容</th><th>主操作</th><th>必须设计的状态</th></tr></thead><tbody>
+<tr><td>欢迎与课程选择</td><td>课程说明、加入码、使用模式</td><td>加入课程</td><td>无课程、无效加入码、网络失败</td></tr>
+<tr><td>首次引导</td><td>目标、可跳过摸底、数据使用说明</td><td>开始学习</td><td>跳过、不支持云模式、隐私选择</td></tr>
+<tr><td>学习首页</td><td>当前课程、今日3项建议、最近变化</td><td>开始一项任务</td><td>新用户无数据、任务完成、分析延迟</td></tr>
+<tr><td>问答页</td><td>对话、提示层级、出处、后续问题</td><td>发送或停止</td><td>检索中、生成中、缺资料、超时、中断</td></tr>
+<tr><td>引用详情</td><td>文档标题、版本、页码或段落、原文</td><td>返回回答</td><td>已更新、已撤回、权限不足</td></tr>
+<tr><td>练习页</td><td>单题、提示、提交后反馈、验证题</td><td>提交答案</td><td>草稿、提交中、待复核、重复提交</td></tr>
+<tr><td>学习面板</td><td>知识点表现、证据数、误区候选</td><td>查看证据或复测</td><td>证据不足、争议、重算中</td></tr>
+<tr><td>复习页</td><td>到期任务、建议时长、复测结果</td><td>开始复习</td><td>空任务、过期、改期</td></tr>
+<tr><td>更新中心</td><td>发布摘要、差异、来源、版本</td><td>查看变化</td><td>无变化、未读、已撤回</td></tr>
+<tr><td>个人设置</td><td>模式说明、数据导出删除、缓存管理</td><td>保存设置</td><td>导出生成中、删除确认、已完成</td></tr>
+<tr><td>课程维护台</td><td>资料、题库、知识点、候选、发布历史</td><td>审核或发布</td><td>解析失败、冲突、索引未就绪</td></tr>
+</tbody></table></div>
+<h2>核心页面线框</h2>
+<pre><code>手机问答页                            手机学习首页
+┌────────────────────────┐         ┌────────────────────────┐
+│ ‹ 统计基础        更新 ● │         │ 统计基础 ▾       个人设置 │
+│ 当前资料 v12            │         │ 今天想先掌握哪一部分？   │
+├────────────────────────┤         │ [继续昨天的学习]         │
+│ 你：相关就意味着因果吗？ │         ├────────────────────────┤
+│                        │         │ 建议复习  约 10 分钟     │
+│ 先看两个变量是否可能由  │         │ 相关与因果  待验证       │
+│ 同一因素影响…… [来源1]  │         │ 证据：2 道题 [查看证据]  │
+│ [给个提示] [完整解释]   │         │ [做一道验证题]           │
+│ [用一道题验证理解]      │         ├────────────────────────┤
+├────────────────────────┤         │ 课程资料有 1 项更新      │
+│ 输入问题…         发送  │         │ [查看变化]               │
+├────────────────────────┤         ├────────────────────────┤
+│ 学习   提问   复习   我的│         │ 学习   提问   复习   我的│
+└────────────────────────┘         └────────────────────────┘</code></pre>
+<p>线框用于确认信息结构，不代表已实现视觉原型。问答引用在手机以全高抽屉或新页面打开，保留返回位置；不能依赖悬停才能查看出处。</p>
+<h2>视觉规范</h2>
+<p>采用温和清晰的学习工具风格。背景#F7F8FC，正文#182230，辅助文字#475467，主操作#2457D6，成功#167347，警示#975A00，错误#B42318；颜色最终需用对比度工具验证，正文对比目标至少4.5:1。状态同时用图标与文字表达。</p>
+<p>正文16px、行高1.6，页面标题24至30px，桌面内容最大宽1200px，长文阅读区约760px；间距基于4、8、12、16、24、32px，卡片圆角12px。主操作每个区域尽量一个。避免堆叠渐变、重阴影和装饰性仪表盘。图表默认用条形和简单趋势，提供文字说明与数据表替代。</p>
+<h2>引导与异常文案</h2>
+<p>首次提问前给三类示例：“解释一个概念”“分步提示一道题”“检查我的理解”。缺资料：“当前课程资料中还没有找到足够依据。可以补充题目背景，或请维护者导入资料。”诊断延迟：“答案已保存，学习分析稍后更新。”模型不可用：“当前学习助手暂时无法回答，你的输入已保留。”</p>
+<p>来源验证完成前显示“出处核验中”，不能先给已验证标记。流式答复中止时保留内容并标记未完成。用户切换页面应取消订阅但允许返回查看请求状态；停止生成则调用取消接口。</p>
+<h2>手机与PWA策略</h2>
+<p>断点初值&lt;768px单列，768至1199px双栏，≥1200px可展开出处栏；360、390、768、1440px分别检查。输入框跟随可视视口，测试软键盘、安全区和横竖屏。代码、公式和宽表只在自身容器内滚动；非代码页面不得整体横向滚动。</p>
+<p>PWA为首版安装形式，部署需HTTPS（本机开发例外），配置manifest、图标和离线页。安装体验因浏览器和系统不同，需分别提供引导并实机验证。<a href="https://web.dev/learn/pwa/installation">web.dev安装说明</a></p>
+<p>默认仅缓存静态外壳和明确选择的公开课程资料。私人对话、题目答案、会话接口均network-only，不进入共享service worker缓存。离线仅可阅读已缓存公开资料和编辑本机作答草稿；在线推理、同步、网络更新均显示不可用。草稿恢复后由用户确认提交，不后台自动计分；退出登录删除按账号分区的草稿。</p>
+<p>不承诺手机本地推理。手机访问电脑上的本地模型需通过同一局域网的受保护后端，HTTPS访问方案、证书信任和防火墙设置见部署文档。</p>
+<h2>无障碍与验证</h2>
+<p>所有表单有可见标签和错误关联；焦点顺序稳定，弹窗关闭后返回触发点。流式输出采用节流的aria-live摘要，避免逐token轰炸读屏。动画遵循减少动态偏好。选项和图标按钮有可读名称，核心任务支持全键盘。邀请3至5位非开发同学完成首次提问和复测任务，记录完成率、卡点和改版依据。</p></article><article id="doc-08"><h1>接口与流式协议设计</h1>
+<h2>公共约定</h2>
+<p>基础路径/api/v1，JSON使用snake_case；身份使用服务端会话HttpOnly、Secure、SameSite=Lax Cookie，跨站写入需CSRF令牌并校验Origin。同源部署为默认，禁止开放任意CORS。写操作均要求X-CSRF-Token，登录页先GET /session获取CSRF上下文。客户端提供user_id一律不用于授权。</p>
+<p>ID为UUID，时间为RFC3339 UTC。列表用limit（1至100，默认20）及opaque cursor，响应含items、next_cursor。所有响应设置X-Trace-Id。错误对象含code、message、trace_id、retryable、details；details不含密钥、文件系统路径或他人记录。</p>
+<p>400请求错误，401未登录，403角色不足，404资源不存在或不可访问，409版本/幂等冲突，413过大，422字段不合法，429限流，503依赖不可用。流建立后的错误通过SSE事件报告，不能再依赖HTTP状态改变。</p>
+<h2>核心端点</h2>
+<div class="table-scroll"><table><thead><tr><th>方法与路径</th><th>请求要点</th><th>结果</th><th>权限</th></tr></thead><tbody>
+<tr><td>GET /session</td><td>无</td><td>登录状态和csrf_token</td><td>公开</td></tr>
+<tr><td>POST /session</td><td>login_name、password</td><td>当前用户</td><td>公开+CSRF</td></tr>
+<tr><td>DELETE /session</td><td>无</td><td>204退出</td><td>已登录</td></tr>
+<tr><td>POST /session/reauth</td><td>password</td><td>短期reauth_token，仅用于本人敏感操作</td><td>已登录+CSRF</td></tr>
+<tr><td>POST /users</td><td>login_name、password</td><td>201学生账号</td><td>公开+CSRF，实例可关闭注册</td></tr>
+<tr><td>GET /courses</td><td>游标</td><td>当前用户课程列表</td><td>已登录</td></tr>
+<tr><td>POST /enrollments</td><td>join_code</td><td>201成员关系</td><td>学生</td></tr>
+<tr><td>POST /conversations</td><td>course_id、title</td><td>201会话</td><td>课程学生</td></tr>
+<tr><td>GET /conversations/{id}/messages</td><td>游标</td><td>历史消息与请求状态</td><td>所有者</td></tr>
+<tr><td>POST /conversations/{id}/messages</td><td>text、mode；Idempotency-Key</td><td>202请求对象</td><td>所有者</td></tr>
+<tr><td>GET /requests/{id}/events</td><td>Last-Event-ID</td><td>SSE流</td><td>所有者</td></tr>
+<tr><td>GET /requests/{id}</td><td>无</td><td>状态和最终答复</td><td>所有者</td></tr>
+<tr><td>POST /requests/{id}/cancel</td><td>无</td><td>202或已结束状态</td><td>所有者</td></tr>
+<tr><td>POST /courses/{id}/documents</td><td>multipart文件、visibility</td><td>202解析任务</td><td>成员上传私人，维护者上传课程资料</td></tr>
+<tr><td>GET /tasks/{id}</td><td>无</td><td>任务状态、可见错误</td><td>所有者或对应维护者</td></tr>
+<tr><td>GET /citations/{id}</td><td>无</td><td>标题、版本、定位、可见片段</td><td>原资料可访问者</td></tr>
+<tr><td>GET /courses/{id}/questions</td><td>kp_id、limit</td><td>不含答案的题目版本</td><td>课程学生</td></tr>
+<tr><td>POST /courses/{id}/attempts</td><td>question_version_id、answer、hint_level、client_submission_id</td><td>201评分或待复核状态</td><td>课程学生</td></tr>
+<tr><td>GET /courses/{id}/learning</td><td>无</td><td>本人掌握度和待复习项</td><td>课程学生</td></tr>
+<tr><td>GET /courses/{id}/diagnoses</td><td>游标、state</td><td>本人诊断与证据</td><td>课程学生</td></tr>
+<tr><td>POST /diagnoses/{id}/disputes</td><td>reason</td><td>202复核任务</td><td>诊断所有者</td></tr>
+<tr><td>GET /notifications</td><td>游标</td><td>站内收件项</td><td>所有者</td></tr>
+<tr><td>PATCH /notifications/{id}</td><td>read=true</td><td>已读状态</td><td>所有者</td></tr>
+<tr><td>GET /courses/{id}/releases</td><td>游标</td><td>摘要、差异与发布状态</td><td>课程成员</td></tr>
+<tr><td>POST /courses/{id}/sources</td><td>url、allowed_hosts、schedule</td><td>201来源</td><td>维护者</td></tr>
+<tr><td>POST /sources/{id}/runs</td><td>Idempotency-Key</td><td>202任务</td><td>维护者</td></tr>
+<tr><td>GET /courses/{id}/update-candidates</td><td>游标</td><td>候选与差异</td><td>维护者</td></tr>
+<tr><td>POST /update-candidates/{id}/reviews</td><td>decision、expected_revision、note</td><td>评审状态</td><td>维护者</td></tr>
+<tr><td>POST /courses/{id}/releases</td><td>candidate_ids、expected_revision；幂等键</td><td>202构建任务</td><td>维护者</td></tr>
+<tr><td>POST /releases/{id}/rollback</td><td>expected_revision、reason</td><td>202回滚任务</td><td>维护者</td></tr>
+<tr><td>GET /model-status</td><td>course_id</td><td>可用性、模式，不含密钥</td><td>成员</td></tr>
+<tr><td>POST /me/exports</td><td>scope</td><td>202导出任务</td><td>本人</td></tr>
+<tr><td>DELETE /me/data</td><td>scope、confirmation</td><td>202删除任务</td><td>本人二次认证</td></tr>
+</tbody></table></div>
+<p>本表为目标业务接口目录；contracts/openapi.json定义首版主要联调端点的完整请求和响应，其余端点需在对应模块开工时按本表补入契约并通过评审。模型路由编辑、课程和题库管理后台暂不在核心契约中，但不能由客户端任意改endpoint或答案。</p>
+<h2>问答请求与SSE</h2>
+<p>创建请求示例：</p>
+<pre><code>{&quot;text&quot;:&quot;相关是否意味着因果？&quot;,&quot;mode&quot;:&quot;hint_first&quot;}</code></pre>
+<p>返回202：</p>
+<pre><code>{&quot;request_id&quot;:&quot;b76c3ddb-b371-4b9c-a203-fd2e95076167&quot;,&quot;status&quot;:&quot;queued&quot;,&quot;events_url&quot;:&quot;/api/v1/requests/b76c3ddb-b371-4b9c-a203-fd2e95076167/events&quot;}</code></pre>
+<p>SSE Content-Type为text/event-stream，禁用反向代理缓冲和响应缓存，每15秒发送注释心跳。真实模型token增量到达才转发delta，不先等完整生成再切段伪装实时。</p>
+<pre><code>id: 1
+event: status
+data: {&quot;stage&quot;:&quot;retrieving&quot;}
+
+id: 2
+event: delta
+data: {&quot;text&quot;:&quot;相关关系本身不能证明因果。&quot;}
+
+id: 3
+event: citations
+data: {&quot;verification&quot;:&quot;passed&quot;,&quot;items&quot;:[{&quot;citation_id&quot;:&quot;c1&quot;,&quot;label&quot;:&quot;统计基础 第2章&quot;,&quot;locator&quot;:{&quot;page&quot;:12}}]}
+
+id: 4
+event: completed
+data: {&quot;message_id&quot;:&quot;8495f205-7890-41cc-9bdb-1e0674893f9c&quot;,&quot;snapshot_id&quot;:&quot;88e3fc7f-00ba-4aa9-96d2-7ad8c8fe6198&quot;,&quot;status&quot;:&quot;completed&quot;}</code></pre>
+<p>示例中c1仅为可读缩写；正式引用ID必须UUID。状态stage为queued、retrieving、generating、verifying。终结事件只能出现completed、failed、cancelled之一。failed含code、message、retryable；完成事件前只显示待核验文本，不能据此记录已确认学习结论。</p>
+<p>事件ID在请求内单调递增，保留最近10分钟可回放事件。Last-Event-ID过期返回410，由前端GET请求状态并显示最终结果；无法回放时不能重新生成或重复计费。前端按ID去重，支持UTF-8跨字节分块和多行data，不按网络chunk直接当JSON。请求对象和最终消息至少按学习记录留存策略保存。</p>
+<h2>幂等与版本</h2>
+<p>问答、抓取、发布、提交作答需幂等，幂等记录至少24小时。作用域为用户+路径+key；相同body重试返回原对象，相同key不同body返回409。attempt的client_submission_id长期保持唯一，因此离线重连超过24小时也不重复计分。</p>
+<p>审核和发布必须携带expected_revision；构建任务保存被审核候选版本和课程快照。取消请求幂等，已完成后取消返回当前终态。删除和导出也必须去重，下载链接10分钟失效并再次鉴权。</p>
+<h2>结构化评分约束</h2>
+<p>Attempt请求只提交答案与提示等级；正确答案、score、user_id和knowledge_point不接受客户端覆盖。服务端从题目版本获得量规与知识点。响应score可为null，review_status=pending时不进入高置信诊断。用户异议保留原评分和后续更正版本。</p>
+<p>hint_level由服务端提示记录校验，客户端可报告更高提示等级但不能把已见答案降为独立完成。二次认证令牌有效期5分钟，绑定用户、当前会话和敏感操作范围，一次成功使用后失效；密码不写入审计正文。令牌获取、导出文件下载和后台配置管理的具体界面随模块实现补齐，不能省略相应权限检查。</p></article><article id="doc-09"><h1>安全隐私与数据生命周期设计</h1>
+<h2>信任边界</h2>
+<p>浏览器输入、上传文件、外部网页、模型输出和可分发课程包均视为不可信。后端会话决定身份；数据库权限决定可见数据；模型只能生成建议。应用部署者负责来源授权和运行模式配置，不能用“本地模型”概括所有处理链路的隐私属性。</p>
+<h2>风险与控制</h2>
+<div class="table-scroll"><table><thead><tr><th>风险</th><th>实施控制</th><th>必须验证</th></tr></thead><tbody>
+<tr><td>用户或课程串数据</td><td>所有权校验、课程成员过滤、RLS、私有切片过滤</td><td>两用户两课程，伪造各类ID返回404或拒绝</td></tr>
+<tr><td>提示注入与知识投毒</td><td>来源隔离、人工审核、资料作为数据、输出校验、模型无写权限</td><td>恶意文档不能发布或调用工具</td></tr>
+<tr><td>SSRF</td><td>公网域名白名单、重定向与DNS复检、出站网络限制</td><td>私网、元数据地址、DNS重绑定拦截</td></tr>
+<tr><td>上传攻击</td><td>大小/页数/类型/解压比限制、无宏执行、低权限解析</td><td>伪扩展名、压缩炸弹、路径穿越不落库</td></tr>
+<tr><td>XSS与危险引用</td><td>Markdown净化、禁原始HTML、URL协议检查、CSP</td><td>模型输出脚本与javascript链接不能执行</td></tr>
+<tr><td>密钥泄露</td><td>环境注入或secret引用、日志脱敏、分发前扫描</td><td>前端包、导出包、错误响应不含密钥</td></tr>
+<tr><td>未授权费用消耗</td><td>用户配额、并发限制、预算预留、取消与超时</td><td>达上限停用生成，重复请求不重复计费</td></tr>
+<tr><td>非预期模型外呼</td><td>strict_local策略涵盖嵌入/重排/诊断/OCR，网络层阻断</td><td>禁网下完整业务和出站日志检查</td></tr>
+<tr><td>会话劫持与CSRF</td><td>TLS、HttpOnly Cookie、CSRF令牌、Origin校验、会话撤销</td><td>跨站写失败，退出后旧会话失效</td></tr>
+<tr><td>分发包供应链</td><td>锁依赖、镜像摘要、校验和、无pickle导入</td><td>课程包篡改、zip-slip、未知格式拒绝</td></tr>
+</tbody></table></div>
+<p>RAG和微调不能完全防止提示注入，因此安全控制必须限制外部内容能影响的权限和动作。<a href="https://genai.owasp.org/llmrisk/llm01-prompt-injection/">OWASP风险说明</a></p>
+<h2>参考仓库需要优先处理的事项</h2>
+<p>静态审阅src/file_scanner.py发现疑似硬编码API凭据默认值。本次不复制其值，不测试是否有效。若沿用该代码，应先由所有者核实并轮换相关凭据，删除代码默认值，检查历史与分发包；这项列为公开分发前阻断项。src/index_manager.py使用pickle持久化，不能加载用户或网络提供的pickle；新课程包采用JSON与受限文件清单。</p>
+<p>示例web_app.py的本地模型失败路径存在转云逻辑，新项目strict_local必须禁止此行为。模型加载中的trust_remote_code应默认关闭，确需启用时先审查模型实现、固定版本并在隔离环境加载。</p>
+<p>这些是读到的代码事实及工程建议，不代表已完成全面安全审计或确认凭据有效性。</p>
+<h2>权限矩阵</h2>
+<div class="table-scroll"><table><thead><tr><th>操作</th><th>学生</th><th>课程维护者</th><th>实例管理员</th></tr></thead><tbody>
+<tr><td>自己问答、练习、诊断</td><td>是</td><td>以学生身份使用</td><td>以学生身份使用</td></tr>
+<tr><td>他人私人记录</td><td>否</td><td>默认否</td><td>默认否，受控支持流程另计</td></tr>
+<tr><td>课程公共资料读取</td><td>已加入课程</td><td>授权课程</td><td>需相应成员或授权</td></tr>
+<tr><td>上传私人资料</td><td>是</td><td>是</td><td>是</td></tr>
+<tr><td>课程资料审核发布</td><td>否</td><td>授权课程</td><td>具课程管理授权时</td></tr>
+<tr><td>系统模型与密钥配置</td><td>否</td><td>只选已批准路由</td><td>是，密钥不可回显</td></tr>
+<tr><td>个人导出和删除</td><td>本人</td><td>本人</td><td>受控代办需留审计</td></tr>
+</tbody></table></div>
+<h2>数据最小化</h2>
+<p>默认测试账号不需要真实姓名、学校、年龄和联系方式。首次使用解释记录哪些信息、诊断用途、云端处理范围和删除方法。学习分析默认只使用当前课程作答，不跨课程聚合身份画像。拒绝可选行为统计不影响问答与练习。</p>
+<p>真实未成年人、学校真实成绩和公开运营会改变适用要求，实施前需由项目负责人确认相关政策、同意流程和部署地区；本设计不作法律合规背书。学生数据不默认参与训练，研究或训练需要另行授权和去标识处理。</p>
+<h2>保留与删除</h2>
+<p>正文、学习证据和诊断默认180天，日志30天、非正文审计90天、备份30天。收到删除请求后立即隐藏并阻止新处理，7天内清理在线数据库、向量、资料、缓存、导出和派生画像；保留最小删除任务状态供确认。备份到期清除，恢复前重放删除清单。导出打包有效期24小时，下载签名10分钟。</p>
+<p>删除流程需要二次认证，明确选择当前课程记录或全部个人数据。删除个人资料不删除他人拥有的公共课程资料；若包含用户投稿，分别按其版权和授权关系处理。禁止用删除日志重新写入已删除的完整内容。</p>
+<h2>成本与资源防护</h2>
+<p>初始用户每天50次生成、每会话5次/分钟、全实例5并发生成；参数可按作业预算调整。调用前预留输入加最大输出预算，完成后按真实usage结算；失败释放未消耗预留，缺少供应商usage时标为估算并对账。达到硬预算后拒绝新云任务，已开始任务遵守输出上限。价格按实际供应商当期配置录入，文档不固定未经核实的单价。</p></article><article id="doc-10"><h1>部署运维与封装分发设计</h1>
+<h2>可交付形态</h2>
+<div class="table-scroll"><table><thead><tr><th>形态</th><th>面向对象</th><th>分发内容</th><th>使用限制</th></tr></thead><tbody>
+<tr><td>托管Web与PWA</td><td>同学和老师</td><td>HTTPS网址、可选加入码、手机安装引导</td><td>服务端需持续运行</td></tr>
+<tr><td>自部署运行包</td><td>有电脑或服务器的使用者</td><td>compose配置、镜像版本、初始化工具、课程示例包、指南</td><td>需容器运行环境与独立配置</td></tr>
+<tr><td>可选离线资源包</td><td>需要断网演示者</td><td>已授权模型、依赖镜像、嵌入模型、课程材料及校验和</td><td>体积与许可单独核验</td></tr>
+<tr><td>后续原生封装</td><td>有独立安装包要求时</td><td>桌面壳或移动壳、签名和更新机制</td><td>首版不含商店上架</td></tr>
+</tbody></table></div>
+<p>“到处发”解释为可分享网址、可复现自部署包和可迁移课程包，不能理解为任意电脑无需运行环境、无需资源就能启动大模型。手机首版通过Web/PWA接入。</p>
+<h2>进程与目录设计</h2>
+<p>容器包括web静态前端、api、worker、postgres和proxy。模型服务可独立容器或宿主机服务；worker与api使用同一后端镜像、不同启动入口。持久卷分离数据库、原始资料、导出和模型；重启或升级不得删除持久卷。</p>
+<p>运行包目录建议：compose.yaml、.env.example、images.lock、checksums.txt、scripts/bootstrap、scripts/backup、scripts/restore、course-packs/和INSTALL.md。这里只定义目标交付结构，当前文档包并不包含已实现运行包或脚本。</p>
+<h2>首次安装与配置</h2>
+<ol>
+<li>校验下载包完整性，检查磁盘、端口、容器引擎和模型依赖。</li>
+<li>生成实例密钥和管理员一次性口令，不附带公共默认密码。密钥仅写本机配置，不进入日志。</li>
+<li>启动数据库并运行迁移，再启动API和worker；健康检查成功后开放前端。</li>
+<li>管理员选择cloud、hybrid或strict_local，填写自己的供应商配置或本地endpoint，运行连通与嵌入维度检查。</li>
+<li>导入示例课程包、审核发布，使用测试学生账号完成问答、练习、诊断和更新流程。</li>
+</ol>
+<p>密钥必需时才由安装者配置。文档编写阶段不创建、不请求、不消耗任何API凭据。</p>
+<h2>三类运行配置</h2>
+<p>cloud配置保留数据库和文件在自部署环境，模型数据传往已配置供应商；界面说明具体发送范围。hybrid可使用本地生成和云嵌入，须显式接受相关处理。strict_local要求模型、嵌入、重排、评分、OCR、摘要均本地，并关闭遥测、外部字体、CDN和隐式下载；模型文件提前校验导入。</p>
+<p>离线模式暂停网络收集，展示最后一次知识检查日期。恢复联网后由调度器补跑一次。局域网手机依赖电脑后端持续运行，手机localhost指手机本身，不能在手机配置中使用电脑的localhost。</p>
+<h2>硬件估算和兼容范围</h2>
+<p>云API演示环境可从4核CPU、8GB RAM、20GB空闲磁盘起验证；这些是起始预算估算。小模型量化推理可从16GB系统内存、可选8至12GB显存试验，7B级训练可能需要更高显存。训练内存取决于模型、量化、序列、优化器和batch，不能仅按参数量承诺可运行。先做模型加载和短推理，再做完整并发测试，发布实际资源报告。</p>
+<p>优先验证Windows容器宿主环境与Linux服务器；macOS可列实验支持，未经测试不承诺完整兼容。移动端测试Android Chrome与iOS Safari两个实际版本并记录设备；浏览器最近两个稳定主版本是测试范围建议，不自动视为已通过。</p>
+<h2>手机访问与HTTPS</h2>
+<p>托管环境使用有效公共证书。局域网演示可用受信任的局域网HTTPS证书，安装者需在测试手机信任该证书并配置可访问主机名；防火墙仅开放所需后端代理端口。本地HTTP可用于基本网页演示，但不能据此承诺PWA安装、service worker等安全上下文功能。禁止把无鉴权的模型服务直接暴露公网。</p>
+<h2>课程包规范</h2>
+<p>ZIP内含manifest.json、documents/、questions.json和knowledge_points.json。manifest含schema_version、course_metadata、文件哈希、来源和许可，不含用户记录或密钥。路径限制在包内，拒绝绝对路径、..、符号链接和超限解压。题目答案仅由服务端导入，不通过静态公开文件提供。导入后重建嵌入，不复用来源不明二进制索引。</p>
+<p>账号学习数据迁移是独立受保护导出，不与可共享课程包混装。公共发布包检查许可证、模型卡、资料授权、第三方依赖清单和secret扫描；疑似泄露凭据未处理前禁止发布。</p>
+<h2>运维、恢复与升级</h2>
+<p>区分/livez（进程活着）、/readyz（数据库与关键业务就绪）和模型可用状态；模型不可用不让整站反复重启。指标包括请求成功率、首token、总延迟、排队时间、任务失败、资料新鲜度、引用验证失败、学习投影滞后和费用；日志只保存trace及脱敏元数据。</p>
+<p>试点恢复目标RPO≤24小时、RTO≤2小时，均需恢复演练验证。每天备份数据库、原始资料、课程清单、配置引用和嵌入指纹；密钥单独保护。索引可重建，恢复时优先业务记录。备份30天滚动保留，至少完成一次全新环境恢复并核对删除清单。</p>
+<p>升级采用备份→迁移预检→停写或兼容扩展→部署→冒烟→开放。数据库迁移用expand/contract，旧列在回滚窗口内保留。应用回滚不能替代数据库恢复；知识库回滚走发布指针和撤回过滤，模型回滚切换固定版本路由。禁止把删除全部持久卷作为常规排障步骤。</p></article><article id="doc-11"><h1>测试计划与验收标准</h1>
+<h2>测试原则</h2>
+<p>对业务、AI质量和运行环境分别验收，结果均需留证据。本文所有门槛为设计目标，尚无实测成绩。普通单元测试通过不能代表RAG可信、误区正确或手机适用；模型自评分不能代替人工检查。</p>
+<h2>测试集与环境</h2>
+<p>三门异质课程样例为计算机基础、数学基础、文史阅读，每课限定一个章节，最终由团队确认。三人八周内的最低验证集为每课30条独立问答：可回答20、资料不足5、含糊或冲突3、恶意输入2，共90条；每课另设10个诊断案例，共30例，覆盖真实误区、看错题、提示完成、待复核和反证。按模块负责人出题、另一名成员复核；争议题优先请导师或课程负责人核对，无法确认则保留争议标记。</p>
+<p>原设计的240条问答及60例诊断作为时间允许时的扩展测试，不是八周内的最低交付量。微调独立测试集另按04章分组划分，不把训练样本混入这90条问答。所有指标按每门课分别报告分子、分母；小样本不支持所有课程都有效的结论。</p>
+<p>RAG开发集与最终测试集分离。最终集冻结问题、可支持结论、可用来源和知识快照；微调按题族和章节划分，最终评测不能泄露。人工盲评对所有可回答题进行正确性和出处检查，对意见不一致项复核；小样本结果给出分子分母并说明局限。</p>
+<p>性能环境记录CPU、RAM、GPU、系统、网络、模型与量化、嵌入版本、资料量和并发。云端目标使用输入≤6000 tokens、输出≤600 tokens、5并发、100次预热后有效请求；记录冷启动另表，不混入热请求分位数。本地按实际硬件公布，不伪套云端目标。</p>
+<h2>功能与故障用例</h2>
+<div class="table-scroll"><table><thead><tr><th>编号</th><th>场景</th><th>预期与证据</th></tr></thead><tbody>
+<tr><td>TC-01</td><td>两用户加入不同课程，交换资源ID</td><td>对话、引用、诊断、任务和向量均不泄露；保留请求记录</td></tr>
+<tr><td>TC-02</td><td>同用户切换三门课提相同问题</td><td>分别使用本课程快照，回答出处不串课</td></tr>
+<tr><td>TC-03</td><td>正常、损坏、扫描PDF及超限上传</td><td>正常入库可定位；其他显示明确状态且未发布</td></tr>
+<tr><td>TC-04</td><td>可回答与无资料问题</td><td>有依据的结论可跳转；资料不足不捏造引用</td></tr>
+<tr><td>TC-05</td><td>SSE中文分块、断线重连、停止</td><td>字符完整、无重复文本、无重复任务和费用</td></tr>
+<tr><td>TC-06</td><td>作答重试与Worker崩溃重领</td><td>一份作答、一条有效评分事件、一次投影更新</td></tr>
+<tr><td>TC-07</td><td>一次错误、独立复错、反证和异议</td><td>状态按规则迁移，候选不被展示成确认结论</td></tr>
+<tr><td>TC-08</td><td>更正题目答案后重放</td><td>指标可重建，旧诊断有更正痕迹</td></tr>
+<tr><td>TC-09</td><td>相同网页、导航变化、实质更新</td><td>无实质变化不通知，变更形成待审核候选</td></tr>
+<tr><td>TC-10</td><td>未批准资料、并发批准和发布</td><td>未批准不检索，过期revision返回409</td></tr>
+<tr><td>TC-11</td><td>构建失败、发布后通知失败</td><td>旧快照持续可用，通知最终一次送达</td></tr>
+<tr><td>TC-12</td><td>撤回资料并回滚</td><td>所有新请求排除撤回资料，历史引用标记</td></tr>
+<tr><td>TC-13</td><td>API额度用尽或本地模型崩溃</td><td>明确不可用，本地严格模式无转云</td></tr>
+<tr><td>TC-14</td><td>SSRF、注入、XSS与zip-slip</td><td>网络目标受限，模型无写权限，浏览器不执行脚本</td></tr>
+<tr><td>TC-15</td><td>导出、删除、备份恢复</td><td>本人可导出；删除后不可检索，恢复不复活已删记录</td></tr>
+<tr><td>TC-16</td><td>手机竖屏、键盘、横屏和离线</td><td>核心流程完整，草稿不自动提交，缓存无串账号</td></tr>
+<tr><td>TC-17</td><td>干净设备安装与迁移课程包</td><td>按说明启动成功，无默认密码和内置凭据</td></tr>
+<tr><td>TC-18</td><td>微调适配器加载、四组模型比较</td><td>独立结果、日志、版本和授权可核验</td></tr>
+</tbody></table></div>
+<h2>AI指标与上线门槛</h2>
+<div class="table-scroll"><table><thead><tr><th>指标</th><th>定义</th><th>初始门槛</th></tr></thead><tbody>
+<tr><td>Retrieval Recall@5</td><td>可回答题中，top5覆盖人工指定必要证据集合的比例，按题统计</td><td>≥85%</td></tr>
+<tr><td>重要结论引用覆盖率</td><td>有引用的重要资料性结论数/全部此类结论数</td><td>≥95%</td></tr>
+<tr><td>引用支持率</td><td>人工确认支持对应结论的引用关联数/全部引用关联数</td><td>≥90%</td></tr>
+<tr><td>答案正确率</td><td>人工量规判为无关键事实错误的可回答题/可回答题总数</td><td>≥85%</td></tr>
+<tr><td>资料不足妥善处理率</td><td>无足够证据时说明限制、澄清或拒答的题数/不足题总数</td><td>≥90%</td></tr>
+<tr><td>已确认误区Precision</td><td>与人工证据标签一致的confirmed项/全部confirmed项</td><td>≥85%</td></tr>
+<tr><td>已确认误区Recall</td><td>检出的应确认误区/人工标注应确认误区</td><td>≥60%，避免空输出取巧</td></tr>
+<tr><td>诊断证据可追溯率</td><td>可定位原作答与量规的诊断/全部诊断</td><td>100%</td></tr>
+<tr><td>微调教学质量</td><td>盲评量规均分相对基础+RAG差值</td><td>≥0.3/5且引用支持率降幅≤2pp</td></tr>
+</tbody></table></div>
+<p>重要结论由标注者按课程知识事实、推导和答案关键步骤识别。鼓励短而有依据的答案，不能靠把输出拆成大量无关句子提高指标。confirmed输出为空时Precision记为不可评价，Recall为0，不可通过。单门课程达不到门槛必须标注限制，不能靠三课平均掩盖。诊断样本较少时同时报置信区间或原始计数，不夸大泛化。</p>
+<h2>性能与可用性</h2>
+<p>云模式热请求p95首文本≤5秒、完整≤30秒；异步学习投影p95滞后≤5秒；20会话在线并限制5并行生成，排队状态需可见，排队时长单列。超过并发容量返回429或有限队列，不能无限堆积。连续7天试运行服务端成功请求比例目标≥99%，主动取消单列；首次加载、本地推理和供应商故障单独说明。</p>
+<p>移动端在360/390px完成核心流程、无整体横向滚动，关键触摸目标≥44px；检查键盘遮挡、引用返回和PWA离线提示。邀请3至5位非开发同学试用，目标核心任务完成率≥80%，记录实际人数和失败原因，不作统计泛化。</p>
+<h2>发布与提交门禁</h2>
+<p>P0功能全部通过、核心隔离与凭据扫描通过、两种模型模式可演示、三课程样例可用、备份恢复和手机检查有证据，方可称首版完成。微调若未达标，保留基础路由并提交负结果；如未进行训练，应在作业功能完成表中明确未完成FR-14，不能给全功能完成结论。</p>
+<p>测试报告至少含版本、环境、数据集哈希、每项pass/fail/blocked、失败样例、截图或日志引用、已知限制和负责人。CI执行静态检查、必要业务单元测试、数据库/契约集成、安全隔离和前端构建；昂贵AI评测及真机测试按里程碑运行，固定版本后不无理由反复消耗API。</p></article><article id="doc-12"><h1>三人八周实施与交付计划</h1>
+<h2>人员与项目边界</h2>
+<p>团队人数固定为三人，开发周期固定为八周。以A、B、C代称，立项时填入真实姓名。每个模块指定一名主负责人，协作与复核不新增第4名成员。</p>
+<div class="table-scroll"><table><thead><tr><th>成员</th><th>主职责</th><th>必须交付的结果</th><th>交叉复核</th></tr></thead><tbody>
+<tr><td>A 前端与体验</td><td>页面、视觉引导、问答界面、手机适配、学习面板、维护台、用户试用与汇报材料</td><td>电脑和手机可完成核心流程，异常状态可理解，演示材料完整</td><td>复核B的业务流程与C的结果展示</td></tr>
+<tr><td>B 后端与交付</td><td>身份与课程、资料和版本、作答存储、后台任务、网络更新、审核发布、权限、安装备份</td><td>多课程数据隔离、更新可审核回滚、运行包可安装</td><td>复核C的事件去重和数据边界</td></tr>
+<tr><td>C AI与学习分析</td><td>中文检索、引用、模型网关、学习指标与误区规则、先修假设、单课程微调和AI评测</td><td>回答有证据，诊断可复测，云/本地均可验证，训练实验可复现</td><td>复核B的发布数据和A的引用呈现</td></tr>
+</tbody></table></div>
+<p>以每人每周12至15小时作为工时估算，共约288至360小时，待三名成员核实。三人八周意味着24个人周的日历安排，不等于24个人周全职投入。若实际工时更少，优先调整试点资料量、题型、来源数量和外观细节，并向导师同步影响。</p>
+<h2>控制八周范围</h2>
+<p>平台结构支持多类课程，验收选三门课程的单章样例。题型优先单选与短答，开放题无可靠量规时只给建议。网络更新使用少量指定来源，站内提交摘要，不增加外部推送。手机以响应式网页与PWA为交付方式。云端与本地各选一条固定可用模型路由，避免同时适配大量提供商。</p>
+<p>领域微调限定一门课程一个章节，目标500条审核样本，先做资源验证和小样试训，再做最多两组训练配置及四组模型对照。第7、8周留给测试、修复和交付，不继续增加新功能。</p>
+<h2>逐人逐周安排</h2>
+<div class="table-scroll"><table><thead><tr><th>周次</th><th>A 前端与体验</th><th>B 后端与交付</th><th>C AI与学习分析</th><th>当周共同检查点</th></tr></thead><tbody>
+<tr><td>第1周</td><td>画核心页面与手机线框，确定视觉规范</td><td>建项目和数据库，做最小启动配置，验证导入与权限方案</td><td>跑通模型及检索小样，验证微调硬件和资料，拟定诊断规则</td><td>三课单章范围、接口与资源风险明确；一条问答小样可运行</td></tr>
+<tr><td>第2周</td><td>登录、选课、首页、问答页骨架，先用模拟数据</td><td>身份、课程成员、资料解析、定位和数据迁移</td><td>中文检索基线、引用对象、云/本地统一接口；冻结训练划分方案</td><td>两用户三课程隔离通过；前后端按固定契约联调</td></tr>
+<tr><td>第3周</td><td>真正流式问答、出处详情、停止重试；练习页骨架</td><td>会话、请求去重、SSE回放、题库与作答接口</td><td>提示式讲解、无资料处理、引用验证；准备训练样本</td><td>三门课各10条问答可演示，断线不重复生成</td></tr>
+<tr><td>第4周</td><td>作答反馈、误区证据、复测和学习面板</td><td>学习事件、投影存储、后台任务与可靠去重</td><td>掌握指标、误区候选和先修假设；完成训练数据审核</td><td>从提交作答到误区复测形成闭环；证据可追溯</td></tr>
+<tr><td>第5周</td><td>来源审核、差异、更新中心及发布状态界面</td><td>定时抓取、候选审核、知识快照、通知和回滚</td><td>完成小样及正式试训，检查更新后的检索效果</td><td>完成一次定时发现、审核发布、学生查看及撤回演示</td></tr>
+<tr><td>第6周</td><td>手机键盘与布局、PWA、离线提示；组织同学试用</td><td>权限补测、额度、导出删除、安装与恢复流程</td><td>完成微调四组比较，验证严格本地模式；修正AI失败样例</td><td>功能冻结；手机与本地链路可用；训练产物与报告齐全</td></tr>
+<tr><td>第7周</td><td>修复试用和无障碍问题，整理流程截图</td><td>安装、备份恢复、安全和任务失败测试</td><td>冻结数据集，完成问答及诊断评价、资源记录</td><td>核心门禁通过或列出缺陷；只修复问题，不扩范围</td></tr>
+<tr><td>第8周</td><td>整理汇报、录屏与使用说明，三人彩排</td><td>锁定发布包、安装指南与版本清单</td><td>汇总实验、指标、失败样例与模型卡</td><td>代码、文档、测试、训练和演示版本一致，可交付答辩</td></tr>
+</tbody></table></div>
+<p>关键依赖为：授权资料→可检索快照→有出处问答；审核题库→可信评分→误区分析；审核候选→完整快照→更新摘要；数据分组→训练→独立评测。B负责通用任务与发布框架，C在其上接入诊断，A在第2周使用模拟契约推进界面，避免互相等待。</p>
+<h2>任务责任与验收</h2>
+<div class="table-scroll"><table><thead><tr><th>任务</th><th>主负责人</th><th>协作或复核</th><th>完成证据</th></tr></thead><tbody>
+<tr><td>W-01 身份与多课程</td><td>B</td><td>A</td><td>FR-01；切课与越权用例</td></tr>
+<tr><td>W-02 导入、版本与引用存储</td><td>B</td><td>C</td><td>FR-02/03；解析定位与快照检查</td></tr>
+<tr><td>W-03 RAG、模型路由与流式生成</td><td>C</td><td>B</td><td>FR-03/04/11/16；云和本地调用、引用与取消</td></tr>
+<tr><td>W-04 桌面与手机界面</td><td>A</td><td>B</td><td>FR-04/08/12；核心任务真机记录</td></tr>
+<tr><td>W-05 学习指标、误区和复测</td><td>C</td><td>B负责数据，A负责页面</td><td>FR-05至08；去重、更正、证据与独立复测</td></tr>
+<tr><td>W-06 来源、审核和更新发布</td><td>B</td><td>A负责页面，C复核检索</td><td>FR-09/10；定时记录、差异、摘要与回滚</td></tr>
+<tr><td>W-07 单课程领域微调</td><td>C</td><td>A/B交叉审核样本</td><td>FR-14；数据账本、适配器与四组对照</td></tr>
+<tr><td>W-08 数据保护、安装与分发</td><td>B</td><td>A负责说明和安装复测</td><td>FR-13/15；导出删除、干净环境安装、恢复</td></tr>
+<tr><td>W-09 评价、汇报与交付</td><td>A负责汇编</td><td>B/C各提供证据</td><td>全部FR；验收表、演示脚本、贡献记录</td></tr>
+</tbody></table></div>
+<p>每周安排一次约30分钟的联调检查；接口变更当日同步文档。每项工作记录负责人、关联需求、代码版本和测试证据，避免把无法演示的代码片段计为模块完成。</p>
+<h2>工作量估算</h2>
+<div class="table-scroll"><table><thead><tr><th>工作包</th><th>三人合计估算工时</th><th>估算边界</th></tr></thead><tbody>
+<tr><td>需求、原型、样例与环境验证</td><td>30</td><td>限三课单章，提前处理授权</td></tr>
+<tr><td>前端、手机与维护界面</td><td>55</td><td>复用组件，不制作原生App</td></tr>
+<tr><td>后端、资料、更新与部署</td><td>75</td><td>单体与数据库任务，不引入微服务</td></tr>
+<tr><td>RAG、诊断、微调与评测实现</td><td>65</td><td>一套诊断规则、一课微调、固定模型路由</td></tr>
+<tr><td>联调、人工评价、恢复与答辩</td><td>45</td><td>90条问答、30例诊断及独立微调评价</td></tr>
+<tr><td>缺陷修复与资源不确定性缓冲</td><td>30</td><td>约10%的总量缓冲，优先保障后两周</td></tr>
+<tr><td>合计</td><td>300</td><td>约每人每周12.5小时，仅为计划估算</td></tr>
+</tbody></table></div>
+<p>训练等待时间与人工工时分开记录。若授权数据准备、模型调试或真实设备问题明显超过估算，第2周结束前重新估算，不等到第7周再解释延期。500条样本需尽量从已授权、已有可靠答案的题目或教材中整理，不能假定由单个成员从零编写且无需审核。</p>
+<h2>风险与调整规则</h2>
+<div class="table-scroll"><table><thead><tr><th>风险</th><th>检查时点</th><th>处理与责任</th></tr></thead><tbody>
+<tr><td>多学科资料不足</td><td>第1周无三课单章材料</td><td>缩小单课资料量，保证授权与质量；B统筹，三人各负责一课</td></tr>
+<tr><td>微调硬件或数据不足</td><td>第1周资源验证失败，或第4周数据仍未就绪</td><td>C优先换更小模型、缩短序列或使用可用GPU；向导师说明实验影响，不用提示词冒充训练</td></tr>
+<tr><td>B或C任务集中</td><td>第2周联调滞后</td><td>使用既有组件和最小题型，A接手测试、数据整理与文档；不新增隐形成员</td></tr>
+<tr><td>误区误报</td><td>第4周复测证据与标签不符</td><td>C收紧确认规则，保留候选与复核；B检查事件数据</td></tr>
+<tr><td>网络更新污染</td><td>第5周候选冲突或来源不稳</td><td>B限制来源并保留审核；C检查新快照引用</td></tr>
+<tr><td>手机或本地不可用</td><td>第3周首次联调就检查</td><td>A/B修正访问、证书与界面；C调整模型和并发，公布实测条件</td></tr>
+<tr><td>工期不足</td><td>第4周仍无完整学习闭环</td><td>冻结新需求，减少题型、来源和装饰；A/B/C共同向导师报告影响</td></tr>
+<tr><td>分发包含凭据或未授权资料</td><td>第7周打包检查</td><td>B阻断公开分发，核实移除或轮换；保留安全测试</td></tr>
+</tbody></table></div>
+<p>缩减顺序为装饰和复杂图表→额外题型与来源→单课资料量→扩展评价集。多课程隔离、引用追溯、记录去重、人工审核、手机核心流程和训练真实记录应保留。若仍无法完成原功能，更新需求完成表并说明未完成项，不调整文字掩盖结果。</p>
+<h2>费用估算与导师沟通</h2>
+<p>API费用按实际供应商输入、输出和嵌入单价计算，加上评分、诊断、摘要及微调资源费用；文档不虚构固定价格。课内试用量示例为10人×每天5次×14天=700次问答，若每次输入3000、输出500 tokens，约210万输入、35万输出tokens，另加其他AI调用。该规模只是预算测算，不是已获得10名试用者。</p>
+<p>设置每日和实例硬上限，达到额度后明确提示；严格本地模式不转云。第1周向导师说明可用硬件、API费用上限和微调条件，确认能否借用设备及资料，不把额外资源视作已落实。</p>
+<h2>汇报与答辩</h2>
+<p>立项汇报使用<a href="#doc-15">15 导师汇报稿</a>，讲解计划和预期交付。最终答辩才展示实际实现及测得结果：三课隔离→手机有出处问答→缺资料处理→错误作答与复测→定时更新、审核发布与摘要→撤回→本地模式→微调对照→安装包与限制。</p>
+<p>第8周统一交付源代码、依赖与迁移、三课授权单章样例、题库和知识点、接口、运行包与校验和、安装恢复指南、测试与AI评测、微调产物和模型卡、演示材料、成员贡献和限制说明。目前交付的是设计基线，最终结果以证据为准。</p></article><article id="doc-13"><h1>设计决策与参考项目审阅</h1>
+<h2>审阅范围</h2>
+<p>参考项目：<a href="https://github.com/Djraemon/AI-assistant">Djraemon/AI-assistant</a>。2026-10-23读取默认分支main，目录树对应提交3f7ecd2965c56fe06632c063bab6a485d2c84e45。重点读取下列文件；web_app.py阅读了前190行，其余关键文件按工具返回内容静态审阅，未运行代码、未安装依赖、未测试API凭据、未做全仓安全审计。</p>
+<div class="table-scroll"><table><thead><tr><th>证据</th><th>可确认的事实</th><th>对本项目的影响</th></tr></thead><tbody>
+<tr><td><a href="https://github.com/Djraemon/AI-assistant/blob/3f7ecd2965c56fe06632c063bab6a485d2c84e45/web_app.py">web_app.py</a></td><td>FastAPI、LlamaIndex初始化，含本地模型与云依赖、失败转云路径</td><td>复用框架思路；模型进程分离，严格本地不转云</td></tr>
+<tr><td><a href="https://github.com/Djraemon/AI-assistant/blob/3f7ecd2965c56fe06632c063bab6a485d2c84e45/src/query_engine.py">src/query_engine.py</a></td><td>有意图分类、多源检索；query_stream中存在完整结果再切段输出</td><td>新设计规定真实生成流、可回放与取消</td></tr>
+<tr><td><a href="https://github.com/Djraemon/AI-assistant/blob/3f7ecd2965c56fe06632c063bab6a485d2c84e45/src/index_manager.py">src/index_manager.py</a></td><td>课程材料、练习、教材及主索引，含pickle持久化</td><td>保留资料类型元数据，改为版本快照与受控存储</td></tr>
+<tr><td><a href="https://github.com/Djraemon/AI-assistant/blob/3f7ecd2965c56fe06632c063bab6a485d2c84e45/src/config.py">src/config.py</a></td><td>多提供商、嵌入和本地模型参数；存在LoRA配置开关</td><td>不能仅据开关认定微调完成；补充训练及评测交付</td></tr>
+<tr><td><a href="https://github.com/Djraemon/AI-assistant/blob/3f7ecd2965c56fe06632c063bab6a485d2c84e45/src/file_scanner.py">src/file_scanner.py</a></td><td>本地目录遍历、哈希与状态元数据；发现疑似硬编码凭据默认值</td><td>启动扫描不等于网络更新；分发前核实和处理凭据</td></tr>
+<tr><td><a href="https://github.com/Djraemon/AI-assistant/blob/3f7ecd2965c56fe06632c063bab6a485d2c84e45/src/evaluation.py">src/evaluation.py</a></td><td>有响应评估与反馈；准确性函数包含启发式赋分</td><td>不把现有评分作为学习掌握度或事实正确率证据</td></tr>
+<tr><td><a href="https://github.com/Djraemon/AI-assistant/blob/3f7ecd2965c56fe06632c063bab6a485d2c84e45/docs/design.md">docs/design.md</a></td><td>解释资料分组与索引组织</td><td>作为概念参考，新增业务和数据设计</td></tr>
+</tbody></table></div>
+<p>另外读取QUICK_START.md、IMPLEMENTATION_SUMMARY.md及docs/README.md以理解作者描述；其中自述的性能、测试和安全结论未复现，不视为本项目实测证据。未将仓库中的学生记录或完整教材复制到交付物。</p>
+<h2>与目标的差距</h2>
+<p>现有证据支持将其看作RAG助教原型参考。已审阅文件不足以证明长期学生画像、误区复测、网络来源审核发布、多用户隔离、可复现领域训练或完整移动端验收已经具备。这是本次审阅范围的结论，不是断言整个仓库绝无相关实现。</p>
+<p>目录树根部未见标准LICENSE文件；代码和资料的复用、再分发权应由项目组在实施前核实。公开仓库不自动赋予任意再分发权限。参考思路与复制实现应在作业引用及贡献说明中区分。</p>
+<h2>架构决策记录</h2>
+<div class="table-scroll"><table><thead><tr><th>编号</th><th>决策与原因</th><th>替代方案及重评条件</th></tr></thead><tbody>
+<tr><td>ADR-01</td><td>模块化单体+后台任务，适合课程作业协作和运维</td><td>服务规模或团队边界明确增长后再拆微服务</td></tr>
+<tr><td>ADR-02</td><td>Vue+FastAPI，沿用示例Python能力，独立前端便于手机体验</td><td>团队已熟悉React可替换，API契约不变</td></tr>
+<tr><td>ADR-03</td><td>PostgreSQL+pgvector，业务与向量统一管理</td><td>数据规模与召回性能不足时评估专用检索服务</td></tr>
+<tr><td>ADR-04</td><td>数据库任务表，避免首版增加队列依赖</td><td>锁竞争或任务吞吐实测不足后换专用队列</td></tr>
+<tr><td>ADR-05</td><td>一套平台、课程内容与可选模型分离</td><td>不为每课复制应用，必要时独立实例隔离</td></tr>
+<tr><td>ADR-06</td><td>RAG与微调分别验收，微调不存实时事实</td><td>若课程作业只要求其一，可明确调整验收，不暗中降范围</td></tr>
+<tr><td>ADR-07</td><td>误区用证据与复测，掌握指标可重建</td><td>充足标注后再验证复杂知识追踪模型</td></tr>
+<tr><td>ADR-08</td><td>网络更新审核后发布，快照可回滚</td><td>来源白名单长期稳定后才讨论部分自动批准</td></tr>
+<tr><td>ADR-09</td><td>PWA满足首版手机使用和安装</td><td>明确需要系统能力或原生发行再引入封装壳</td></tr>
+<tr><td>ADR-10</td><td>strict_local覆盖全部AI环节，失败不转云</td><td>用户显式改模式才允许新的外部数据流</td></tr>
+</tbody></table></div>
+<p>每条ADR状态为“建议采纳，待项目组评审”。替代方案并非任务遗漏，而是记录需要重新决策的条件。</p>
+<h2>外部技术依据</h2>
+<p>以下官方资料于2026-10-23查阅。只用来核对具体技术机制，不代表官方替本项目性能或质量背书；实施时需固定兼容版本。</p>
+<ul>
+<li><a href="https://www.postgresql.org/docs/current/ddl-rowsecurity.html">PostgreSQL Row Security</a>：行级策略及所有者、超级用户等绕过例外。</li>
+<li><a href="https://github.com/pgvector/pgvector">pgvector</a>：PostgreSQL向量检索与索引机制，过滤与召回需测试。</li>
+<li><a href="https://docs.ollama.com/api/introduction">Ollama API</a>：本地模型接口及兼容入口。</li>
+<li><a href="https://docs.vllm.ai/en/latest/serving/online_serving/">vLLM Online Serving</a>：独立推理服务能力参考。</li>
+<li><a href="https://huggingface.co/docs/peft/main/package_reference/lora">Hugging Face PEFT LoRA</a>：适配器训练方法和配置参考；main文档不是项目锁定版本。</li>
+<li><a href="https://web.dev/learn/pwa/installation">web.dev PWA installation</a>：跨平台安装体验与差异，具体设备仍需实测。</li>
+<li><a href="https://genai.owasp.org/llmrisk/llm01-prompt-injection/">OWASP Prompt Injection</a>：外部资料与模型指令的信任风险。</li>
+</ul>
+<h2>事实与假设清单</h2>
+<p>用户事实：课程作业、支持各类课程、团队三人、开发周期八周，以及最初八项功能方向。仓库事实：上表限定文件与静态审阅结果。工程建议：技术栈、模块、分工和权限方式。待验证假设：每周工时、三门单章试点、100账号容量上限、性能门槛、微调数据量与硬件预算。验收结果：目前均未测，不填写虚构pass或提升百分比。</p></article><article id="doc-14"><h1>原始需求与验收追踪矩阵</h1>
+<h2>八项需求覆盖</h2>
+<div class="table-scroll"><table><thead><tr><th>用户原始诉求</th><th>对应规格</th><th>主要设计</th><th>验收证据</th></tr></thead><tbody>
+<tr><td>1 RAG加领域微调模型提供知识服务</td><td>FR-02/03/04/14</td><td>04检索与训练，03知识版本</td><td>TC-03/04/18，四组模型对比及可加载适配器</td></tr>
+<tr><td>2 动态学习记录、误区和潜在问题</td><td>FR-05/06/07/08</td><td>05事件、证据、先修图、复测</td><td>TC-06/07/08，投影重建、Precision与Recall</td></tr>
+<tr><td>3 UI美观且有引导</td><td>FR-04/08/12</td><td>07页面、视觉规范、引导与异常</td><td>TC-16，非开发同学任务观察记录</td></tr>
+<tr><td>4 定期网络更新并向用户提交内容</td><td>FR-09/10</td><td>06调度、候选、审核、发布和摘要</td><td>TC-09/10/11/12，定时运行记录和站内通知</td></tr>
+<tr><td>5 封装后便于分发</td><td>FR-13</td><td>10运行包、课程包、校验与安装</td><td>TC-17，全新设备安装与迁移记录</td></tr>
+<tr><td>6 API和本地小模型可选</td><td>FR-11/16</td><td>04模型网关，09外呼控制，10运行模式</td><td>TC-13，云与严格本地各一条完整链路</td></tr>
+<tr><td>7 支持手机</td><td>FR-12</td><td>07响应式PWA、键盘与离线，10HTTPS</td><td>TC-16，两类真机与360px检查</td></tr>
+<tr><td>8 先交付充分的软件工程设计文档</td><td>本轮交付</td><td>00至14与核心OpenAPI</td><td>文档链接、追踪覆盖、契约引用及打包检查</td></tr>
+</tbody></table></div>
+<p>“支持各类课程”贯穿FR-01及课程隔离模型，以三门异质课程验证平台通用性。学科答案质量需逐课评测，不能承诺所有课程无需配置即可高质量使用。</p>
+<h2>完整功能覆盖</h2>
+<div class="table-scroll"><table><thead><tr><th>FR</th><th>设计章节</th><th>测试编号</th><th>实现时主要产物</th></tr></thead><tbody>
+<tr><td>01</td><td>01/02/03/09</td><td>01/02</td><td>登录、成员关系、课程切换</td></tr>
+<tr><td>02</td><td>03/04/06</td><td>03</td><td>解析管道和版本定位</td></tr>
+<tr><td>03</td><td>04/07/08</td><td>04</td><td>带引用回答和来源详情</td></tr>
+<tr><td>04</td><td>04/07/08</td><td>04/05</td><td>教学提示和可恢复流</td></tr>
+<tr><td>05</td><td>03/05/08</td><td>06/07</td><td>题目版本、作答与复测</td></tr>
+<tr><td>06</td><td>03/05</td><td>06/08</td><td>去重事件和投影</td></tr>
+<tr><td>07</td><td>05/07</td><td>07/08</td><td>候选、证据、异议和先修假设</td></tr>
+<tr><td>08</td><td>05/07</td><td>07/16</td><td>面板与复习任务</td></tr>
+<tr><td>09</td><td>06/09</td><td>09/14</td><td>调度与限域抓取</td></tr>
+<tr><td>10</td><td>03/06/08</td><td>10/11/12</td><td>审核、快照、摘要和撤回</td></tr>
+<tr><td>11</td><td>04/09/10</td><td>13</td><td>云API与严格本地模式</td></tr>
+<tr><td>12</td><td>07/10</td><td>16</td><td>手机布局和PWA引导</td></tr>
+<tr><td>13</td><td>09/10</td><td>17</td><td>安装运行包及课程包</td></tr>
+<tr><td>14</td><td>04/11/12</td><td>18</td><td>微调及可复现对照实验</td></tr>
+<tr><td>15</td><td>03/09/10</td><td>15</td><td>导出、删除和恢复清单</td></tr>
+<tr><td>16</td><td>04/09/10</td><td>13</td><td>模型状态、额度和用量</td></tr>
+</tbody></table></div>
+<h2>本轮文档质量检查</h2>
+<p>v1.1新增约束：团队固定三人、周期八周、需要便于向导师讲解。12章给出A/B/C逐周主责、约300小时工作量估算及缩减顺序；15章提供方案汇报正文、概览和追问回答；00章作为阅读入口。工时、试点章节、样例数量和预算仍为建议值，需按实际资源落实。</p>
+<p>检查目标包括：所有FR有设计和测试映射；本地模式约束一致；未审核资料不能检索；微调独立验收未被省略；学习诊断不把提问当能力证明；关键接口有身份、幂等和错误约定；性能、成本和资源区分目标与实测；引用固定参考项目提交并明确审阅局限。</p>
+<p>机器检查可验证文档存在、相对链接、编号覆盖、OpenAPI内部引用、路径参数和包完整性；不能替代学科专家评审、软件运行、真机测试或模型效果评价。正式开发前由项目组填写需求和架构评审记录；正式验收时填写11章要求的测试报告。</p></article></main></div><footer>完整离线阅读版 v1.1 · Markdown为维护源 · 不含外部脚本、字体或网络依赖</footer></body></html>

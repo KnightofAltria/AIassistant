@@ -218,3 +218,17 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ==== 本项目补充（Windows / Office / 系统垃圾） ====
+# Office 打开文档时生成的临时锁文件，形如 ~$需求文档.docx
+~$*
+# Windows 资源管理器 / macOS 产生的杂项
+Thumbs.db
+ehthumbs.db
+desktop.ini
+.DS_Store
+# 编辑器本地配置
+.vscode/
+.idea/
+# 压缩包（如需纳入版本库，删掉下面这行）
+*.zip
