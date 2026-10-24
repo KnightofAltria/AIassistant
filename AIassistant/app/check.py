@@ -1,0 +1,202 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""轻量检查：不调模型、不写库，几秒钟跑完。
+
+日常改完代码用它；只有在交付前或改动涉及模型链路时，才需要跑 selftest.py。
+
+    python check.py                 # 静态 + 只读接口
+    python check.py --base http://127.0.0.1:8737
+
+与 selftest.py 的分工：
+    check.py    零成本，随时跑：语法、静态资源、只读接口、页面关键元素
+    selftest.py 有成本（会调用模型、写测试数据），只在交付前跑一次
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+APP = Path(__file__).resolve().parent
+STATIC = APP / "static"
+results: list[tuple[str, bool, str]] = []
+
+
+def check(name: str, ok: bool, detail: str = "") -> None:
+    results.append((name, ok, detail))
+    print(f"[{'PASS' if ok else 'FAIL'}] {name}{('  ' + detail) if detail else ''}")
+
+
+def get(base: str, path: str, timeout: float = 10.0):
+    with urllib.request.urlopen(base + path, timeout=timeout) as resp:
+        return resp.status, resp.read()
+
+
+# ---------------------------------------------------------------- 静态检查
+def check_python_syntax() -> None:
+    bad = []
+    for path in sorted(APP.glob("*.py")):
+        proc = subprocess.run([sys.executable, "-m", "py_compile", str(path)],
+                              capture_output=True)
+        if proc.returncode != 0:
+            bad.append(path.name)
+    check("Python 语法", not bad, "全部通过" if not bad else f"失败：{bad}")
+
+
+def check_js_syntax() -> None:
+    node = shutil.which("node")
+    if not node:
+        check("JavaScript 语法", True, "未安装 node，跳过")
+        return
+    bad = []
+    for path in sorted(STATIC.glob("*.js")):
+        proc = subprocess.run([node, "--check", str(path)], capture_output=True)
+        if proc.returncode != 0:
+            bad.append(path.name)
+    check("JavaScript 语法", not bad, "全部通过" if not bad else f"失败：{bad}")
+
+
+def check_no_duplicate_decls() -> None:
+    """防止再次出现"整段代码被写入两遍"导致白屏。"""
+    import re
+    seen: dict[str, str] = {}
+    dup = []
+    for path in sorted(STATIC.glob("*.js")):
+        js = path.read_text(encoding="utf-8")
+        for m in re.finditer(r"^(?:async )?function (\w+)|^const (\w+)\s*=", js, re.M):
+            name = m.group(1) or m.group(2)
+            if name in seen and seen[name] != path.name:
+                dup.append(f"{name}({seen[name]}/{path.name})")
+            seen[name] = path.name
+    check("前端无重复声明", not dup, "无" if not dup else "；".join(dup))
+
+
+def check_html_balance() -> None:
+    import re
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    opens = len(re.findall(r"<div\b", html))
+    closes = len(re.findall(r"</div>", html))
+    check("HTML div 配平", opens == closes, f"{opens}/{closes}")
+
+
+# ---------------------------------------------------------------- 只读接口
+def check_api(base: str) -> None:
+    endpoints = [
+        ("/api/state", "状态"),
+        ("/api/subjects", "科目树"),
+        ("/api/materials", "资料与文件夹"),
+        ("/api/conversations", "会话列表"),
+        ("/api/summaries", "总结列表"),
+        ("/api/mistakes", "错题列表"),
+        ("/api/profile", "学习者档案"),
+    ]
+    for path, name in endpoints:
+        try:
+            status, body = get(base, path)
+            ok = status == 200 and bool(json.loads(body or b"{}"))
+            check(f"GET {path}（{name}）", ok, f"{len(body)} 字节")
+        except urllib.error.URLError as exc:
+            check(f"GET {path}（{name}）", False, f"服务未启动？{exc.reason}")
+            return
+
+
+def check_assets(base: str) -> None:
+    for path in ("/", "/app.js", "/agent.js", "/landing.js", "/keepalive.js", "/style.css"):
+        try:
+            status, body = get(base, path)
+            check(f"GET {path}", status == 200 and len(body) > 200, f"{len(body)} 字节")
+        except urllib.error.URLError:
+            check(f"GET {path}", False, "服务未启动")
+            return
+
+
+def check_page_markers(base: str) -> None:
+    try:
+        _, body = get(base, "/")
+    except urllib.error.URLError:
+        check("首页关键元素", False, "服务未启动")
+        return
+    html = body.decode("utf-8", "replace")
+    markers = {
+        "欢迎界面": 'id="landing"',
+        "粒子画布": 'id="particles"',
+        "开始学习按钮": 'id="btn-start"',
+        "首页入口": 'id="view-home"',
+        "个人信息页": 'id="view-profile"',
+        "资料管理": 'id="view-materials"',
+        "总结放大弹窗": 'id="modal-summary-view"',
+        "侧边栏五项": 'data-view="materials"',
+    }
+    missing = [k for k, v in markers.items() if v not in html]
+    check("首页关键元素", not missing, "齐全" if not missing else f"缺少：{missing}")
+    check("侧边栏不含主界面项", 'data-view="home"' not in html, "")
+
+
+def check_data_health(base: str) -> None:
+    """数据体检：不写库，只看有没有明显异常。"""
+    try:
+        _, body = get(base, "/api/materials")
+        data = json.loads(body)
+    except Exception as exc:                       # noqa: BLE001
+        check("数据体检", False, str(exc))
+        return
+    materials = data.get("materials", [])
+    folders = data.get("folders", [])
+    titles = [m["title"] for m in materials]
+    dup = {t for t in titles if titles.count(t) > 1}
+    small = [m["title"] for m in materials if m["bytes"] < 400]
+    shared = [f for f in folders if f.get("is_shared")]
+    issues = []
+    if dup:
+        issues.append(f"重复资料 {len(dup)} 组")
+    if small:
+        issues.append(f"过小资料 {len(small)} 份")
+    if len(shared) != 1:
+        issues.append(f"核心文件夹数量异常 {len(shared)}")
+    check("数据体检", not issues, "健康" if not issues else "；".join(issues))
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="轻量检查：不调模型、不写库")
+    ap.add_argument("--base", default="http://127.0.0.1:8737")
+    args = ap.parse_args()
+    base = args.base.rstrip("/")
+
+    print("== 静态检查 ==")
+    check_python_syntax()
+    check_js_syntax()
+    check_no_duplicate_decls()
+    check_html_balance()
+
+    print("\n== 服务与接口 ==")
+    try:
+        urllib.request.urlopen(base + "/api/state", timeout=5)
+        print("== 静态资源与页面 ==")
+        check_assets(base)
+        check_api(base)
+        check_page_markers(base)
+        check_data_health(base)
+    except urllib.error.URLError:
+        print("（服务没启动，跳过接口与页面检查；启动后重跑能看到全貌）")
+
+    total = len(results)
+    passed = sum(1 for _, ok, _ in results if ok)
+    print("\n" + "=" * 56)
+    print(f"轻量检查：{passed}/{total} 通过")
+    if passed != total:
+        print("失败项：")
+        for name, ok, detail in results:
+            if not ok:
+                print(f"  - {name}: {detail}")
+    print("=" * 56)
+    return 0 if passed == total else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
