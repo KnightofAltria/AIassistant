@@ -9,14 +9,13 @@
 /**
  * 可复用的动态背景：
  *   · 漂浮粒子 + 距离连线（科技感）
- *   · 多条横向正弦波纹 + 流动光点（波浪感）
- *   · 缓慢摆动的长曲线花纹 + 点阵网格
- * opts: { count, linkDist, speed, waves, waveAmp, glow, grid }
+ *   · 缓慢摆动的长曲线 + 点阵网格（都压得很淡）
+ * 设计文档要求"简洁明快"，所以不做波纹、不做高密度装饰。
+ * opts: { count, linkDist, speed, glow, grid, curves }
  */
 function createField(canvas, opts) {
   const cfg = Object.assign({
-    count: 90, linkDist: 140, speed: 0.35, waves: 4,
-    waveAmp: 26, glow: true, grid: true,
+    count: 90, linkDist: 140, speed: 0.32, glow: true, grid: true, curves: 2,
   }, opts || {});
 
   const ctx = canvas.getContext('2d');
@@ -61,53 +60,19 @@ function createField(canvas, opts) {
     ctx.restore();
   }
 
-  function drawWaves() {
-    ctx.save();
-    for (let i = 0; i < cfg.waves; i += 1) {
-      const base = h * (0.2 + i * 0.16);
-      const amp = cfg.waveAmp * (0.6 + i * 0.22);
-      const freq = 0.0055 + i * 0.0016;
-      const phase = t * (0.9 + i * 0.24) + i * 1.7;
-      ctx.beginPath();
-      for (let x = -10; x <= w + 10; x += 8) {
-        const y = base + Math.sin(x * freq + phase) * amp
-          + Math.sin(x * freq * 2.3 - phase * 0.7) * (amp * 0.32);
-        if (x <= -10) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      }
-      ctx.strokeStyle = i % 2 ? 'rgba(74,168,138,0.20)' : 'rgba(63,122,224,0.24)';
-      ctx.lineWidth = 1.1;
-      ctx.stroke();
-
-      // 波纹上的流动光点，强化"波浪在动"的感觉
-      const dots = 4 + i * 2;
-      for (let k = 0; k < dots; k += 1) {
-        const px = ((t * 46 + k * (w / dots) + i * 90) % (w + 80)) - 40;
-        const py = base + Math.sin(px * freq + phase) * amp
-          + Math.sin(px * freq * 2.3 - phase * 0.7) * (amp * 0.32);
-        const g = ctx.createRadialGradient(px, py, 0, px, py, 10);
-        g.addColorStop(0, 'rgba(90,150,240,0.55)');
-        g.addColorStop(1, 'rgba(90,150,240,0)');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(px, py, 10, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    ctx.restore();
-  }
-
   function drawCurves() {
+    if (!cfg.curves) return;
     ctx.save();
-    for (let i = 0; i < 3; i += 1) {
+    for (let i = 0; i < cfg.curves; i += 1) {
       const off = (t * (6 + i * 3)) % (h + 220) - 110;
       ctx.beginPath();
       for (let y = -20; y <= h + 20; y += 12) {
-        const x = w * (0.16 + i * 0.3)
+        const x = w * (0.22 + i * 0.34)
           + Math.sin(y * 0.006 + t * 0.5 + i) * 46
           + Math.cos(y * 0.0021 - t * 0.3) * 70;
         if (y <= -20) ctx.moveTo(x, y + off); else ctx.lineTo(x, y + off);
       }
-      ctx.strokeStyle = 'rgba(120,170,235,0.13)';
+      ctx.strokeStyle = 'rgba(120,170,235,0.075)';
       ctx.lineWidth = 1;
       ctx.stroke();
     }
@@ -120,7 +85,6 @@ function createField(canvas, opts) {
     ctx.clearRect(0, 0, w, h);
 
     drawGrid();
-    drawWaves();
     drawCurves();
 
     for (const n of nodes) {
@@ -187,7 +151,7 @@ function startHomeField() {
   const canvas = $('#home-particles');
   if (!canvas) return;
   homeField = createField(canvas, {
-    count: 52, linkDist: 150, speed: 0.24, waves: 3, waveAmp: 16, glow: false, grid: true,
+    count: 38, linkDist: 156, speed: 0.2, glow: false, grid: true, curves: 1,
   });
 }
 
@@ -426,7 +390,7 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
     const landing = $('#landing');
     landing.classList.remove('hidden');
     landingField = createField($('#particles'), {
-      count: 130, linkDist: 150, speed: 0.42, waves: 5, waveAmp: 30, glow: true, grid: true,
+      count: 96, linkDist: 152, speed: 0.32, glow: true, grid: true, curves: 2,
     });
     injectBackBars();
     setTimeout(() => $('#btn-start').classList.add('show'), 1600);
