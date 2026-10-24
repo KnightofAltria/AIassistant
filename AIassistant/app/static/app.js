@@ -590,7 +590,7 @@ function renderSharedWarning() {
   const bar = $('#shared-warning');
   if (CUR_FOLDER && CUR_FOLDER.is_shared) {
     bar.className = 'banner warn';
-    bar.innerHTML = `🔒 <b>共识资料</b>：这里放跨科目通用材料，会被所有科目的提问检索到。
+    bar.innerHTML = `🔒 <b>核心资料 core</b>：本机维护的计算机核心知识，会被所有科目的提问检索到。
       不推荐直接修改或删除；确实要改也可以，改动会影响全部科目的回答。`;
   } else {
     bar.className = 'banner hidden';

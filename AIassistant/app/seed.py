@@ -172,8 +172,8 @@ SAMPLE_DIR = Path(__file__).resolve().parent / "samples"
 # 资料目录结构：一个共识文件夹 + 四个学科文件夹。
 # 共识文件夹放跨科目通用材料（不推荐用户修改，但允许改）。
 FOLDERS = [
-    {"slug": "shared", "name": "共识资料", "is_shared": True,
-     "desc": "跨科目通用材料：课程地图、学习方法、基础概念速查"},
+    {"slug": "shared", "name": "核心资料 core", "is_shared": True,
+     "desc": "本机维护的计算机核心知识：课程地图、学习方法、基础概念速查。不推荐修改，但允许。"},
     {"slug": "co", "name": "计算机组成原理", "is_shared": False, "desc": "计组课件、笔记、习题"},
     {"slug": "cn", "name": "计算机网络", "is_shared": False, "desc": "计网课件、笔记、习题"},
     {"slug": "os", "name": "操作系统", "is_shared": False, "desc": "操作系统课件、笔记、习题"},
@@ -182,10 +182,13 @@ FOLDERS = [
 
 
 def ensure_folders(store) -> int:
-    """建立/补齐五个标准文件夹，返回新建数量。"""
+    """建立/补齐五个标准文件夹，并把历史名字迁移成新名字。返回新建数量。"""
     created = 0
     for i, f in enumerate(FOLDERS):
-        if store.folder_by_slug(f["slug"]):
+        existing = store.folder_by_slug(f["slug"])
+        if existing:
+            if existing["name"] != f["name"]:          # 迁移旧名（共识资料 → 核心资料 core）
+                store.rename_folder(existing["id"], f["name"])
             continue
         store.add_folder(name=f["name"], slug=f["slug"],
                          is_shared=f["is_shared"], ord=i)

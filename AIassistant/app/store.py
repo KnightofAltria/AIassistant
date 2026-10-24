@@ -263,6 +263,8 @@ class Store:
         return out
 
     def folder_by_slug(self, slug: str) -> dict | None:
+        if slug == "core":                 # 设计文档里叫 core，内部沿用小写 shared
+            slug = "shared"
         row = self.conn.execute("SELECT * FROM folders WHERE slug=?", (slug,)).fetchone()
         return dict(row) if row else None
 
