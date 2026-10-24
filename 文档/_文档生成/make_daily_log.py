@@ -112,18 +112,24 @@ def repo_status(repo: Path) -> dict:
     head = git(repo, "rev-parse", "HEAD").strip()
     dirty = bool(git(repo, "status", "--porcelain").strip())
     remote_head = ""
+    ahead = behind = 0
     try:
         remote_head = git(repo, "rev-parse", f"origin/{branch}").strip()
-    except RuntimeError:
+        counts = git(repo, "rev-list", "--left-right", "--count",
+                     f"origin/{branch}...HEAD").split()
+        behind, ahead = int(counts[0]), int(counts[1])
+    except (RuntimeError, IndexError):
         pass
     if not remote_head:
         sync = "未找到远端分支"
-    elif dirty:
-        sync = "本地有未提交改动"
-    elif head == remote_head:
+    elif ahead == 0 and behind == 0:
         sync = "与远端一致"
+    elif ahead and not behind:
+        sync = f"本地领先 {ahead} 个提交（待推送）"
+    elif behind and not ahead:
+        sync = f"本地落后 {behind} 个提交（需拉取）"
     else:
-        sync = "与远端不一致（需推送或拉取）"
+        sync = f"已分叉：领先 {ahead}、落后 {behind}"
     size = sum(p.stat().st_size for p in repo.rglob("*") if p.is_file() and ".git" not in p.parts)
     return {"total": total, "tracked": tracked, "branch": branch, "head": head[:7],
             "dirty": dirty, "sync": sync, "size_mb": round(size / 1024 / 1024, 2)}
