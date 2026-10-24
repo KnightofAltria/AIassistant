@@ -82,7 +82,7 @@ def main() -> int:
           f"configured={st.get('configured')} mock={st.get('mock')}")
 
     # 2. 首页与静态资源
-    for asset in ("/", "/style.css", "/app.js", "/agent.js", "/landing.js"):
+    for asset in ("/", "/style.css", "/app.js", "/agent.js", "/landing.js", "/keepalive.js"):
         req = urllib.request.Request(base + asset)
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
@@ -112,6 +112,10 @@ def main() -> int:
     subjects = subs.get("subjects", [])
     check("GET /api/subjects", status == 200 and len(subjects) >= 4,
           f"{len(subjects)} 个科目，共 {sum(len(s['chapters']) for s in subjects)} 章")
+
+    # 3.4 浏览器心跳（配合 --exit-on-close 自动停服）
+    status, res = call(base, "/api/heartbeat", "POST", {"visible": True})
+    check("POST /api/heartbeat", status == 200 and res.get("ok") is True, "")
 
     # 3.5 工具化 AI：资料与科目的自然语言指令接口
     try:
@@ -285,6 +289,11 @@ def main() -> int:
         status, res = call(base, f"/api/folders/{folder_id}?mode=move", "DELETE")
         check("DELETE 文件夹（保留资料）", status == 200 and res.get("mode") == "move",
               f"移出 {res.get('moved')} 份")
+        # 收拾测试资料，避免每次自检在库里留垃圾
+        status, listing = call(base, "/api/materials")
+        for m in listing.get("materials", []):
+            if m["title"] == "自检临时资料":
+                call(base, f"/api/materials/{m['id']}", "DELETE")
 
     status, folder2 = call(base, "/api/folders", "POST", {"name": "自检文件夹2"})
     fid2 = (folder2.get("folder") or {}).get("id", "")

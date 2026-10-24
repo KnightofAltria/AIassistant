@@ -22,6 +22,7 @@ import time
 import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from os import _exit
 from pathlib import Path
 
 import deepseek
@@ -36,6 +37,44 @@ STATIC_DIR = APP_DIR / "static"
 
 STORE = Store()
 LOCK = threading.Lock()
+
+# ---------------------------------------------------------------- 浏览器心跳 / 自动退出
+CLIENT = {"seen": False, "last_seen": time.time(), "visible": True, "close_at": 0.0}
+CLIENT_LOCK = threading.Lock()
+EXIT_ON_CLOSE = False
+IDLE_VISIBLE = 25.0        # 页面可见时的空闲上限（秒）
+IDLE_HIDDEN = 300.0        # 页面切到后台时的空闲上限
+CLOSE_GRACE = 6.0          # 收到"页面关闭"信号后的宽限，用于躲过刷新
+
+
+def touch_client(visible: bool | None = None, closing: bool = False) -> None:
+    with CLIENT_LOCK:
+        CLIENT["seen"] = True
+        CLIENT["last_seen"] = time.time()
+        if visible is not None:
+            CLIENT["visible"] = bool(visible)
+        CLIENT["close_at"] = time.time() if closing else 0.0
+
+
+def watchdog(httpd) -> None:
+    """没有页面在用了就自动停服，避免留下后台进程。"""
+    while True:
+        time.sleep(2.0)
+        with CLIENT_LOCK:
+            now = time.time()
+            gap = now - CLIENT["last_seen"]
+            limit = IDLE_VISIBLE if CLIENT["visible"] else IDLE_HIDDEN
+            close_at = CLIENT["close_at"]
+            seen = CLIENT["seen"]
+        if not seen:
+            # 还没有任何页面连上来（比如浏览器还没开），不要急着退出
+            continue
+        if close_at and gap > CLOSE_GRACE:
+            print("\n浏览器已关闭，服务自动停止。")
+            _exit(0)
+        if gap > limit:
+            print(f"\n已有 {int(gap)} 秒没有页面连接，服务自动停止。")
+            _exit(0)
 _RETRIEVER: rag.Retriever | None = None
 _RETRIEVER_VERSION = -1
 
@@ -268,6 +307,17 @@ class Handler(BaseHTTPRequestHandler):
                 STORE.set_config("api_key", key)
                 STORE.set_config("model", model)
             self._json({"ok": True, "models": result.get("models", []), "mock": deepseek.MOCK})
+            return
+
+        # ---- 浏览器心跳：页面还开着就续期，页面关了就开始倒计时
+        if path == "/api/heartbeat":
+            touch_client(visible=body.get("visible", True))
+            self._json({"ok": True})
+            return
+
+        if path == "/api/client-closed":
+            touch_client(closing=True)
+            self._json({"ok": True})
             return
 
         # ---- 工具型 AI（资料管理 / 科目学习）
@@ -884,7 +934,18 @@ def main() -> int:
     ap.add_argument("--mock", action="store_true", help="离线演示模式，不需要 API Key")
     ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--open", action="store_true", help="启动后自动打开浏览器")
+    ap.add_argument("--exit-on-close", action="store_true",
+                    help="浏览器页面关闭后自动停止服务")
+    ap.add_argument("--idle-visible", type=float, default=25.0,
+                    help="页面可见时的空闲上限秒数（配合 --exit-on-close）")
+    ap.add_argument("--idle-hidden", type=float, default=300.0,
+                    help="页面切后台时的空闲上限秒数")
     args = ap.parse_args()
+
+    global EXIT_ON_CLOSE, IDLE_VISIBLE, IDLE_HIDDEN
+    EXIT_ON_CLOSE = args.exit_on_close
+    IDLE_VISIBLE = args.idle_visible
+    IDLE_HIDDEN = args.idle_hidden
 
     if args.mock:
         deepseek.MOCK = True
@@ -907,7 +968,11 @@ def main() -> int:
     print(f"  地址：{url}")
     print(f"  数据目录：{DATA_DIR}")
     print(f"  模式：{'离线演示（--mock）' if deepseek.MOCK else 'DeepSeek API'}")
+    print(f"  自动退出：{'开启（关闭浏览器页面后停止）' if EXIT_ON_CLOSE else '关闭'}")
     print("=" * 56)
+
+    if EXIT_ON_CLOSE:
+        threading.Thread(target=watchdog, args=(httpd,), daemon=True).start()
     if args.open:
         threading.Thread(target=lambda: (time.sleep(1.0), webbrowser.open(url)),
                          daemon=True).start()

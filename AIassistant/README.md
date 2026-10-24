@@ -3,16 +3,30 @@
 按 `设计文档.txt` 实现的第一个可运行版本：**不登录、不用本地模型，只接 DeepSeek API**，
 所有数据存在本机 `app/data/` 下，随时可删。
 
-## 三步跑起来
+## 怎么启动
+
+**最简单的办法：双击**
+
+```
+AIassistant\启动.bat      （或 run.bat，同一个东西）
+```
+
+会弹出一个黑窗口，自动找 Python、启动服务、打开浏览器 `http://127.0.0.1:8737`。
+首次进入先填 DeepSeek API Key（[在这里申请](https://platform.deepseek.com/api_keys)）。
+
+**关掉就停**：启动脚本带 `--exit-on-close`，关掉最后一个浏览器页面约 25 秒后，
+服务会自动停止，黑窗口自己退出。想立刻停：窗口里按 Ctrl+C，或直接关窗口。
+
+命令行启动也可以：
 
 ```powershell
 cd AIassistant\app
-python server.py --open
+python server.py --open --exit-on-close     # 关页面即停服
+python server.py --open                     # 不自动退出，适合长期挂着
 ```
 
-1. 浏览器打开 `http://127.0.0.1:8737`
-2. 在首页填入 DeepSeek API Key（[在这里申请](https://platform.deepseek.com/api_keys)）
-3. 进入主界面
+相关参数：`--exit-on-close`（开关）、`--idle-visible 25`（页面可见时空闲上限秒数）、
+`--idle-hidden 300`（页面切后台时的上限）。
 
 **没有任何第三方依赖**，不需要 `pip install`，Python 3.10+ 即可（用标准库实现
 HTTP 服务、SSE 流式、SQLite 存储、BM25 检索）。
