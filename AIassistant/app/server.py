@@ -55,11 +55,16 @@ def client() -> deepseek.DeepSeekClient:
 
 
 def rag_context(query: str, subject: str = "", k: int = 8) -> rag.RagContext:
+    """检索并组装证据。科目未知时先自动路由，命中不到再回退全库。"""
     retriever = get_retriever()
-    hits = retriever.search(query, k=k, subject=subject or None)
+    routed = subject or rag.route_subject(retriever, query)
+    hits = retriever.search(query, k=k, subject=routed or None)
+    if not hits and routed:
+        hits = retriever.search(query, k=k)          # 本科目无资料，回退全库
+        routed = ""
     evidence, citations = rag.build_evidence(hits)
-    return rag.RagContext(query=query, hits=hits, evidence=evidence, citations=citations,
-                          insufficient=rag.insufficient_evidence(hits))
+    return rag.RagContext(query=query, subject=routed, hits=hits, evidence=evidence,
+                          citations=citations, insufficient=rag.insufficient_evidence(hits, query))
 
 
 # ---------------------------------------------------------------- HTTP 处理
@@ -361,14 +366,20 @@ class Handler(BaseHTTPRequestHandler):
         if ctx.evidence:
             system += f"\n\n参考资料（只能引用这些编号）：\n\n{ctx.evidence}"
         if ctx.insufficient:
-            system += "\n\n注意：本次检索到的资料非常有限，如果无法支撑回答，请明确说明资料不足。"
+            # 检索结果可疑时，宁可让模型少引用，也不要把无关资料当证据
+            system += ("\n\n注意：本次检索到的资料与问题的相关性很低。"
+                      "凡是与问题无关的资料，一律不要引用它的编号；"
+                      "请明确说明「资料中没有找到足够依据」，再给出常识性补充并标明这是补充。")
+        if ctx.subject:
+            system += f"\n\n本次检索范围限定在科目：{ctx.subject}。"
 
         if not ephemeral:
             STORE.add_message(cid, "user", text)
 
         self._sse_start()
         self._sse("status", {"stage": "retrieving", "conversation_id": cid,
-                             "hits": len(ctx.hits), "insufficient": ctx.insufficient})
+                             "hits": len(ctx.hits), "insufficient": ctx.insufficient,
+                             "subject": ctx.subject, "top_score": round(ctx.top_score, 2)})
         collected: list[str] = []
         try:
             self._sse("status", {"stage": "generating"})
@@ -378,7 +389,7 @@ class Handler(BaseHTTPRequestHandler):
                 collected.append(piece)
                 self._sse("delta", {"text": piece})
             answer = "".join(collected)
-            verification = rag.validate_citations(answer, ctx.citations)
+            verification = rag.validate_citations(answer, ctx.citations, ctx.insufficient)
             self._sse("status", {"stage": "verifying"})
             self._sse("citations", verification)
             mid = "" if ephemeral else STORE.add_message(cid, "assistant", answer, verification["items"])
@@ -422,7 +433,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._sse("delta", {"text": piece})
             answer = "".join(collected)
             STORE.set_outline(chapter_id, answer)
-            verification = rag.validate_citations(answer, ctx.citations)
+            verification = rag.validate_citations(answer, ctx.citations, ctx.insufficient)
             self._sse("citations", verification)
             self._sse("completed", {"status": "completed", "chapter_id": chapter_id})
         except deepseek.DeepSeekError as exc:

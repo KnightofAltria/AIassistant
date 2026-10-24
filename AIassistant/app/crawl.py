@@ -44,7 +44,7 @@ SOURCES: list[tuple[str, str, str, str]] = [
     ("进程与线程基础",
      "https://www.xiaolincoding.com/os/4_process/process_base.html",
      "操作系统", "小林coding（个人博客），仅本地学习使用"),
-    ("位运算与补码",
+    ("位运算基础（OI Wiki）",
      "https://oi-wiki.org/math/bit/",
      "计算机组成原理", "OI Wiki（CC BY-SA 4.0）"),
     ("二叉树",
