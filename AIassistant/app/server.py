@@ -213,7 +213,12 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/summaries":
-            self._json({"summaries": STORE.list_summaries(query.get("kind", [None])[0])})
+            kind = query.get("kind", [None])[0]
+            conv = query.get("conversation", [""])[0]
+            items = STORE.list_summaries(kind)
+            if conv:
+                items = [x for x in items if x.get("conversation_id") == conv]
+            self._json({"summaries": items})
             return
 
         if path == "/api/mistakes":
@@ -320,6 +325,11 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/api/chapters/([\w-]+)/summary", path)
         if m:
             self._chapter_summary(m.group(1))
+            return
+
+        m = re.fullmatch(r"/api/chapters/([\w-]+)/videos", path)
+        if m:
+            self._chapter_videos(m.group(1))
             return
 
         # ---- 用户档案
@@ -732,6 +742,28 @@ class Handler(BaseHTTPRequestHandler):
                                   text, "")
         self._json({"summary": saved, "stats": stats}, 201)
 
+    # ------------------------------------------------------------ 业务：推荐学习视频
+    def _chapter_videos(self, chapter_id: str) -> None:
+        chapter = STORE.chapter(chapter_id)
+        if not chapter:
+            self._error("章节不存在", 404)
+            return
+        if not STORE.has_api_key() and not deepseek.MOCK:
+            self._error("尚未配置 DeepSeek API Key", 401)
+            return
+        prompt = (
+            f"科目：{chapter['subject_name']}\n章节：{chapter['title']}\n"
+            f"大纲：\n{chapter.get('outline', '')}\n\n"
+            "请推荐 4 个适合本科生的学习视频方向。**只输出 JSON 数组**，不要代码块标记，元素格式：\n"
+            '{"title": "视频主题（不要编造具体视频标题或BV号）", '
+            '"platform": "哔哩哔哩 或 中国大学MOOC 或 其他", '
+            '"keyword": "用于站内搜索的关键词", '
+            '"reason": "为什么推荐它，20字以内"}\n'
+            "严禁编造具体视频链接、BV 号或 UP 主名，只能给搜索关键词。")
+        raw = client().complete([{"role": "user", "content": prompt}], max_tokens=900)
+        videos = _parse_videos(raw)
+        self._json({"videos": videos, "chapter": chapter["title"]})
+
     # ------------------------------------------------------------ 业务：用户档案
     def _generate_profile(self, month: str | None) -> None:
         summaries = STORE.list_summaries()[:10]
@@ -780,6 +812,40 @@ def _pending_summary() -> dict | None:
         return None
     return {"conversation_id": latest["id"], "title": latest["title"],
             "messages": len(messages), "updated_at": latest["updated_at"]}
+
+
+def _parse_videos(raw: str) -> list[dict]:
+    """解析模型给的视频推荐；把关键词转成搜索链接，避免它编造具体 BV 号。"""
+    text = raw.strip()
+    fence = re.search(r"```(?:json)?\s*(.+?)```", text, re.S)
+    if fence:
+        text = fence.group(1).strip()
+    start, end = text.find("["), text.rfind("]")
+    if start < 0 or end < 0:
+        return []
+    try:
+        data = json.loads(text[start:end + 1])
+    except json.JSONDecodeError:
+        return []
+    out = []
+    for item in data if isinstance(data, list) else []:
+        if not isinstance(item, dict):
+            continue
+        keyword = str(item.get("keyword") or "").strip()
+        if not keyword:
+            continue
+        platform = str(item.get("platform") or "").strip() or "哔哩哔哩"
+        if "mooc" in platform.lower() or "大学" in platform:
+            url = "https://www.icourse163.org/search.htm?search=" + urllib.parse.quote(keyword)
+            kind = "MOOC"
+        else:
+            url = "https://search.bilibili.com/all?keyword=" + urllib.parse.quote(keyword)
+            kind = "B站"
+        out.append({"title": str(item.get("title") or keyword)[:80],
+                    "platform": platform[:30], "kind": kind,
+                    "keyword": keyword[:60], "url": url,
+                    "reason": str(item.get("reason") or "")[:60]})
+    return out[:6]
 
 
 def _parse_questions(raw: str) -> list[dict]:

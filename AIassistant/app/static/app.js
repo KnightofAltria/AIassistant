@@ -472,10 +472,12 @@ async function openChapter(chapter) {
       <div class="card-actions">
         <button id="btn-tutor" class="btn primary">生成讲解</button>
         <button id="btn-chap-summary" class="btn">本章小结</button>
+        <button id="btn-videos" class="btn">推荐学习视频</button>
         <span id="chap-stats" class="muted small"></span>
       </div>
       <div id="tutor-body" class="body" style="margin-top:12px"></div>
       <div id="chapter-summary" class="chapter-summary hidden"></div>
+      <div id="chapter-videos" class="chapter-videos hidden"></div>
     </div>
     <div class="qa-box">
       <h4>章节练习</h4>

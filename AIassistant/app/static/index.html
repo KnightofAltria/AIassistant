@@ -31,6 +31,18 @@
   </div>
 </div>
 
+<!-- ============ 欢迎主界面（粒子动画） ============ -->
+<div id="landing" class="landing hidden">
+  <canvas id="particles"></canvas>
+  <div class="landing-inner">
+    <div class="landing-logo">CS</div>
+    <h1>计算机课程学习助手</h1>
+    <p class="landing-sub">组成原理 · 计算机网络 · 操作系统 · 数据结构</p>
+    <button id="btn-start" class="btn-start">开始学习</button>
+    <p class="landing-tip">本地运行 · 资料不出本机</p>
+  </div>
+</div>
+
 <!-- ============ 主界面 ============ -->
 <div id="app" class="app hidden">
   <aside id="sidebar" class="sidebar">
@@ -51,8 +63,10 @@
     </div>
 
     <nav class="nav">
-      <button class="nav-item" data-view="summary"><i>📄</i><span>近期总结</span></button>
+      <button class="nav-item" data-view="home"><i>🏠</i><span>主界面</span></button>
+      <button class="nav-item" data-view="profile"><i>👤</i><span>个人信息</span></button>
       <button class="nav-item active" data-view="chat"><i>💬</i><span>AI 聊天</span></button>
+      <button class="nav-item" data-view="summary"><i>📄</i><span>近期总结</span></button>
       <button class="nav-item" data-view="study"><i>📚</i><span>科目学习</span></button>
       <button class="nav-item" data-view="materials"><i>🗂️</i><span>资料管理</span></button>
     </nav>
@@ -68,6 +82,43 @@
   <button id="btn-expand" class="expand-btn hidden" title="展开侧栏">☰</button>
 
   <main class="main">
+    <!-- ---------------- 主界面（今天学点什么） ---------------- -->
+    <section id="view-home" class="view">
+      <div class="home-hero">
+        <h1 class="home-title">今天学点什么？</h1>
+        <p class="muted" id="home-sub">四个科目、27 份资料已就绪</p>
+        <div class="home-actions">
+          <button class="home-card" data-goto="chat"><span class="hc-icon">💬</span><b>AI 聊天</b><small>问课程问题，答案带出处</small></button>
+          <button class="home-card" data-goto="study"><span class="hc-icon">📚</span><b>科目学习</b><small>看讲解、做练习、拿小结</small></button>
+          <button class="home-card" data-goto="summary"><span class="hc-icon">📄</span><b>近期总结</b><small>对话总结与易错提示本</small></button>
+          <button class="home-card" data-goto="materials"><span class="hc-icon">🗂️</span><b>资料管理</b><small>导入、分类、AI 整理</small></button>
+          <button class="home-card" data-goto="profile"><span class="hc-icon">👤</span><b>个人信息</b><small>学习者档案，按月归档</small></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------- 个人信息 ---------------- -->
+    <section id="view-profile" class="view">
+      <header class="view-head">
+        <div>
+          <h2>个人信息</h2>
+          <p class="muted">学习者档案保存在本地 <code>app/data/profile/</code>，按月一份</p>
+        </div>
+        <div class="head-actions">
+          <button id="btn-edit-avatar" class="btn">自定义头像</button>
+          <button id="btn-gen-profile-2" class="btn primary">生成本月档案</button>
+        </div>
+      </header>
+      <div class="profile-hero">
+        <div class="avatar large" id="avatar-big">学</div>
+        <div>
+          <h3 id="profile-name-big">本机用户</h3>
+          <p class="muted small" id="profile-summary-line">还没有档案</p>
+        </div>
+      </div>
+      <div id="profile-panel-2" class="panel"><div class="panel-body"></div></div>
+    </section>
+
     <!-- ---------------- AI 聊天 ---------------- -->
     <section id="view-chat" class="view active">
       <header class="view-head">
@@ -77,7 +128,8 @@
         </div>
         <div class="head-actions">
           <button id="btn-new-chat" class="btn">新对话</button>
-          <button id="btn-summarize" class="btn">生成近期总结</button>
+          <button id="btn-view-summary" class="btn">查看本对话总结</button>
+          <button id="btn-summarize" class="btn primary">生成近期总结</button>
         </div>
       </header>
       <div class="chat-wrap">
@@ -273,5 +325,6 @@
 <div id="toast" class="toast hidden"></div>
 <script src="/app.js"></script>
 <script src="/agent.js"></script>
+<script src="/landing.js"></script>
 </body>
 </html>

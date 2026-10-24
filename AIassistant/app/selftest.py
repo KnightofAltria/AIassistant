@@ -82,7 +82,7 @@ def main() -> int:
           f"configured={st.get('configured')} mock={st.get('mock')}")
 
     # 2. 首页与静态资源
-    for asset in ("/", "/style.css", "/app.js", "/agent.js"):
+    for asset in ("/", "/style.css", "/app.js", "/agent.js", "/landing.js"):
         req = urllib.request.Request(base + asset)
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
@@ -96,6 +96,10 @@ def main() -> int:
     #     这里检查关键声明只出现一次，能挡住"重复粘贴"这类事故。
     with urllib.request.urlopen(base + "/app.js", timeout=15) as resp:
         js = resp.read().decode("utf-8", "replace")
+    for extra in ("/agent.js", "/landing.js"):
+        with urllib.request.urlopen(base + extra, timeout=15) as resp:
+            body = resp.read().decode("utf-8", "replace")
+        check(f"{extra} 可加载且非空", len(body) > 500, f"{len(body)} 字节")
     dup = {name: js.count(name) for name in ("async function boot(", "const chatInput",
                                              "function renderMaterialList", "async function loadMaterials")
            if js.count(name) != 1}
@@ -143,6 +147,23 @@ def main() -> int:
     if builtin:
         status, err = call(base, f"/api/subjects/{builtin[0]['id']}", "DELETE")
         check("内置科目不可删除", status == 403, err.get("error", {}).get("message", ""))
+
+    # 3.8 推荐学习视频（mock 下返回空列表也算通过，只验证接口通）
+    if subjects and subjects[0]["chapters"]:
+        cid0 = subjects[0]["chapters"][0]["id"]
+        status, res = call(base, f"/api/chapters/{cid0}/videos", "POST", {})
+        check("POST /api/chapters/{id}/videos", status == 200 and "videos" in res,
+              f"{len(res.get('videos', []))} 条推荐")
+
+    # 3.9 总结按会话过滤
+    status, res = call(base, "/api/summaries")
+    all_n = len(res.get("summaries", []))
+    status, convs2 = call(base, "/api/conversations")
+    if convs2.get("conversations"):
+        cid2 = convs2["conversations"][0]["id"]
+        status, res = call(base, f"/api/summaries?conversation={cid2}")
+        check("GET /api/summaries?conversation=", status == 200,
+              f"全部 {all_n} 条，该会话 {len(res.get('summaries', []))} 条")
 
     # 4. 导入资料
     material_text = (

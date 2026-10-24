@@ -488,3 +488,90 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   font-size: 12px; color: var(--brand); margin-bottom: 6px; font-weight: 600;
 }
 .subject-card .card-actions, .chapter-item .card-actions { margin-top: 8px; }
+
+/* ---------- 欢迎主界面（粒子） ---------- */
+.landing {
+  position: fixed; inset: 0; z-index: 70;
+  background: radial-gradient(1200px 700px at 20% -10%, #e8f0ff 0%, transparent 60%),
+              radial-gradient(900px 600px at 100% 10%, #e9f7f1 0%, transparent 55%),
+              #f7f9fd;
+  display: grid; place-items: center;
+  transition: opacity .42s ease, transform .42s ease;
+}
+.landing.fade-out { opacity: 0; transform: scale(1.02); }
+#particles { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.landing-inner {
+  position: relative; z-index: 2; text-align: center; padding: 0 24px;
+  animation: rise .6s cubic-bezier(.2,.8,.2,1);
+}
+.landing-logo {
+  width: 64px; height: 64px; margin: 0 auto 18px; border-radius: 18px;
+  display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 20px;
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  box-shadow: 0 14px 34px rgba(47,111,237,.32);
+}
+.landing-inner h1 { font-size: 30px; margin: 0 0 10px; letter-spacing: .5px; }
+.landing-sub { color: var(--ink-2); margin: 0 0 30px; font-size: 13.5px; }
+.btn-start {
+  border: none; cursor: pointer; color: #fff; font-size: 16px; font-weight: 600;
+  padding: 14px 46px; border-radius: 999px;
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  box-shadow: 0 14px 34px rgba(47,111,237,.34);
+  opacity: 0; transform: translateY(12px) scale(.96);
+  transition: opacity .55s ease, transform .55s cubic-bezier(.2,.8,.2,1), box-shadow .2s;
+  pointer-events: none;
+}
+.btn-start.show { opacity: 1; transform: none; pointer-events: auto; }
+.btn-start:hover { box-shadow: 0 18px 42px rgba(47,111,237,.42); }
+.landing-tip { margin-top: 22px; font-size: 11.5px; color: var(--ink-3); }
+
+/* ---------- 首页「今天学点什么」 ---------- */
+.home-hero { margin: auto; text-align: center; padding: 40px 10px; max-width: 940px; }
+.home-title {
+  font-size: 34px; margin: 0 0 12px; letter-spacing: 1px;
+  background: linear-gradient(120deg, #1f3b63, #3f7ae0 60%, #4aa88a);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: rise .5s ease;
+}
+#home-sub { margin: 0 0 34px; }
+.home-actions {
+  display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+}
+.home-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  background: #fff; border: 1px solid var(--line); border-radius: 16px;
+  padding: 18px 16px; cursor: pointer; text-align: left;
+  transition: .2s cubic-bezier(.2,.8,.2,1);
+}
+.home-card:hover {
+  transform: translateY(-4px); border-color: #cfe0fb;
+  box-shadow: 0 18px 38px rgba(23,43,77,.12);
+}
+.home-card .hc-icon { font-size: 22px; }
+.home-card b { font-size: 14.5px; }
+.home-card small { color: var(--ink-3); font-size: 11.5px; line-height: 1.5; }
+
+/* ---------- 返回导航 ---------- */
+.view-nav { display: flex; gap: 8px; margin-bottom: 12px; }
+.btn.tiny { padding: 4px 10px; font-size: 12px; border-radius: 8px; color: var(--ink-2); }
+.btn.tiny:hover { color: var(--brand); border-color: #cfe0fb; }
+
+/* ---------- 个人信息页 ---------- */
+.profile-hero { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.avatar.large { width: 56px; height: 56px; border-radius: 16px; font-size: 22px; }
+.profile-hero h3 { margin: 0 0 4px; font-size: 16px; }
+
+/* ---------- 推荐视频 ---------- */
+.chapter-videos {
+  margin-top: 12px; padding: 12px 14px; background: #fbfdff;
+  border: 1px solid #dbe8fb; border-radius: 10px; font-size: 13px;
+}
+.chapter-videos h4 { margin: 0 0 10px; font-size: 13.5px; }
+.video-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.video-item {
+  background: #fff; border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; line-height: 1.6;
+}
+.video-item a { color: var(--brand); text-decoration: none; font-weight: 600; }
+.video-item a:hover { text-decoration: underline; }
+.card.highlight { border-color: #cfe0fb; box-shadow: 0 8px 26px rgba(47,111,237,.12); }
