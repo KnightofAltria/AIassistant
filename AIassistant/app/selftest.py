@@ -92,6 +92,17 @@ def main() -> int:
         except Exception as exc:                       # noqa: BLE001
             check(f"GET {asset}", False, str(exc))
 
+    # 2.5 前端脚本完整性：曾经因为打补丁把 app.js 写重复，导致语法错误、整页空白。
+    #     这里检查关键声明只出现一次，能挡住"重复粘贴"这类事故。
+    with urllib.request.urlopen(base + "/app.js", timeout=15) as resp:
+        js = resp.read().decode("utf-8", "replace")
+    dup = {name: js.count(name) for name in ("async function boot(", "const chatInput",
+                                             "function renderMaterialList", "async function loadMaterials")
+           if js.count(name) != 1}
+    check("app.js 无重复声明", not dup, "全部唯一" if not dup else f"重复：{dup}")
+    check("app.js 尾部完整", js.rstrip().endswith("});"),
+          js.rstrip()[-20:].replace("\n", " "))
+
     # 3. 科目树
     status, subs = call(base, "/api/subjects")
     subjects = subs.get("subjects", [])
