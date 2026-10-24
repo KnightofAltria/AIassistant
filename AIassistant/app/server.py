@@ -976,7 +976,16 @@ def main() -> int:
     if samples:
         print(f"  已导入内置示例资料 {samples} 份（可在界面里删除）")
 
-    httpd = ThreadingHTTPServer((args.host, args.port), Handler)
+    try:
+        httpd = ThreadingHTTPServer((args.host, args.port), Handler)
+    except OSError as exc:
+        print("=" * 56)
+        print(f"  启动失败：端口 {args.port} 已被占用（{exc}）")
+        print("  可能已经有一个实例在运行。请先关掉那个窗口，")
+        print(f"  或者用别的端口启动：python server.py --port {args.port + 1}")
+        print("=" * 56)
+        return 2
+
     httpd.flags = ["--verbose"] if args.verbose else []
     url = f"http://{args.host}:{args.port}"
     print("=" * 56)
