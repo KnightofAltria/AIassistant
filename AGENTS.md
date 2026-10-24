@@ -38,10 +38,17 @@
 ## 三、目录结构与提交规范
 
 ```
-AIassistant/   项目代码（当前仅需求简述，源码待开发）
+AIassistant/   我们的实现（Python 标准库 + 原生 JS，可运行版本）
+assistant2/    另一个 AI（GPT）写的平行版本，同仓库并行迭代
 文档/          课程要求、交付文档初稿、设计方案、文档生成脚本
 日志/          每日修改日志（.docx）
 ```
+
+关于 `assistant2/`（用户明确交代过，别再重复问）：
+
+- 那是**另一个 AI 在写第二个版本**，和我们这套并行推进，属于要交付的内容。
+- **正常提交它的新增文件**，不要加进 `.gitignore`，不要建议忽略，也不要改动它的代码。
+- 它自己的 `.gitignore` 已经忽略了 `data/`、`__pycache__/`、`test-results/`，不用我们操心。
 
 - 提交信息：`<类型>: <说明>`，类型限 `feat` / `fix` / `docs` / `chore` / `refactor` / `test`。
 - `.gitignore` 已忽略：`__pycache__/`、`~$*`（Office 锁文件）、`*.zip`、`Thumbs.db`、`.vscode/` 等。
