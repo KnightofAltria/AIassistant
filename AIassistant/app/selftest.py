@@ -82,7 +82,7 @@ def main() -> int:
           f"configured={st.get('configured')} mock={st.get('mock')}")
 
     # 2. 首页与静态资源
-    for asset in ("/", "/style.css", "/app.js"):
+    for asset in ("/", "/style.css", "/app.js", "/agent.js"):
         req = urllib.request.Request(base + asset)
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
@@ -108,6 +108,41 @@ def main() -> int:
     subjects = subs.get("subjects", [])
     check("GET /api/subjects", status == 200 and len(subjects) >= 4,
           f"{len(subjects)} 个科目，共 {sum(len(s['chapters']) for s in subjects)} 章")
+
+    # 3.5 工具化 AI：资料与科目的自然语言指令接口
+    try:
+        events = sse(base, "/api/agent/stream",
+                     {"scope": "materials", "text": "看看有哪些文件夹"}, timeout=90)
+        names = [e[0] for e in events]
+        ok = ("completed" in names) or ("failed" in names)
+        check("POST /api/agent/stream", ok, " -> ".join(names[:6]))
+    except Exception as exc:                            # noqa: BLE001
+        check("POST /api/agent/stream", False, str(exc)[:80])
+
+    # 3.6 科目与章节增删改（用完即删，保持库干净）
+    status, res = call(base, "/api/subjects", "POST", {"name": "自检临时科目"})
+    sid = (res.get("subject") or {}).get("id", "")
+    check("POST /api/subjects", status == 201 and bool(sid), sid[:8])
+    if sid:
+        status, res = call(base, f"/api/subjects/{sid}/chapters", "POST",
+                           {"title": "自检临时章节", "outline": "- 要点"})
+        cid = (res.get("chapter") or {}).get("id", "")
+        check("POST /api/subjects/{id}/chapters", status == 201 and bool(cid), cid[:8])
+        if cid:
+            status, _ = call(base, f"/api/chapters/{cid}", "PATCH",
+                             {"title": "自检临时章节改"})
+            check("PATCH /api/chapters/{id}", status == 200, "")
+            status, _ = call(base, f"/api/chapters/{cid}", "DELETE")
+            check("DELETE /api/chapters/{id}", status == 200, "")
+        status, _ = call(base, f"/api/subjects/{sid}", "DELETE")
+        check("DELETE /api/subjects/{id}", status == 200, "")
+
+    # 3.7 内置科目保护
+    status, subs = call(base, "/api/subjects")
+    builtin = [x for x in subs.get("subjects", []) if x.get("is_builtin")]
+    if builtin:
+        status, err = call(base, f"/api/subjects/{builtin[0]['id']}", "DELETE")
+        check("内置科目不可删除", status == 403, err.get("error", {}).get("message", ""))
 
     # 4. 导入资料
     material_text = (

@@ -106,6 +106,14 @@
           <p class="muted">每次对话可生成一份总结，也会据此更新你的学习者画像</p>
         </div>
       </header>
+      <div class="panel">
+        <div class="panel-head">
+          <h3>学习者档案</h3>
+          <button id="btn-gen-profile" class="btn">生成/更新本月档案</button>
+          <button id="btn-gen-tips" class="btn">生成易错提示本</button>
+        </div>
+        <div id="profile-panel" class="panel-body"></div>
+      </div>
       <div id="summary-list" class="card-list"></div>
     </section>
 
@@ -117,9 +125,22 @@
           <p class="muted" id="study-sub">选择科目与章节，先看讲解再做题</p>
         </div>
         <div class="head-actions">
+          <button id="btn-add-subject" class="btn primary">添加科目</button>
           <button id="btn-study-back" class="btn hidden">返回科目</button>
         </div>
       </header>
+      <div class="agent-box">
+        <div class="agent-presets">
+          <button class="chip" data-scope="study" data-agent-preset="列出所有科目和章节，标出哪些是内置的">查看科目结构</button>
+          <button class="chip" data-scope="study" data-agent-preset="给数据结构加一章：并查集与路径压缩，并写 5 条大纲">给数据结构加一章</button>
+          <button class="chip" data-scope="study" data-agent-preset="给操作系统新增一个章节，讲进程通信，并出 3 道题">加章节并出题</button>
+        </div>
+        <div id="agent-log-study" class="agent-log hidden"></div>
+        <form id="study-agent-form" class="composer">
+          <textarea id="study-agent-input" rows="1" placeholder="用一句话调整科目，例如：把「树」这一章改名为「树与二叉树」，大纲加一条 AVL 旋转"></textarea>
+          <button id="study-agent-send" class="btn primary" type="submit">执行</button>
+        </form>
+      </div>
       <div id="subject-grid" class="subject-grid"></div>
       <div id="chapter-list" class="chapter-list hidden"></div>
       <div id="chapter-detail" class="chapter-detail hidden"></div>
@@ -141,6 +162,18 @@
           <button id="btn-new-folder" class="btn">新建文件夹</button>
         </div>
       </header>
+      <div class="agent-box">
+        <div class="agent-presets">
+          <button class="chip" data-scope="materials" data-agent-preset="看看现在有哪些资料和文件夹，有没有放错的">检查资料归类</button>
+          <button class="chip" data-scope="materials" data-agent-preset="按科目把散落的资料归类到对应文件夹">一键按科目归类</button>
+          <button class="chip" data-scope="materials" data-agent-preset="列出所有资料，把不属于任何科目的资料移到核心资料文件夹">清理无归属资料</button>
+        </div>
+        <div id="agent-log-materials" class="agent-log hidden"></div>
+        <form id="material-agent-form" class="composer">
+          <textarea id="material-agent-input" rows="1" placeholder="用一句话让我整理资料，例如：把讲 TCP 的那几篇都放到计算机网络文件夹"></textarea>
+          <button id="material-agent-send" class="btn primary" type="submit">执行</button>
+        </form>
+      </div>
       <div id="shared-warning" class="banner hidden"></div>
       <div id="folder-bar" class="folder-bar"></div>
       <div id="material-list" class="card-list"></div>
@@ -203,7 +236,22 @@
   </div>
 </div>
 
+<!-- ============ 启动时询问近期总结 ============ -->
+<div id="modal-summary-ask" class="modal hidden">
+  <div class="modal-card narrow">
+    <h3>要不要先把上次的对话总结一下？</h3>
+    <p class="muted small">检测到最近一次对话：<b id="sumask-title"></b></p>
+    <p class="muted small" id="sumask-meta"></p>
+    <div class="modal-actions column">
+      <button id="sumask-yes" class="btn primary wide">好，先生成近期总结</button>
+      <button id="sumask-later" class="btn wide">先不总结，直接进聊天</button>
+      <button id="sumask-no" class="btn wide">关闭提示</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast hidden"></div>
 <script src="/app.js"></script>
+<script src="/agent.js"></script>
 </body>
 </html>

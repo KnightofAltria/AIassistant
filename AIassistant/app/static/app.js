@@ -396,9 +396,20 @@ async function loadSubjects() {
   subjects.forEach((s) => {
     const el = document.createElement('div');
     el.className = 'subject-card';
+    const badge = s.is_builtin
+      ? '<span class="badge builtin">内置</span>'
+      : '<span class="badge custom">自定义</span>';
     el.innerHTML = `<div class="subject-emoji">${SUBJECT_EMOJI[s.slug] || '📘'}</div>
-      <h3>${esc(s.name)}</h3><p>${s.chapters.length} 个章节</p>`;
-    el.addEventListener('click', () => openSubject(s));
+      <h3>${esc(s.name)} ${badge}</h3><p>${s.chapters.length} 个章节</p>
+      <div class="card-actions"><button class="btn small" data-act="enter">进入</button>${
+        s.is_builtin ? '' : '<button class="btn danger small" data-act="del">删除科目</button>'}</div>`;
+    el.querySelector('[data-act="enter"]').addEventListener('click', (ev) => {
+      ev.stopPropagation(); openSubject(s);
+    });
+    const del = el.querySelector('[data-act="del"]');
+    if (del) del.addEventListener('click', (ev) => {
+      ev.stopPropagation(); deleteSubject(s);
+    });
     grid.appendChild(el);
   });
   $('#subject-grid').classList.remove('hidden');
@@ -419,8 +430,23 @@ function openSubject(subject) {
   subject.chapters.forEach((c) => {
     const el = document.createElement('div');
     el.className = 'chapter-item';
-    el.innerHTML = `<h4>${esc(c.title)}</h4><p>${esc((c.outline || '').split('\n')[0].replace(/^-\s*/, '')) || '点击进入'}</p>`;
-    el.addEventListener('click', () => openChapter(c));
+    const badge = c.is_builtin ? '<span class="badge builtin">内置</span>' : '';
+    el.innerHTML = `<h4>${esc(c.title)} ${badge}</h4>
+      <p>${esc((c.outline || '').split('\n')[0].replace(/^-\s*/, '')) || '点击进入'}</p>
+      <div class="card-actions">
+        <button class="btn small" data-act="open">进入</button>
+        <button class="btn small" data-act="edit">编辑</button>
+        <button class="btn danger small" data-act="del">删除章节</button>
+      </div>`;
+    el.querySelector('[data-act="open"]').addEventListener('click', (ev) => {
+      ev.stopPropagation(); openChapter(c);
+    });
+    el.querySelector('[data-act="edit"]').addEventListener('click', (ev) => {
+      ev.stopPropagation(); editChapter(subject, c);
+    });
+    el.querySelector('[data-act="del"]').addEventListener('click', (ev) => {
+      ev.stopPropagation(); deleteChapter(subject, c);
+    });
     list.appendChild(el);
   });
   $('#btn-study-back').classList.remove('hidden');
@@ -445,8 +471,11 @@ async function openChapter(chapter) {
       <div class="body">${esc(chapter.outline || '（暂无大纲）')}</div>
       <div class="card-actions">
         <button id="btn-tutor" class="btn primary">生成讲解</button>
+        <button id="btn-chap-summary" class="btn">本章小结</button>
+        <span id="chap-stats" class="muted small"></span>
       </div>
       <div id="tutor-body" class="body" style="margin-top:12px"></div>
+      <div id="chapter-summary" class="chapter-summary hidden"></div>
     </div>
     <div class="qa-box">
       <h4>章节练习</h4>
@@ -464,6 +493,14 @@ async function openChapter(chapter) {
   $('.composer.floating').classList.remove('hidden');
 
   $('#btn-tutor').addEventListener('click', () => generateTutor(chapter));
+  $('#btn-chap-summary').addEventListener('click', () => generateChapterSummary(chapter.id));
+  api(`/api/chapters/${chapter.id}`).then((d) => {
+    if (d.stats) {
+      $('#chap-stats').textContent = d.stats.visited
+        ? `已作答 ${d.stats.attempts} 题，正确率 ${d.stats.rate}%`
+        : `本章共 ${d.stats.questions} 道题`;
+    }
+  }).catch(() => {});
   $('#btn-gen-q').addEventListener('click', () => generateQuestions(chapter));
   $('#btn-reload-q').addEventListener('click', () => loadQuestions(chapter));
   loadQuestions(chapter);

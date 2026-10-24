@@ -414,3 +414,77 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .mini-btn:hover { border-color: #cfe0fb; color: var(--brand); }
 .btn.small { padding: 5px 11px; font-size: 12.5px; border-radius: 8px; }
 .modal-actions.column { flex-direction: column; align-items: stretch; gap: 8px; }
+
+/* ---------- AI 指令区 ---------- */
+.agent-box {
+  background: linear-gradient(150deg, #f7faff, #f3f8ff);
+  border: 1px solid #dfe9fb; border-radius: 14px;
+  padding: 12px 14px; margin-bottom: 14px;
+}
+.agent-presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.chip {
+  border: 1px solid #d7e4fb; background: #fff; color: #3461b8;
+  border-radius: 999px; padding: 5px 12px; font-size: 12.5px; cursor: pointer;
+  transition: .16s;
+}
+.chip:hover { background: #eef4ff; border-color: var(--brand-2); transform: translateY(-1px); }
+.agent-box .composer { border-top: none; padding: 0; }
+.agent-box .composer textarea {
+  background: #fff; border-radius: 10px;
+}
+.agent-log {
+  max-height: 260px; overflow: auto; margin-bottom: 10px;
+  display: flex; flex-direction: column; gap: 8px;
+  font-size: 12.5px;
+}
+.agent-user { color: var(--brand); font-weight: 600; }
+.agent-step {
+  background: #fff; border: 1px solid var(--line); border-left: 3px solid var(--ok);
+  border-radius: 8px; padding: 8px 10px; line-height: 1.6;
+}
+.agent-step.bad { border-left-color: var(--danger); }
+.agent-step.warn { border-left-color: var(--warn); background: #fffdf5; }
+.agent-step .step-args {
+  font-family: Consolas, monospace; font-size: 11px; color: var(--ink-3);
+  margin-left: 6px; word-break: break-all;
+}
+.agent-step .step-msg { color: var(--ink-2); margin-top: 3px; }
+.agent-answer {
+  background: #fff; border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; line-height: 1.7;
+}
+
+/* ---------- 徽标 / 面板 ---------- */
+.badge {
+  font-size: 11px; padding: 1px 7px; border-radius: 999px;
+  font-weight: 400; vertical-align: middle;
+}
+.badge.builtin { background: #eef4ff; color: #2f6fed; border: 1px solid #d7e4fb; }
+.badge.custom { background: #eef8f1; color: var(--ok); border: 1px solid #cfeadd; }
+.panel {
+  background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px 16px; margin-bottom: 16px;
+}
+.panel-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.panel-head h3 { margin: 0; font-size: 14px; flex: 1; }
+.panel-body { display: flex; flex-direction: column; gap: 8px; }
+.profile-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; background: #f8fafd; border-radius: 8px; font-size: 12.5px;
+}
+.profile-row b { font-weight: 600; }
+.profile-pre {
+  white-space: pre-wrap; font-family: inherit; font-size: 12.5px; line-height: 1.7;
+  max-height: 220px; overflow: auto; margin: 6px 0 0;
+  background: #f8fafd; border-radius: 8px; padding: 10px 12px; color: var(--ink-2);
+}
+.chapter-summary {
+  margin-top: 12px; padding: 12px 14px; background: #f7fbff;
+  border: 1px solid #dbe8fb; border-radius: 10px; font-size: 13px; line-height: 1.75;
+}
+.chapter-summary .sum-stats {
+  font-size: 12px; color: var(--brand); margin-bottom: 6px; font-weight: 600;
+}
+.subject-card .card-actions, .chapter-item .card-actions { margin-top: 8px; }

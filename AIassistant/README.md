@@ -80,10 +80,33 @@ app/
   seed.py         4 科目 19 章节的内置大纲
   crawl.py        公开资料抓取与导入
   reindex.py      改过切片规则后重建全部索引
-  selftest.py     端到端自检（22 项）
-  static/         前端（原生 JS，无构建）
+  tools.py        工具层：15 个可被模型调用的工具（含 SSRF 防护的网页抓取）
+  selftest.py     端到端自检（36 项）
+  static/         前端（原生 JS，无构建）：app.js 主界面，agent.js 工具化 AI 对话框
   data/           运行时数据：csla.db、materials/、config.json
 ```
+
+## 让 AI 直接改软件（tools / function calling）
+
+资料管理和科目学习页各有一个指令框，说一句话模型就会调用工具真正改动数据：
+
+| 你说的 | 模型会做的事 |
+|---|---|
+| 「看看哪些资料放错了」 | `list_folders` → `list_materials` → 指出问题 |
+| 「按科目整理一下」 | `classify_materials` 直接归类 |
+| 「把讲 TCP 的都放到计算机网络」 | 多次 `move_material` |
+| 「这个链接帮我存下来」 | `import_url` 抓正文、切片、入库 |
+| 「给操作系统加一章：进程通信」 | `add_chapter`（并补大纲） |
+| 「把树那一章改名为树与二叉树」 | `update_chapter` |
+| 「删掉自检临时章节」 | 先返回"待确认"，用户同意后再 `delete_chapter(confirm=true)` |
+
+设计上的两条硬约束：
+
+1. **删除必须二次确认**：工具第一次调用只返回"即将删除什么"，不会真删；模型把这个问句转给用户，
+   用户同意后模型才能带 `confirm=true` 再来一次。
+2. **内置科目/章节删不掉**：`delete_subject` / `delete_chapter` 遇到 `is_builtin` 直接拒绝并说明原因。
+
+抓网页做了 SSRF 防护：只允许 http/https、解析域名后拒绝内网/回环/保留地址、限制 2 MB、超时 20 秒。
 
 ## 检索是怎么做的（以及为什么这么设计）
 

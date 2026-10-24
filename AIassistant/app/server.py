@@ -28,6 +28,7 @@ import deepseek
 import prompts
 import rag
 import seed
+import tools
 from store import DATA_DIR, Store
 
 APP_DIR = Path(__file__).resolve().parent
@@ -133,6 +134,15 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:                      # noqa: BLE001
             self._error(f"服务器内部错误：{exc}", 500)
 
+    def do_PATCH(self) -> None:    # noqa: N802
+        parsed = urllib.parse.urlparse(self.path)
+        try:
+            self._api_post(parsed.path, self._body())
+        except deepseek.DeepSeekError as exc:
+            self._error(str(exc), 502, retryable=exc.retryable)
+        except Exception as exc:                      # noqa: BLE001
+            self._error(f"服务器内部错误：{exc}", 500)
+
     def do_DELETE(self) -> None:   # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
         query = urllib.parse.parse_qs(parsed.query)
@@ -170,7 +180,13 @@ class Handler(BaseHTTPRequestHandler):
                 "model": cfg.get("model", deepseek.DEFAULT_MODEL),
                 "user": STORE.ensure_user(),
                 "stats": STORE.stats(),
+                "pending_summary": _pending_summary(),
             })
+            return
+
+        if path == "/api/profile":
+            self._json({"profile": STORE.ensure_user().get("profile", ""),
+                        "files": STORE.list_profiles()})
             return
 
         if path == "/api/subjects":
@@ -183,7 +199,8 @@ class Handler(BaseHTTPRequestHandler):
             if not chapter:
                 self._error("章节不存在", 404)
                 return
-            self._json({"chapter": chapter, "questions": STORE.questions(chapter["id"])})
+            self._json({"chapter": chapter, "questions": STORE.questions(chapter["id"]),
+                        "stats": STORE.chapter_stats(chapter["id"])})
             return
 
         if path == "/api/conversations":
@@ -232,10 +249,6 @@ class Handler(BaseHTTPRequestHandler):
             self._json(ctx.as_dict())
             return
 
-        if path == "/api/profile":
-            self._json({"profile": STORE.ensure_user().get("profile", "")})
-            return
-
         self._error("未知接口", 404)
 
     # ------------------------------------------------------------ POST API
@@ -250,6 +263,61 @@ class Handler(BaseHTTPRequestHandler):
                 STORE.set_config("api_key", key)
                 STORE.set_config("model", model)
             self._json({"ok": True, "models": result.get("models", []), "mock": deepseek.MOCK})
+            return
+
+        # ---- 工具型 AI（资料管理 / 科目学习）
+        if path == "/api/agent/stream":
+            self._agent_stream(body)
+            return
+
+        # ---- 科目与章节管理
+        if path == "/api/subjects":
+            name = (body.get("name") or "").strip()
+            if not name:
+                self._error("科目名不能为空", 400)
+                return
+            try:
+                subject = STORE.add_subject(name, is_builtin=False)
+            except ValueError as exc:
+                self._error(str(exc), 409)
+                return
+            self._json({"subject": subject}, 201)
+            return
+
+        m = re.fullmatch(r"/api/subjects/([\w-]+)/chapters", path)
+        if m:
+            title = (body.get("title") or "").strip()
+            if not title:
+                self._error("章节标题不能为空", 400)
+                return
+            try:
+                chapter = STORE.add_chapter(m.group(1), title, body.get("outline", ""),
+                                            is_builtin=False)
+            except Exception as exc:               # noqa: BLE001
+                self._error(f"新增章节失败：{exc}", 400)
+                return
+            self._json({"chapter": chapter}, 201)
+            return
+
+        m = re.fullmatch(r"/api/chapters/([\w-]+)", path)
+        if m:
+            STORE.update_chapter(m.group(1), body.get("title"), body.get("outline"))
+            self._json({"ok": True})
+            return
+
+        m = re.fullmatch(r"/api/chapters/([\w-]+)/summary", path)
+        if m:
+            self._chapter_summary(m.group(1))
+            return
+
+        # ---- 用户档案
+        if path == "/api/profile/generate":
+            self._generate_profile(body.get("month") or None)
+            return
+
+        # ---- 易错提示本
+        if path == "/api/mistakes/tips":
+            self._mistake_tips()
             return
 
         # ---- 对话（SSE 流式）
@@ -348,6 +416,26 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------ DELETE API
     def _api_delete(self, path: str, query: dict | None = None) -> None:
         query = query or {}
+        m = re.fullmatch(r"/api/subjects/([\w-]+)", path)
+        if m:
+            try:
+                self._json({"ok": True, **STORE.delete_subject(m.group(1))})
+            except PermissionError as exc:
+                self._error(str(exc), 403)
+            return
+
+        m = re.fullmatch(r"/api/chapters/([\w-]+)", path)
+        if m:
+            result = STORE.delete_chapter(m.group(1))
+            self._json({"ok": True, **result})
+            return
+
+        m = re.fullmatch(r"/api/profile/([\w-]+)", path)
+        if m:
+            STORE.delete_profile(m.group(1))
+            self._json({"ok": True})
+            return
+
         m = re.fullmatch(r"/api/folders/([\w-]+)", path)
         if m:
             mode = query.get("mode", ["move"])[0]
@@ -498,6 +586,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         correct = question["answer"].strip().upper()[:1]
         ok = picked == correct
+        STORE.record_attempt(chapter_id, question_id, picked, ok)
         if not ok:
             STORE.add_mistake(
                 subject=chapter["subject_name"] if chapter else "",
@@ -543,7 +632,144 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
+    # ------------------------------------------------------------ 业务：工具型 AI
+    def _agent_stream(self, body: dict) -> None:
+        """资料管理 / 科目学习里的 AI 对话框：模型调工具改软件。"""
+        scope = body.get("scope") or "materials"
+        if scope not in ("materials", "study"):
+            self._error("未知场景", 400)
+            return
+        text = (body.get("text") or "").strip()
+        if not text:
+            self._error("指令不能为空", 400)
+            return
+        if not STORE.has_api_key() and not deepseek.MOCK:
+            self._error("尚未配置 DeepSeek API Key", 401)
+            return
+
+        system = (prompts.AGENT_MATERIALS_SYSTEM if scope == "materials"
+                  else prompts.AGENT_STUDY_SYSTEM)
+        ctx = tools.ToolContext(store=STORE, retriever_factory=get_retriever)
+        specs = tools.tools_for_scope(scope)
+        messages = [{"role": "system", "content": system},
+                    {"role": "user", "content": text}]
+
+        self._sse_start()
+        self._sse("status", {"stage": "thinking", "scope": scope})
+        final, steps = "", 0
+        try:
+            for _round in range(5):
+                msg = client().chat_with_tools(messages, specs)
+                calls = msg.get("tool_calls") or []
+                if not calls:
+                    final = msg.get("content") or ""
+                    break
+                messages.append({"role": "assistant",
+                                 "content": msg.get("content") or "",
+                                 "tool_calls": calls})
+                for call in calls:
+                    fn = (call.get("function") or {}).get("name", "")
+                    raw_args = (call.get("function") or {}).get("arguments") or "{}"
+                    try:
+                        args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                    except json.JSONDecodeError:
+                        args = {}
+                    result = tools.run_tool(scope, fn, args, ctx)
+                    steps += 1
+                    self._sse("step", {"tool": fn, "args": args,
+                                       "ok": result.get("ok"),
+                                       "need_confirm": result.get("need_confirm", False),
+                                       "summary": result.get("summary", "")})
+                    messages.append({"role": "tool",
+                                     "tool_call_id": call.get("id", ""),
+                                     "content": json.dumps(result, ensure_ascii=False)[:4000]})
+            else:
+                final = "动作有点多，我先停在这里。你可以让我继续，或者把要求说得更具体一些。"
+
+            for i in range(0, len(final), 8):
+                self._sse("delta", {"text": final[i:i + 8]})
+            self._sse("completed", {"status": "completed", "steps": steps})
+        except deepseek.DeepSeekError as exc:
+            self._sse("failed", {"code": exc.status or 0, "message": str(exc),
+                                 "retryable": exc.retryable})
+        except BrokenPipeError:
+            return
+
+    # ------------------------------------------------------------ 业务：章节总结
+    def _chapter_summary(self, chapter_id: str) -> None:
+        chapter = STORE.chapter(chapter_id)
+        if not chapter:
+            self._error("章节不存在", 404)
+            return
+        stats = STORE.chapter_stats(chapter_id)
+        if stats["attempts"] == 0:
+            self._error("这一章还没有作答记录，先做几道题再总结", 400)
+            return
+        wrongs = STORE.wrong_questions(chapter_id)
+        detail = "\n".join(
+            f"- 题目：{w['stem'][:60]}；正确答案 {w['answer']}；你选了 {w['my_answer']}"
+            for w in wrongs) or "（没有错题）"
+        prompt = (f"章节：{chapter['subject_name']} / {chapter['title']}\n"
+                  f"作答 {stats['attempts']} 题，正确 {stats['correct']} 题，"
+                  f"正确率 {stats['rate']}%，错题 {stats['wrong']} 道。\n"
+                  f"错题清单：\n{detail}\n\n"
+                  "请给这位学生写一段本章学习小结，包含：掌握情况判断、错题暴露的薄弱点、"
+                  "接下来 3 天该复习什么。控制在 300 字以内，中文，不要客套话。")
+        text = client().complete([{"role": "user", "content": prompt}], max_tokens=700)
+        saved = STORE.add_summary("chapter", f"{chapter['subject_name']} · {chapter['title']} 小结",
+                                  text, "")
+        self._json({"summary": saved, "stats": stats}, 201)
+
+    # ------------------------------------------------------------ 业务：用户档案
+    def _generate_profile(self, month: str | None) -> None:
+        summaries = STORE.list_summaries()[:10]
+        convs = STORE.list_conversations()[:5]
+        if not summaries and not convs:
+            self._error("还没有足够的对话记录来生成画像", 400)
+            return
+        material = "\n\n".join(f"[{s['title']}]\n{s['content'][:800]}" for s in summaries)
+        titles = "、".join(c["title"] for c in convs)
+        prompt = (f"以下是这位学生最近的学习总结与会话标题。\n\n{material}\n\n"
+                  f"最近的会话：{titles}\n\n请生成一份学习者画像。")
+        text = client().complete(
+            [{"role": "system", "content": prompts.PROFILE_SYSTEM},
+             {"role": "user", "content": prompt}], max_tokens=800)
+        saved = STORE.save_profile(text, month)
+        self._json({"ok": True, **saved, "content": text}, 201)
+
+    # ------------------------------------------------------------ 业务：易错提示本
+    def _mistake_tips(self) -> None:
+        mistakes = STORE.list_mistakes()
+        if not mistakes:
+            self._error("易错本还是空的，先做几道题", 400)
+            return
+        lines = "\n".join(
+            f"- [{m.get('subject','')} / {m.get('chapter','')}] {m['stem'][:60]}；"
+            f"正确答案 {m['right_answer']}；你选了 {m['my_answer']}" for m in mistakes[:20])
+        text = client().complete(
+            [{"role": "system", "content": prompts.MISTAKE_SYSTEM},
+             {"role": "user", "content": lines}], max_tokens=800)
+        saved = STORE.add_summary("tips", "易错提示本", text, "")
+        self._json({"summary": saved}, 201)
+
+
 # ---------------------------------------------------------------- 工具函数
+def _pending_summary() -> dict | None:
+    """启动时是否该询问"要不要生成近期总结"：最近对话有内容、且比最近总结更新。"""
+    convs = STORE.list_conversations()
+    if not convs:
+        return None
+    latest = convs[0]
+    messages = STORE.messages(latest["id"])
+    if len(messages) < 4:
+        return None
+    summaries = STORE.list_summaries("recent")
+    if summaries and summaries[0]["created_at"] >= latest["updated_at"]:
+        return None
+    return {"conversation_id": latest["id"], "title": latest["title"],
+            "messages": len(messages), "updated_at": latest["updated_at"]}
+
+
 def _parse_questions(raw: str) -> list[dict]:
     """从模型输出里抠出 JSON 数组；容忍 ```json 包裹和前后废话。"""
     text = raw.strip()

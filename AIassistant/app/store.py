@@ -101,7 +101,8 @@ CREATE TABLE IF NOT EXISTS subjects (
     id TEXT PRIMARY KEY,
     slug TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
-    ord INTEGER NOT NULL DEFAULT 0
+    ord INTEGER NOT NULL DEFAULT 0,
+    is_builtin INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS chapters (
     id TEXT PRIMARY KEY,
@@ -109,7 +110,16 @@ CREATE TABLE IF NOT EXISTS chapters (
     title TEXT NOT NULL,
     ord INTEGER NOT NULL DEFAULT 0,
     outline TEXT DEFAULT '',
+    is_builtin INTEGER DEFAULT 0,
     FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS attempts (
+    id TEXT PRIMARY KEY,
+    question_id TEXT NOT NULL,
+    chapter_id TEXT NOT NULL,
+    answer TEXT DEFAULT '',
+    correct INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS questions (
     id TEXT PRIMARY KEY,
@@ -151,6 +161,16 @@ class Store:
                           ("ord", "INTEGER DEFAULT 0")):
             if name not in cols:
                 self.conn.execute(f"ALTER TABLE folders ADD COLUMN {name} {ddl}")
+        for table in ("subjects", "chapters"):
+            have = {row["name"] for row in self.conn.execute(f"PRAGMA table_info({table})")}
+            if "is_builtin" not in have:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN is_builtin INTEGER DEFAULT 0")
+        # 历史数据：四个内置科目的章节统一标记为内置
+        self.conn.execute(
+            "UPDATE subjects SET is_builtin=1 WHERE slug IN ('co','cn','os','ds')")
+        self.conn.execute(
+            "UPDATE chapters SET is_builtin=1 WHERE subject_id IN "
+            "(SELECT id FROM subjects WHERE slug IN ('co','cn','os','ds'))")
         self.conn.commit()
 
     # ---------------------------------------------------------------- 配置
@@ -459,6 +479,134 @@ class Store:
     def delete_question(self, qid: str) -> None:
         self.conn.execute("DELETE FROM questions WHERE id=?", (qid,))
         self.conn.commit()
+
+    # ---------------------------------------------------------------- 科目增删改
+    def add_subject(self, name: str, slug: str = "", is_builtin: bool = False) -> dict:
+        if slug:
+            exists = self.conn.execute("SELECT id FROM subjects WHERE slug=?", (slug,)).fetchone()
+            if exists:
+                raise ValueError(f"已存在 slug={slug} 的科目")
+        sid = new_id()
+        slug = slug or f"u{sid[:6]}"
+        ord_ = self.conn.execute("SELECT COALESCE(MAX(ord),0)+1 FROM subjects").fetchone()[0]
+        self.conn.execute(
+            "INSERT INTO subjects(id,slug,name,ord,is_builtin) VALUES(?,?,?,?,?)",
+            (sid, slug, name, ord_, 1 if is_builtin else 0))
+        self.conn.commit()
+        return {"id": sid, "slug": slug, "name": name, "is_builtin": is_builtin}
+
+    def delete_subject(self, subject_id: str) -> dict:
+        row = self.conn.execute("SELECT * FROM subjects WHERE id=?", (subject_id,)).fetchone()
+        if not row:
+            raise ValueError("科目不存在")
+        if row["is_builtin"]:
+            raise PermissionError(f"「{row['name']}」是内置科目，不允许删除")
+        self.conn.execute("DELETE FROM questions WHERE chapter_id IN "
+                          "(SELECT id FROM chapters WHERE subject_id=?)", (subject_id,))
+        self.conn.execute("DELETE FROM chapters WHERE subject_id=?", (subject_id,))
+        self.conn.execute("DELETE FROM subjects WHERE id=?", (subject_id,))
+        self.conn.commit()
+        return {"deleted": row["name"]}
+
+    def subject(self, subject_id: str) -> dict | None:
+        row = self.conn.execute("SELECT * FROM subjects WHERE id=?", (subject_id,)).fetchone()
+        return dict(row) if row else None
+
+    def update_subject(self, subject_id: str, name: str) -> None:
+        self.conn.execute("UPDATE subjects SET name=? WHERE id=?", (name, subject_id))
+        self.conn.commit()
+
+    # ---------------------------------------------------------------- 章节增删改
+    def add_chapter(self, subject_id: str, title: str, outline: str = "",
+                    is_builtin: bool = False) -> dict:
+        cid = new_id()
+        ord_ = self.conn.execute(
+            "SELECT COALESCE(MAX(ord),-1)+1 FROM chapters WHERE subject_id=?",
+            (subject_id,)).fetchone()[0]
+        self.conn.execute(
+            "INSERT INTO chapters(id,subject_id,title,ord,outline,is_builtin) VALUES(?,?,?,?,?,?)",
+            (cid, subject_id, title, ord_, outline, 1 if is_builtin else 0))
+        self.conn.commit()
+        return {"id": cid, "title": title, "outline": outline, "is_builtin": is_builtin}
+
+    def update_chapter(self, chapter_id: str, title: str | None = None,
+                       outline: str | None = None) -> None:
+        if title is not None:
+            self.conn.execute("UPDATE chapters SET title=? WHERE id=?", (title, chapter_id))
+        if outline is not None:
+            self.conn.execute("UPDATE chapters SET outline=? WHERE id=?", (outline, chapter_id))
+        self.conn.commit()
+
+    def delete_chapter(self, chapter_id: str) -> dict:
+        row = self.conn.execute("SELECT * FROM chapters WHERE id=?", (chapter_id,)).fetchone()
+        if not row:
+            raise ValueError("章节不存在")
+        self.conn.execute("DELETE FROM questions WHERE chapter_id=?", (chapter_id,))
+        self.conn.execute("DELETE FROM chapters WHERE id=?", (chapter_id,))
+        self.conn.commit()
+        return {"deleted": row["title"], "was_builtin": bool(row["is_builtin"])}
+
+    # ---------------------------------------------------------------- 作答记录
+    def record_attempt(self, chapter_id: str, question_id: str, answer: str,
+                       correct: bool) -> dict:
+        aid = new_id()
+        self.conn.execute(
+            "INSERT INTO attempts(id,question_id,chapter_id,answer,correct,created_at)"
+            " VALUES(?,?,?,?,?,?)",
+            (aid, question_id, chapter_id, answer, 1 if correct else 0, now()))
+        self.conn.commit()
+        return {"id": aid, "correct": correct}
+
+    def chapter_stats(self, chapter_id: str) -> dict:
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS total, SUM(correct) AS right FROM attempts WHERE chapter_id=?",
+            (chapter_id,)).fetchone()
+        total = int(row["total"] or 0)
+        right = int(row["right"] or 0)
+        total_q = self.conn.execute(
+            "SELECT COUNT(*) FROM questions WHERE chapter_id=?", (chapter_id,)).fetchone()[0]
+        return {"attempts": total, "correct": right, "wrong": total - right,
+                "rate": round(right / total * 100, 1) if total else 0.0,
+                "questions": total_q, "visited": total > 0}
+
+    def wrong_questions(self, chapter_id: str) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT q.stem, q.answer, a.answer AS my_answer FROM attempts a "
+            "JOIN questions q ON q.id = a.question_id "
+            "WHERE a.chapter_id=? AND a.correct=0 ORDER BY a.created_at DESC LIMIT 20",
+            (chapter_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    # ---------------------------------------------------------------- 用户档案（本地多份）
+    @property
+    def profile_dir(self) -> Path:
+        d = DATA_DIR / "profile"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def save_profile(self, content: str, month: str | None = None) -> dict:
+        month = month or time.strftime("%Y-%m")
+        path = self.profile_dir / f"{month}.md"
+        path.write_text(content, encoding="utf-8")
+        self.update_profile(content)
+        return {"month": month, "path": str(path), "bytes": path.stat().st_size}
+
+    def list_profiles(self) -> list[dict]:
+        out = []
+        for path in sorted(self.profile_dir.glob("*.md"), reverse=True):
+            out.append({"month": path.stem, "path": str(path),
+                        "size": path.stat().st_size,
+                        "preview": path.read_text(encoding="utf-8", errors="replace")[:200]})
+        return out
+
+    def read_profile(self, month: str) -> str:
+        path = self.profile_dir / f"{month}.md"
+        return path.read_text(encoding="utf-8") if path.exists() else ""
+
+    def delete_profile(self, month: str) -> None:
+        path = self.profile_dir / f"{month}.md"
+        if path.exists():
+            path.unlink()
 
     # ---------------------------------------------------------------- 统计
     def stats(self) -> dict:

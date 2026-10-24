@@ -80,6 +80,23 @@ class DeepSeekClient:
         resp = self._request("/chat/completions", payload, stream=True)
         return _iter_sse(resp)
 
+    # ---------------------------------------------------------------- 带工具的对话
+    def chat_with_tools(self, messages: list[dict], tools: list[dict],
+                        temperature: float = 0.2) -> dict:
+        """返回 assistant message dict（可能含 tool_calls）。"""
+        if MOCK:
+            return {"role": "assistant",
+                    "content": "[演示模式] 已收到指令。当前为离线自检状态，不会真的调用工具。"
+                               "填入 API Key 后，这里会真实执行资料移动、章节修改等操作。"}
+        payload = {"model": self.model, "messages": messages, "tools": tools,
+                   "tool_choice": "auto", "temperature": temperature, "stream": False}
+        with self._request("/chat/completions", payload) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace"))
+        try:
+            return data["choices"][0]["message"]
+        except (KeyError, IndexError) as exc:
+            raise DeepSeekError(f"返回格式异常：{str(data)[:300]}") from exc
+
     # ---------------------------------------------------------------- 非流式
     def complete(self, messages: list[dict], temperature: float = 0.3,
                  max_tokens: int = 1024) -> str:
