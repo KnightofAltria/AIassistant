@@ -313,6 +313,7 @@ class Store:
             (mid, title, subject, folder_id, source_url, str(path),
              path.stat().st_size, ts, digest, status, ts if source_url else ""))
         self.conn.commit()
+        self.bump()
         return dict(self.conn.execute("SELECT * FROM materials WHERE id=?", (mid,)).fetchone())
 
     def list_materials(self, folder_id: str | None = None) -> list[dict]:
@@ -339,11 +340,18 @@ class Store:
         self.conn.execute("DELETE FROM chunks WHERE material_id=?", (material_id,))
         self.conn.execute("DELETE FROM materials WHERE id=?", (material_id,))
         self.conn.commit()
+        self.bump()
 
     def all_chunks(self) -> list[dict]:
+        """只返回"已审核通过"资料的切片。
+
+        审核不是装饰：待审核（pending）和已驳回（rejected）的资料不进入检索索引，
+        否则等于没审。老的空状态按通过处理，避免历史数据整体消失。
+        """
         rows = self.conn.execute(
             "SELECT c.id, c.material_id, c.ord, c.text, m.title, m.subject "
-            "FROM chunks c JOIN materials m ON m.id=c.material_id").fetchall()
+            "FROM chunks c JOIN materials m ON m.id=c.material_id "
+            "WHERE COALESCE(NULLIF(m.status, ''), 'approved') = 'approved'").fetchall()
         return [dict(r) for r in rows]
 
     def replace_chunks(self, material_id: str, texts: list[str]) -> None:
@@ -352,6 +360,28 @@ class Store:
             "INSERT INTO chunks(material_id, ord, text) VALUES(?,?,?)",
             [(material_id, i, t) for i, t in enumerate(texts)])
         self.conn.commit()
+        self.bump()
+
+    # ---------------------------------------------------------------- 索引版本
+    def rev(self) -> int:
+        """索引版本号：资料增删、切片重建、审核状态变化都会 +1。
+
+        之前用"切片数量"当缓存版本，内容变了但切片数没变时就完全察觉不到，
+        所以改成显式版本号——检索器只要对不上版本就重建。
+        """
+        row = self.conn.execute("SELECT value FROM config WHERE key='index_rev'").fetchone()
+        try:
+            return int(row["value"]) if row else 0
+        except (TypeError, ValueError):
+            return 0
+
+    def bump(self) -> int:
+        cur = self.rev() + 1
+        self.conn.execute(
+            "INSERT INTO config(key, value) VALUES('index_rev', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(cur),))
+        self.conn.commit()
+        return cur
 
     # ---------------------------------------------------------------- 文件夹
     def add_folder(self, name: str, slug: str = "", is_shared: bool = False,
@@ -885,6 +915,7 @@ class Store:
         status = status if status in ("pending", "approved", "rejected") else "pending"
         self.conn.execute("UPDATE materials SET status=? WHERE id=?", (status, material_id))
         self.conn.commit()
+        self.bump()                        # 状态变了，检索索引必须跟着变
         row = self.conn.execute("SELECT * FROM materials WHERE id=?", (material_id,)).fetchone()
         return dict(row) if row else None
 
@@ -897,6 +928,7 @@ class Store:
         self.conn.execute(f"UPDATE materials SET {sets} WHERE id=?",
                           [v for _, v in pairs] + [material_id])
         self.conn.commit()
+        self.bump()
 
     def pending_materials(self) -> list[dict]:
         return [dict(r) for r in self.conn.execute(

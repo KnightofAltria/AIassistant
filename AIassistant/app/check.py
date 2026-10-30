@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""轻量检查：不调模型、不写库，几秒钟跑完。
+"""轻量检查：不调模型、不动用户数据，几秒钟跑完。
+
+会用一个**临时库**做审核隔离与索引版本的回归，跑完立即删除，不碰 data/ 里的真实数据。
 
 日常改完代码用它；只有在交付前或改动涉及模型链路时，才需要跑 selftest.py。
 
@@ -83,6 +85,55 @@ def check_html_balance() -> None:
     opens = len(re.findall(r"<div\b", html))
     closes = len(re.findall(r"</div>", html))
     check("HTML div 配平", opens == closes, f"{opens}/{closes}")
+
+
+def check_store_extensions() -> None:
+    """零成本回归：审核隔离 + 索引版本失效。
+
+    用临时库和临时资料目录，跑完删干净，不碰用户的 data/。
+    这两条对应 GPT 独立测试报出的两个真实缺陷，留成回归防止改回去。
+    """
+    import shutil as _shutil
+    import tempfile
+
+    import rag as rag_mod
+    import store as store_mod
+
+    tmp = Path(tempfile.mkdtemp(prefix="csla-check-"))
+    old_dir = store_mod.MATERIAL_DIR
+    store_mod.MATERIAL_DIR = tmp / "materials"
+    try:
+        st = store_mod.Store(tmp / "t.db")
+        mat = st.add_material("审核隔离测试", "alphaunique", ext=".md")
+        st.replace_chunks(mat["id"], ["alphaunique"])
+        visible_before = any(c["material_id"] == mat["id"] for c in st.all_chunks())
+        rev_approved = st.rev()
+
+        st.set_material_status(mat["id"], "pending")
+        hidden = not any(c["material_id"] == mat["id"] for c in st.all_chunks())
+        check("待审核资料不进检索索引", visible_before and hidden,
+              f"通过时可见={visible_before}，待审核时可见={not hidden}")
+        check("审核状态变化使索引版本递增", st.rev() > rev_approved,
+              f"{rev_approved} -> {st.rev()}")
+
+        st.set_material_status(mat["id"], "approved")
+        rev_before_replace = st.rev()
+        # 切片数量不变、内容完全换掉：按"数量"判缓存的老实现察觉不到
+        st.replace_chunks(mat["id"], ["betaunique"])
+        check("内容变更但切片数不变也使版本递增", st.rev() > rev_before_replace,
+              f"{rev_before_replace} -> {st.rev()}")
+
+        old_hit = bool(rag_mod.Retriever(st.all_chunks()).search("alphaunique"))
+        new_hit = bool(rag_mod.Retriever(st.all_chunks()).search("betaunique"))
+        check("重建索引后命中新内容、不再命中旧内容", new_hit and not old_hit,
+              f"新内容命中={new_hit}，旧内容仍命中={old_hit}")
+
+        server_src = (APP / "server.py").read_text(encoding="utf-8")
+        check("检索缓存按索引版本失效（非切片数）", "STORE.rev()" in server_src,
+              "get_retriever 使用 rev()" if "STORE.rev()" in server_src else "仍在用切片数量")
+    finally:
+        store_mod.MATERIAL_DIR = old_dir
+        _shutil.rmtree(tmp, ignore_errors=True)
 
 
 # ---------------------------------------------------------------- 只读接口
@@ -188,6 +239,7 @@ def main() -> int:
     check_js_syntax()
     check_no_duplicate_decls()
     check_html_balance()
+    check_store_extensions()
 
     print("\n== 服务与接口 ==")
     try:

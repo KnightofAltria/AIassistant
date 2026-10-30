@@ -84,8 +84,14 @@ _RETRIEVER_VERSION = -1
 
 # ---------------------------------------------------------------- 检索缓存
 def get_retriever() -> rag.Retriever:
+    """检索器缓存：用索引版本号判断是否需要重建。
+
+    早期版本用"切片数量"当版本，内容变了但切片数不变（例如重抓后段落数恰好一致）
+    就不会重建，回答会一直引用旧内容。现在版本号由 Store 在任何资料/切片/审核
+    变动时显式 +1，见 store.rev() / store.bump()。
+    """
     global _RETRIEVER, _RETRIEVER_VERSION
-    version = STORE.stats()["chunks"]
+    version = STORE.rev()
     if _RETRIEVER is None or _RETRIEVER_VERSION != version:
         _RETRIEVER = rag.Retriever(STORE.all_chunks())
         _RETRIEVER_VERSION = version
@@ -1099,7 +1105,6 @@ class Handler(BaseHTTPRequestHandler):
 
     def _refresh_material(self, material_id: str) -> None:
         """按来源链接重新抓取，用内容 hash 判断"到底变没变"，变了才重建索引。"""
-        global _RETRIEVER_VERSION
         rows = [m for m in STORE.list_materials() if m["id"] == material_id]
         if not rows:
             self._error("资料不存在", 404)
@@ -1126,7 +1131,6 @@ class Handler(BaseHTTPRequestHandler):
             bytes=path.stat().st_size if path.is_file() else item.get("bytes", 0))
         self._json({"changed": changed, "old_hash": item.get("hash", ""),
                     "new_hash": new_hash, "chars": len(text)})
-        _RETRIEVER_VERSION = -1                         # 索引缓存作废，下次请求重建
 
     def _find_chapter_id(self, subject: str, chapter: str) -> str:
         for sub in STORE.subjects():
