@@ -18,6 +18,7 @@ import hashlib
 import json
 import mimetypes
 import re
+import sys
 import threading
 import time
 import urllib.parse
@@ -136,6 +137,22 @@ def log_usage(kind: str, messages: list[dict], completion: str,
 
 
 # ---------------------------------------------------------------- HTTP 处理
+class QuietHTTPServer(ThreadingHTTPServer):
+    """浏览器刷新、关闭标签时会重置连接，这属于正常现象，不要打印一长串堆栈。
+
+    Windows 下几乎每次刷新都会触发 WinError 10054，堆栈会把控制台刷满，
+    演示时看起来像程序出错了，所以在这里统一静音。
+    """
+
+    daemon_threads = True
+
+    def handle_error(self, request, client_address) -> None:
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "CSLA/1.0"
     protocol_version = "HTTP/1.1"
@@ -1318,7 +1335,7 @@ def main() -> int:
         print(f"  已导入内置示例资料 {samples} 份（可在界面里删除）")
 
     try:
-        httpd = ThreadingHTTPServer((args.host, args.port), Handler)
+        httpd = QuietHTTPServer((args.host, args.port), Handler)
     except OSError as exc:
         print("=" * 56)
         print(f"  启动失败：端口 {args.port} 已被占用（{exc}）")
