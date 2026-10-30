@@ -181,7 +181,7 @@
     </section>
 
     <!-- ---------------- 学习看板 ---------------- -->
-    <section id="view-dashboard" class="view">
+    <section id="view-dashboard" class="view dash">
       <header class="view-head">
         <div>
           <h2>学习看板</h2>
@@ -192,62 +192,67 @@
         </div>
       </header>
       <div class="kpi-row" id="dash-kpi"></div>
-      <div class="dash-grid">
-        <div class="panel">
+
+      <div class="dash-board">
+        <section class="panel dash-cell c-sug">
           <div class="panel-head"><h3>今天建议做什么</h3></div>
           <div id="dash-recommend" class="panel-body"></div>
-        </div>
-        <div class="panel">
-          <div class="panel-head"><h3>复习队列 <span id="review-due" class="badge"></span></h3></div>
+        </section>
+
+        <section class="panel dash-cell c-review">
+          <div class="panel-head"><h3>复习队列</h3>
+            <span id="review-due" class="badge"></span></div>
           <div id="review-box" class="panel-body"></div>
-        </div>
-      </div>
-      <div class="panel">
-        <div class="panel-head"><h3>学习热力图 <span class="muted small">近 12 周</span></h3>
-          <span class="muted small" id="heatmap-sub"></span></div>
-        <div class="panel-body"><div id="heatmap-box" class="heatmap"></div></div>
-      </div>
+        </section>
 
-      <div class="dash-grid">
-        <div class="panel">
+        <section class="panel dash-cell c-heat">
+          <div class="panel-head"><h3>学习热力图</h3>
+            <span class="muted small" id="heatmap-sub"></span></div>
+          <div class="panel-body"><div id="heatmap-box" class="heatmap"></div></div>
+        </section>
+
+        <section class="panel dash-cell c-radar">
+          <div class="panel-head"><h3>能力雷达</h3></div>
+          <div class="panel-body"><canvas id="radar-canvas" class="viz-canvas"></canvas></div>
+        </section>
+
+        <section class="panel dash-cell c-graph">
           <div class="panel-head"><h3>知识图谱</h3>
-            <span class="muted small">章节与资料的关键词关联，鼠标悬停看名称</span></div>
-          <div class="panel-body"><canvas id="graph-canvas" class="viz-canvas" height="330"></canvas></div>
-        </div>
-        <div class="panel">
-          <div class="panel-head"><h3>能力雷达</h3>
-            <span class="muted small">练习量 / 正确率 / 复习完成 / 资料覆盖</span></div>
-          <div class="panel-body"><canvas id="radar-canvas" class="viz-canvas" height="330"></canvas></div>
-        </div>
-      </div>
+            <span class="muted small">章节与资料的关键词关联</span></div>
+          <div class="panel-body"><canvas id="graph-canvas" class="viz-canvas"></canvas></div>
+        </section>
 
-      <div class="panel">
-        <div class="panel-head"><h3>未来 7 天复习量</h3></div>
-        <div class="panel-body"><div id="forecast-box" class="forecast"></div></div>
-      </div>
+        <section class="panel dash-cell c-mastery">
+          <div class="panel-head"><h3>章节掌握度</h3></div>
+          <div id="mastery-box" class="panel-body"></div>
+        </section>
 
-      <div class="panel">
-        <div class="panel-head"><h3>章节掌握度</h3></div>
-        <div id="mastery-box" class="panel-body"></div>
-      </div>
-      <div class="panel">
-        <div class="panel-head"><h3>错题 → 变式题</h3>
-          <span class="muted small">做错的题会同时进入复习队列</span></div>
-        <div id="mistake-box" class="panel-body"></div>
-      </div>
-      <div class="panel">
-        <div class="panel-head"><h3>资料全文检索</h3></div>
-        <div class="panel-body">
-          <form id="search-form" class="composer inline">
-            <input id="search-input" placeholder="输入关键词，例如：中断 死锁 三次握手" />
-            <button class="btn primary" type="submit">检索</button>
-          </form>
-          <div id="search-results"></div>
-        </div>
-      </div>
-      <div class="panel">
-        <div class="panel-head"><h3>模型调用与耗时（近 7 天）</h3></div>
-        <div id="usage-box" class="panel-body"></div>
+        <section class="panel dash-cell c-forecast">
+          <div class="panel-head"><h3>未来 7 天复习量</h3></div>
+          <div class="panel-body"><div id="forecast-box" class="forecast"></div></div>
+        </section>
+
+        <section class="panel dash-cell c-mistake">
+          <div class="panel-head"><h3>错题 → 变式题</h3>
+            <span class="muted small">做错的题会同时进入复习队列</span></div>
+          <div id="mistake-box" class="panel-body"></div>
+        </section>
+
+        <section class="panel dash-cell c-search">
+          <div class="panel-head"><h3>资料全文检索</h3></div>
+          <div class="panel-body">
+            <form id="search-form" class="composer inline">
+              <input id="search-input" placeholder="输入关键词，例如：中断 死锁 三次握手" />
+              <button class="btn primary" type="submit">检索</button>
+            </form>
+            <div id="search-results"></div>
+          </div>
+        </section>
+
+        <section class="panel dash-cell c-usage">
+          <div class="panel-head"><h3>模型调用（近 7 天）</h3></div>
+          <div id="usage-box" class="panel-body"></div>
+        </section>
       </div>
     </section>
 

@@ -64,6 +64,18 @@ function renderHeatmap(activity) {
   start.setDate(start.getDate() - ((start.getDay() + 6) % 7));   // 对齐到周一
 
   box.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'heatmap-wrap';
+  const row = document.createElement('div');
+  row.className = 'heatmap-row';
+
+  const axis = document.createElement('div');
+  axis.className = 'hm-axis';
+  axis.innerHTML = ['一', '', '三', '', '五', '', '日'].map((t) => `<span>${t}</span>`).join('');
+  row.appendChild(axis);
+
+  const grid = document.createElement('div');
+  grid.className = 'hm-grid';
   let total = 0;
   for (let w = 0; w < 14; w += 1) {
     const col = document.createElement('div');
@@ -81,10 +93,19 @@ function renderHeatmap(activity) {
       cell.title = `${key}：${n} 次学习活动`;
       col.appendChild(cell);
     }
-    box.appendChild(col);
+    grid.appendChild(col);
   }
+  row.appendChild(grid);
+  wrap.appendChild(row);
+
+  const legend = document.createElement('div');
+  legend.className = 'heatmap-legend';
+  legend.innerHTML = '少' + [0, 1, 2, 3, 4].map((l) => `<i class="hm-cell l${l}"></i>`).join('') + '多';
+  wrap.appendChild(legend);
+
+  box.appendChild(wrap);
   const sub = $('#heatmap-sub');
-  if (sub) sub.textContent = `合计 ${total} 次 · 最深一格 ${max} 次`;
+  if (sub) sub.textContent = `合计 ${total} 次 · 最深 ${max} 次/天`;
 }
 
 /* ---------------------------------------------------------------- 可视化：复习预测 */
@@ -92,6 +113,12 @@ function renderForecast(forecast) {
   const box = $('#forecast-box');
   if (!box) return;
   const days = forecast.days || [];
+  const total = days.reduce((n, d) => n + (d.count || 0), 0);
+  if (!total && !forecast.overdue) {
+    box.innerHTML = `<div class="forecast-empty"><i>🗓️</i>
+      未来 7 天没有到期复习，做几道题就会自动排期</div>`;
+    return;
+  }
   const peak = Math.max(1, forecast.peak || 1);
   box.innerHTML = days.map((d) => `
     <div class="fc-col" title="${esc(d.day)}：${d.count} 条到期">
@@ -121,14 +148,15 @@ function renderRadar(d) {
     { label: '复习完成', value: Math.max(0, 1 - Math.min(1, (d.due || 0) / 8)) },
     { label: '资料覆盖', value: chapters.length ? practiced / chapters.length : 0 },
   ];
-  const ctx = setupCanvas(cv, 330);
+  const ctx = setupCanvas(cv, 300);
   if (!ctx) return;
   const { w, h } = ctx;
   const cx = w / 2;
-  const cy = h / 2 + 4;
-  const radius = Math.min(w, h) / 2 - 38;
+  const cy = h / 2 + 2;
+  const radius = Math.min(w, h) / 2 - 46;
   const n = dims.length;
   const angle = (i) => -Math.PI / 2 + (i * 2 * Math.PI) / n;
+  const thin = dims.reduce((s, x) => s + x.value, 0) < 0.12;
 
   ctx.clearRect(0, 0, w, h);
   for (let ring = 4; ring >= 1; ring -= 1) {
@@ -169,13 +197,18 @@ function renderRadar(d) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   dims.forEach((dim, i) => {
-    const x = cx + Math.cos(angle(i)) * (radius + 20);
-    const y = cy + Math.sin(angle(i)) * (radius + 16);
+    const x = cx + Math.cos(angle(i)) * (radius + 22);
+    const y = cy + Math.sin(angle(i)) * (radius + 18);
     ctx.fillStyle = '#5b6b7f';
-    ctx.fillText(dim.label, x, y - 6);
+    ctx.fillText(dim.label, x, y - 7);
     ctx.fillStyle = '#2f6fed';
-    ctx.fillText(`${Math.round(dim.value * 100)}`, x, y + 8);
+    ctx.fillText(`${Math.round(dim.value * 100)}%`, x, y + 8);
   });
+  if (thin) {
+    ctx.fillStyle = '#93a1b3';
+    ctx.font = '12px "Microsoft YaHei", sans-serif';
+    ctx.fillText('数据还太少，做几道题雷达才有形状', cx, cy + radius * 0.55);
+  }
 }
 
 /* ---------------------------------------------------------------- 可视化：知识图谱 */
@@ -201,9 +234,21 @@ function groupColor(name) {
 async function renderGraph() {
   const cv = $('#graph-canvas');
   if (!cv) return;
+  try {
+    await drawGraph(cv);
+  } catch (err) {
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#d64545';
+    ctx.font = '12px "Microsoft YaHei", sans-serif';
+    ctx.fillText(`图谱渲染失败：${err && err.message}`, 12, 24);
+    console.error(err);
+  }
+}
+
+async function drawGraph(cv) {
   let data;
   try { data = await api('/api/graph'); } catch (e) { return; }
-  const ctx = setupCanvas(cv, 330);
+  const ctx = setupCanvas(cv, 340);
   if (!ctx) return;
   const { w, h } = ctx;
   const raw = data.nodes || [];
@@ -215,17 +260,16 @@ async function renderGraph() {
   }
   const nodes = raw.map((n, i) => ({
     ...n,
-    x: w / 2 + Math.cos((i / raw.length) * Math.PI * 2) * (w / 4),
-    y: h / 2 + Math.sin((i / raw.length) * Math.PI * 2) * (h / 4),
+    x: w / 2 + Math.cos((i / raw.length) * Math.PI * 2) * (Math.min(w, h) / 2.8),
+    y: h / 2 + Math.sin((i / raw.length) * Math.PI * 2) * (Math.min(w, h) / 2.8),
     vx: 0, vy: 0,
   }));
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const links = (data.links || [])
     .map((l) => ({ ...l, s: byId.get(l.source), t: byId.get(l.target) }))
     .filter((l) => l.s && l.t);
-
-  for (let iter = 0; iter < 200; iter += 1) {
-    const cooling = 1 - iter / 260;
+  for (let iter = 0; iter < 340; iter += 1) {
+    const cooling = 1 - iter / 400;
     for (let i = 0; i < nodes.length; i += 1) {
       for (let j = i + 1; j < nodes.length; j += 1) {
         const a = nodes[i];
@@ -233,8 +277,8 @@ async function renderGraph() {
         let dx = b.x - a.x;
         let dy = b.y - a.y;
         let dist2 = dx * dx + dy * dy || 0.01;
-        if (dist2 > 40000) continue;
-        const force = 520 / dist2;
+        if (dist2 > 90000) continue;
+        const force = 700 / dist2;
         const dist = Math.sqrt(dist2);
         dx = (dx / dist) * force;
         dy = (dy / dist) * force;
@@ -246,20 +290,20 @@ async function renderGraph() {
       const dx = l.t.x - l.s.x;
       const dy = l.t.y - l.s.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-      const force = (dist - 92) * 0.012;
+      const force = (dist - 78) * 0.012;
       l.s.vx += (dx / dist) * force;
       l.s.vy += (dy / dist) * force;
       l.t.vx -= (dx / dist) * force;
       l.t.vy -= (dy / dist) * force;
     });
     nodes.forEach((n) => {
-      n.vx += (w / 2 - n.x) * 0.0016;
-      n.vy += (h / 2 - n.y) * 0.0016;
+      n.vx += (w / 2 - n.x) * 0.0024;
+      n.vy += (h / 2 - n.y) * 0.0024;
       n.x += Math.max(-8, Math.min(8, n.vx * cooling));
       n.y += Math.max(-8, Math.min(8, n.vy * cooling));
       n.vx *= 0.82; n.vy *= 0.82;
-      n.x = Math.max(14, Math.min(w - 14, n.x));
-      n.y = Math.max(14, Math.min(h - 14, n.y));
+      n.x = Math.max(16, Math.min(w - 16, n.x));
+      n.y = Math.max(16, Math.min(h - 16, n.y));
     });
   }
 
@@ -326,15 +370,21 @@ function renderKpi(d) {
   const overall = (d.mastery && d.mastery.overall) || {};
   const usage = d.usage || {};
   const items = [
-    { label: '连续学习', value: `${(d.streak && d.streak.days) || 0} 天`, hint: `累计 ${(d.streak && d.streak.total_days) || 0} 天有记录` },
-    { label: '待复习', value: `${d.due || 0} 条`, hint: d.due ? '现在就该过一遍' : '队列已清空' },
-    { label: '总体正确率', value: pct(overall.rate), hint: `${overall.correct || 0}/${overall.attempts || 0} 题` },
-    { label: '近 7 天调用', value: `${usage.calls || 0} 次`, hint: `均首字 ${usage.avg_first_ms || 0} ms` },
-    { label: '待审核资料', value: `${d.pending || 0} 份`, hint: d.stale ? `${d.stale} 份来源可能过期` : '无过期来源' },
+    { icon: '🔥', label: '连续学习', value: `${(d.streak && d.streak.days) || 0} 天`,
+      hint: `累计 ${(d.streak && d.streak.total_days) || 0} 天有记录` },
+    { icon: '🔁', label: '待复习', value: `${d.due || 0} 条`,
+      hint: d.due ? '现在就该过一遍' : '队列已清空' },
+    { icon: '🎯', label: '总体正确率', value: pct(overall.rate),
+      hint: `${overall.correct || 0}/${overall.attempts || 0} 题` },
+    { icon: '⚡', label: '近 7 天调用', value: `${usage.calls || 0} 次`,
+      hint: `均首字 ${usage.avg_first_ms || 0} ms` },
+    { icon: '🗂️', label: '资料状态', value: `${d.pending || 0} 待审`,
+      hint: d.stale ? `${d.stale} 份来源可能过期` : '来源均为最新' },
   ];
   $('#dash-kpi').innerHTML = items.map((it) => `
     <div class="kpi">
-      <div class="kpi-label">${esc(it.label)}</div>
+      <div class="kpi-top"><span class="kpi-icon">${it.icon}</span>
+        <span class="kpi-label">${esc(it.label)}</span></div>
       <div class="kpi-value">${esc(it.value)}</div>
       <div class="kpi-hint">${esc(it.hint)}</div>
     </div>`).join('');
@@ -377,7 +427,8 @@ function renderReviews(list, due) {
   if (badge) { badge.textContent = due ? `${due} 条到期` : ''; badge.className = 'badge' + (due ? ' warn' : ''); }
   const box = $('#review-box');
   if (!list.length) {
-    box.innerHTML = '<p class="muted small">没有到期的复习。做错的题会自动排进来，按 1/3/7/15 天递增。</p>';
+    box.innerHTML = `<div class="empty-state"><i>✅</i><b>今天没有到期的复习</b>
+      <span>做错的题会自动排进来，间隔按 1 / 3 / 7 / 15 天递增</span></div>`;
     return;
   }
   box.innerHTML = '';
@@ -420,7 +471,11 @@ function renderMastery(mastery) {
   const box = $('#mastery-box');
   const chapters = (mastery.chapters || []).filter((c) => c.attempts > 0 || c.status === '薄弱');
   const shown = chapters.length ? chapters : (mastery.chapters || []).slice(0, 8);
-  if (!shown.length) { box.innerHTML = '<p class="muted small">还没有科目数据</p>'; return; }
+  if (!shown.length) {
+    box.innerHTML = `<div class="empty-state"><i>📚</i><b>还没有练习记录</b>
+      <span>去「科目学习」做几道题，这里会按章节显示掌握度</span></div>`;
+    return;
+  }
   box.innerHTML = shown.map((c) => `
     <div class="mastery-row">
       <div class="mastery-label" title="${esc(c.label)}">${esc(c.label)}</div>
@@ -434,6 +489,11 @@ function renderMastery(mastery) {
 
 function renderUsage(usage) {
   const box = $('#usage-box');
+  if (!usage.calls) {
+    box.innerHTML = `<div class="empty-state"><i>📈</i><b>还没有模型调用</b>
+      <span>在「AI 聊天」问一个问题，这里会记录耗时与 token 估算</span></div>`;
+    return;
+  }
   const kinds = Object.entries(usage.by_kind || {})
     .map(([k, v]) => `<span class="tag">${esc(k)} ${v}</span>`).join('') || '<span class="muted small">还没有调用记录</span>';
   const daily = (usage.daily || []).slice(-7);

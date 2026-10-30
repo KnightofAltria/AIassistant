@@ -117,7 +117,15 @@ function enterApp(st) {
   $('#profile-name').textContent = (st.user && st.user.name) || '本机用户';
   renderStats(st.stats);
   loadProfile();
-  switchView('chat');
+  // 支持 ?view=dashboard 这类深链接：刷新后还停在原来那一页，也方便截图与演示
+  const want = new URLSearchParams(location.search).get('view');
+  const landing = $('#landing');
+  if (want && document.getElementById(`view-${want}`)) {
+    if (landing) landing.classList.add('hidden');
+    switchView(want);
+  } else {
+    switchView('chat');
+  }
   loadConversations();
 }
 
@@ -213,6 +221,16 @@ async function loadConversations() {
   const { conversations } = await api('/api/conversations');
   const box = $('#conv-list');
   box.innerHTML = '';
+  const head = document.createElement('div');
+  head.className = 'conv-head';
+  head.textContent = conversations.length ? `对话 · ${conversations.length}` : '对话';
+  box.appendChild(head);
+  if (!conversations.length) {
+    const tip = document.createElement('p');
+    tip.className = 'conv-empty';
+    tip.textContent = '还没有对话，直接提问就会自动新建';
+    box.appendChild(tip);
+  }
   conversations.forEach((c) => {
     const el = document.createElement('div');
     el.className = 'conv-item' + (c.id === state.conversationId ? ' active' : '');
