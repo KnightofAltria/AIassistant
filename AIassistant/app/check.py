@@ -95,6 +95,11 @@ def check_api(base: str) -> None:
         ("/api/summaries", "总结列表"),
         ("/api/mistakes", "错题列表"),
         ("/api/profile", "学习者档案"),
+        ("/api/dashboard", "学习看板"),
+        ("/api/review", "复习队列"),
+        ("/api/usage", "用量统计"),
+        ("/api/search?q=%E4%B8%AD%E6%96%AD", "全文检索"),
+        ("/api/materials/pending", "待审核资料"),
     ]
     for path, name in endpoints:
         try:
@@ -107,7 +112,8 @@ def check_api(base: str) -> None:
 
 
 def check_assets(base: str) -> None:
-    for path in ("/", "/app.js", "/agent.js", "/landing.js", "/keepalive.js", "/style.css"):
+    for path in ("/", "/app.js", "/extras.js", "/agent.js", "/landing.js",
+                 "/keepalive.js", "/style.css"):
         try:
             status, body = get(base, path)
             check(f"GET {path}", status == 200 and len(body) > 200, f"{len(body)} 字节")
@@ -132,6 +138,15 @@ def check_page_markers(base: str) -> None:
         "资料管理": 'id="view-materials"',
         "总结放大弹窗": 'id="modal-summary-view"',
         "侧边栏五项": 'data-view="materials"',
+        "学习看板": 'id="view-dashboard"',
+        "看板KPI": 'id="dash-kpi"',
+        "复习队列": 'id="review-box"',
+        "全文检索": 'id="search-form"',
+        "费曼弹窗": 'id="modal-feynman"',
+        "变式题弹窗": 'id="modal-variant"',
+        "待审核条": 'id="pending-bar"',
+        "报告导出": 'id="btn-export-report"',
+        "回答风格": 'id="chat-style"',
     }
     missing = [k for k, v in markers.items() if v not in html]
     check("首页关键元素", not missing, "齐全" if not missing else f"缺少：{missing}")

@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
    计算机课程学习助手 —— 前端逻辑（原生 JS，无框架、无构建）
    ============================================================ */
 'use strict';
@@ -163,6 +163,7 @@ function switchView(view) {
   if (view === 'summary') loadSummaries();
   if (view === 'study') loadSubjects();
   if (view === 'materials') loadMaterials();
+  if (view === 'dashboard' && typeof loadDashboard === 'function') loadDashboard();
 }
 
 $$('.nav-item').forEach((btn) => btn.addEventListener('click', () => switchView(btn.dataset.view)));
@@ -298,13 +299,20 @@ $('#chat-form').addEventListener('submit', async (e) => {
 
   state.streaming = true;
   let acc = '';
+  const styleSel = $('#chat-style');
   try {
-    await streamSSE('/api/chat/stream', { text, conversation_id: state.conversationId }, {
+    await streamSSE('/api/chat/stream', {
+      text, conversation_id: state.conversationId,
+      style: (styleSel && styleSel.value) || 'concise',
+    }, {
       status(d) {
         if (d.stage === 'retrieving') {
           statusLine.textContent = d.hits ? `找到 ${d.hits} 段相关资料${d.insufficient ? '（可能不足）' : ''}` : '未找到相关资料，将基于通用知识回答';
         } else if (d.stage === 'verifying') statusLine.textContent = '校验引用…';
         if (d.conversation_id) state.conversationId = d.conversation_id;
+      },
+      retrieval(d) {
+        if (typeof renderRetrievalDetail === 'function') renderRetrievalDetail(wrap, d);
       },
       delta(d) {
         acc += d.text || '';
@@ -634,6 +642,7 @@ $('#study-ask-form').addEventListener('submit', async (e) => {
 /* ---------------------------------------------------------------- 资料管理 */
 let FOLDERS = [];
 let CUR_FOLDER = null;
+let PICKED_FILE = null;
 
 async function loadMaterials() {
   const q = state.folderId ? `?folder=${encodeURIComponent(state.folderId)}` : '';
@@ -643,6 +652,7 @@ async function loadMaterials() {
   CUR_FOLDER = FOLDERS.find((f) => f.id === state.folderId) || null;
   renderFolderBar();
   renderSharedWarning();
+  if (typeof renderPendingBar === 'function') renderPendingBar(materials);
   renderMaterialList(materials);
 }
 
@@ -762,6 +772,7 @@ $('#btn-import').addEventListener('click', async () => {
   $('#imp-folder').innerHTML = '<option value="">根目录</option>' +
     FOLDERS.map((f) => `<option value="${f.id}"${f.id === state.folderId ? ' selected' : ''}>${f.is_shared ? '🔒 ' : ''}${esc(f.name)}</option>`).join('');
   $('#imp-title').value = ''; $('#imp-text').value = ''; $('#imp-msg').textContent = '';
+  PICKED_FILE = null; $('#imp-file').value = ''; $('#imp-review').checked = false;
   openModal('#modal-import');
 });
 $('#imp-cancel').addEventListener('click', () => closeModal('#modal-import'));
@@ -769,26 +780,44 @@ $('#imp-pick').addEventListener('click', () => $('#imp-file').click());
 $('#imp-file').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
+  PICKED_FILE = file;
   if (file.size > 5 * 1024 * 1024) { $('#imp-msg').textContent = '文件超过 5 MB，建议拆分后再导入'; return; }
+  if (!$('#imp-title').value) $('#imp-title').value = file.name.replace(/\.[^.]+$/, '');
+  if (/\.docx$/i.test(file.name)) {
+    $('#imp-text').value = '';
+    $('#imp-msg').textContent = '已选择 .docx，导入时会在服务端解析正文（保留段落结构）';
+    return;
+  }
+  if (/\.doc$/i.test(file.name)) {
+    $('#imp-msg').textContent = '老式 .doc 无法直接解析，请先另存为 .docx';
+    return;
+  }
   const text = await file.text();
   $('#imp-text').value = text;
-  if (!$('#imp-title').value) $('#imp-title').value = file.name.replace(/\.[^.]+$/, '');
+  $('#imp-msg').textContent = '';
 });
 $('#imp-save').addEventListener('click', async () => {
   const title = $('#imp-title').value.trim();
   const text = $('#imp-text').value;
-  if (!title || !text.trim()) { $('#imp-msg').textContent = '标题和内容都不能为空'; return; }
+  const isDocx = PICKED_FILE && /\.docx$/i.test(PICKED_FILE.name);
+  if (!isDocx && (!title || !text.trim())) { $('#imp-msg').textContent = '标题和内容都不能为空'; return; }
   $('#imp-msg').textContent = '导入中…';
   const folderId = $('#imp-folder').value;
   try {
-    const res = await api('/api/materials', {
-      method: 'POST',
-      body: JSON.stringify({
-        title, text, subject: $('#imp-subject').value, folder_id: folderId,
-      }),
+    const payload = {
+      title, subject: $('#imp-subject').value, folder_id: folderId,
+      filename: PICKED_FILE ? PICKED_FILE.name : '',
+      review: $('#imp-review').checked,
+    };
+    if (isDocx) payload.content = await readFileBase64(PICKED_FILE);
+    else payload.text = text;
+    const res = await api('/api/materials/import', {
+      method: 'POST', body: JSON.stringify(payload),
     });
-    toast(`已导入，切分为 ${res.chunks} 段`);
+    toast(`已导入，切分为 ${res.chunks} 段${res.status === 'pending' ? '（待审核）' : ''}`);
     closeModal('#modal-import');
+    PICKED_FILE = null;
+    $('#imp-file').value = '';
     state.folderId = folderId;
     loadMaterials();
     const st = await api('/api/state'); renderStats(st.stats);

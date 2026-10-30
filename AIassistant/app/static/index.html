@@ -65,6 +65,7 @@
     <nav class="nav">
       <button class="nav-item" data-view="profile"><i>👤</i><span>个人信息</span></button>
       <button class="nav-item active" data-view="chat"><i>💬</i><span>AI 聊天</span></button>
+      <button class="nav-item" data-view="dashboard"><i>📊</i><span>学习看板</span></button>
       <button class="nav-item" data-view="summary"><i>📄</i><span>近期总结</span></button>
       <button class="nav-item" data-view="study"><i>📚</i><span>科目学习</span></button>
       <button class="nav-item" data-view="materials"><i>🗂️</i><span>资料管理</span></button>
@@ -147,9 +148,15 @@
       <header class="view-head">
         <div>
           <h2>AI 聊天</h2>
-          <p class="muted">回答会尽量依据你导入的资料，并标注出处编号</p>
+          <p class="muted">回答会尽量依据你导入的资料，并标注出处编号；每条回答都能展开「检索详情」</p>
         </div>
         <div class="head-actions">
+          <select id="chat-style" class="btn" title="回答风格">
+            <option value="concise">简明</option>
+            <option value="detailed">详解</option>
+            <option value="socratic">苏格拉底式</option>
+          </select>
+          <button id="btn-feynman" class="btn">费曼练习</button>
           <button id="btn-new-chat" class="btn">新对话</button>
           <button id="btn-view-summary" class="btn">查看本对话总结</button>
           <button id="btn-summarize" class="btn primary">生成近期总结</button>
@@ -170,6 +177,53 @@
             <button type="submit" class="btn primary">发送</button>
           </form>
         </div>
+      </div>
+    </section>
+
+    <!-- ---------------- 学习看板 ---------------- -->
+    <section id="view-dashboard" class="view">
+      <header class="view-head">
+        <div>
+          <h2>学习看板</h2>
+          <p class="muted">复习队列、掌握度、今日建议与用量统计，全部由本地数据实时算出</p>
+        </div>
+        <div class="head-actions">
+          <button id="btn-export-report" class="btn primary">导出学习报告（.docx）</button>
+        </div>
+      </header>
+      <div class="kpi-row" id="dash-kpi"></div>
+      <div class="dash-grid">
+        <div class="panel">
+          <div class="panel-head"><h3>今天建议做什么</h3></div>
+          <div id="dash-recommend" class="panel-body"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>复习队列 <span id="review-due" class="badge"></span></h3></div>
+          <div id="review-box" class="panel-body"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>章节掌握度</h3></div>
+        <div id="mastery-box" class="panel-body"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>错题 → 变式题</h3>
+          <span class="muted small">做错的题会同时进入复习队列</span></div>
+        <div id="mistake-box" class="panel-body"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>资料全文检索</h3></div>
+        <div class="panel-body">
+          <form id="search-form" class="composer inline">
+            <input id="search-input" placeholder="输入关键词，例如：中断 死锁 三次握手" />
+            <button class="btn primary" type="submit">检索</button>
+          </form>
+          <div id="search-results"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>模型调用与耗时（近 7 天）</h3></div>
+        <div id="usage-box" class="panel-body"></div>
       </div>
     </section>
 
@@ -244,6 +298,7 @@
           <button id="material-agent-send" class="btn primary" type="submit">执行</button>
         </form>
       </div>
+      <div id="pending-bar" class="banner hidden"></div>
       <div id="shared-warning" class="banner hidden"></div>
       <div id="folder-bar" class="folder-bar"></div>
       <div id="material-list" class="card-list"></div>
@@ -260,9 +315,12 @@
       <select id="imp-subject"><option value="">不指定</option></select>
     </label>
     <label class="field"><span>文件夹</span><select id="imp-folder"><option value="">根目录</option></select></label>
-    <label class="field"><span>内容</span><textarea id="imp-text" rows="10" placeholder="粘贴文本，或点下方选择文件（.txt / .md / .csv / .json）"></textarea></label>
+    <label class="field"><span>内容</span><textarea id="imp-text" rows="10" placeholder="粘贴文本，或点下方选择文件（.txt / .md / .csv / .json / .docx）"></textarea></label>
+    <label class="field checkbox-field"><span>
+      <input type="checkbox" id="imp-review" /> 先存为「待审核」，不立刻进入检索
+    </span></label>
     <div class="modal-actions">
-      <input type="file" id="imp-file" accept=".txt,.md,.markdown,.csv,.json" hidden />
+      <input type="file" id="imp-file" accept=".txt,.md,.markdown,.csv,.json,.docx" hidden />
       <button id="imp-pick" class="btn">选择文件</button>
       <span class="spacer"></span>
       <button id="imp-cancel" class="btn">取消</button>
@@ -353,7 +411,38 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
+
+<!-- ============ 费曼练习弹窗 ============ -->
+<div id="modal-feynman" class="modal hidden">
+  <div class="modal-card">
+    <h3>费曼练习</h3>
+    <p class="muted small">用你自己的话把这个知识点讲一遍，讲不清的地方就是没懂的地方。</p>
+    <label class="field"><span>知识点</span>
+      <input id="fey-topic" placeholder="例如：虚拟内存、TCP 拥塞控制" /></label>
+    <label class="field"><span>我的复述</span>
+      <textarea id="fey-text" rows="8" placeholder="不要抄书，用大白话讲给一个没学过的人听…"></textarea></label>
+    <div class="modal-actions">
+      <button id="fey-cancel" class="btn">取消</button>
+      <button id="fey-submit" class="btn primary">交给助教点评</button>
+    </div>
+    <div id="fey-result" class="fey-result"></div>
+  </div>
+</div>
+
+<!-- ============ 变式题弹窗 ============ -->
+<div id="modal-variant" class="modal hidden">
+  <div class="modal-card">
+    <h3>变式题</h3>
+    <p class="muted small" id="var-sub">同一个考点，换一个问法，检验是不是真的会了。</p>
+    <div id="var-body" class="quiz"></div>
+    <div class="modal-actions">
+      <button id="var-close" class="btn">关闭</button>
+    </div>
+  </div>
+</div>
+
 <script src="/app.js"></script>
+<script src="/extras.js"></script>
 <script src="/agent.js"></script>
 <script src="/landing.js"></script>
 <script src="/keepalive.js"></script>

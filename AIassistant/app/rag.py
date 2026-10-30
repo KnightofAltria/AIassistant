@@ -284,6 +284,66 @@ def insufficient_evidence(hits: list["Hit"], query: str = "",
     return False
 
 
+# ---------------------------------------------------------------- 多查询（规则化改写）
+QUESTION_NOISE = ("请问", "一下", "什么是", "是什么", "为什么", "怎么", "怎么样", "如何",
+                  "有哪些", "哪个", "哪些", "吗？", "吗", "呢", "的", "是")
+_CUT = re.compile(r"[，。！？；;,.!?\s]+")
+
+
+def rewrite_queries(query: str, limit: int = 3) -> list[str]:
+    """把一句话拆成 2~3 个检索式，提高召回。
+
+    这里刻意不调模型：改写一旦依赖网络，离线演示和批量检索都会变慢、变贵。
+    规则很简单但有效——原句、去掉疑问词的核心、按标点切开的子句。
+    """
+    query = (query or "").strip()
+    if not query:
+        return []
+    out = [query]
+    core = query
+    for word in QUESTION_NOISE:
+        core = core.replace(word, "")
+    core = _CUT.sub(" ", core).strip()
+    if core and core != query and len(core) >= 2:
+        out.append(core)
+    for part in _CUT.split(query):
+        part = part.strip("的了吗呢？? ")
+        if len(part) >= 4 and part != query and part not in out:
+            out.append(part)
+    seen, uniq = set(), []
+    for q in out:
+        if q not in seen:
+            seen.add(q)
+            uniq.append(q)
+    return uniq[:limit]
+
+
+def search_multi(retriever: "Retriever", query: str, k: int = 8,
+                 subject: str | None = None) -> tuple[list[Hit], list[str]]:
+    """主检索 + 改写检索合并。主检索结果排前面并保留原始分数，保证"资料不足"判定不被扰动。"""
+    queries = rewrite_queries(query)
+    primary = retriever.search(query, k=k, subject=subject)
+    if len(queries) <= 1 or not primary:
+        return primary, queries
+    seen = {(h.material_id, h.ord) for h in primary}
+    top = primary[0].score if primary else 0.0
+    extras: list[Hit] = []
+    for q in queries[1:]:
+        for hit in retriever.search(q, k=k, subject=subject):
+            key = (hit.material_id, hit.ord)
+            if key in seen or hit.score < top * 0.55:
+                continue
+            seen.add(key)
+            extras.append(Hit(citation_id="", material_id=hit.material_id, title=hit.title,
+                              subject=hit.subject, ord=hit.ord, text=hit.text,
+                              score=hit.score * 0.9))
+    extras.sort(key=lambda h: -h.score)
+    merged = primary + extras
+    for rank, hit in enumerate(merged, start=1):     # 合并后重排编号，编号必须连续
+        hit.citation_id = f"c{rank}"
+    return merged, queries
+
+
 def route_subject(retriever: "Retriever", query: str, k: int = 12) -> str:
     """按检索结果自动判断问题属于哪个科目，避免跨科目混检。"""
     hits = retriever.search(query, k=k)
@@ -308,6 +368,8 @@ class RagContext:
     evidence: str = ""
     citations: list[dict] = field(default_factory=list)
     insufficient: bool = False
+    queries: list[str] = field(default_factory=list)
+    threshold: float = 0.0
 
     @property
     def top_score(self) -> float:
@@ -319,6 +381,8 @@ class RagContext:
             "subject": self.subject,
             "insufficient": self.insufficient,
             "top_score": round(self.top_score, 2),
+            "threshold": self.threshold,
+            "queries": self.queries or [self.query],
             "hits": [h.as_dict() for h in self.hits],
             "citations": self.citations,
         }
