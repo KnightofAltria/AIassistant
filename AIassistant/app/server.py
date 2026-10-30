@@ -1303,13 +1303,21 @@ _PRONOUNS = ("它", "这个", "那个", "这些", "那些", "上面", "刚才", 
 
 
 def cache_key(text: str, style: str, history: list[dict]) -> str:
-    norm = re.sub(r"\s+", "", text or "").lower()
-    last = ""
-    for m in reversed(history):
-        if m.get("role") == "user":
-            last = re.sub(r"\s+", "", m.get("content") or "")[:80]
-            break
-    return hashlib.sha1(f"{norm}|{style}|{last}".encode("utf-8")).hexdigest()
+    """按实际回答上下文隔离缓存；索引、配置或档案变化后自然失效。"""
+    context = {
+        "text": text,
+        "style": style,
+        "history": history,
+        "index_revision": STORE.rev(),
+        "config": STORE.get_config(),
+        "learner": STORE.meta_summary(),
+        "system": prompts.chat_system(style),
+        "mock": deepseek.MOCK,
+    }
+    # 不删除空白或折叠大小写：代码、标识符中的这些差异可能改变含义。
+    # 配置仅参与摘要计算，缓存键不包含明文凭证。
+    raw = json.dumps(context, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def cache_get(key: str) -> dict | None:
