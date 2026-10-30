@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""轻量检查：不调模型、不写库，几秒钟跑完。
+"""轻量检查：不调模型、不动用户数据，几秒钟跑完。
+
+会用一个**临时库**做审核隔离与索引版本的回归，跑完立即删除，不碰 data/ 里的真实数据。
 
 日常改完代码用它；只有在交付前或改动涉及模型链路时，才需要跑 selftest.py。
 
@@ -85,6 +87,55 @@ def check_html_balance() -> None:
     check("HTML div 配平", opens == closes, f"{opens}/{closes}")
 
 
+def check_store_extensions() -> None:
+    """零成本回归：审核隔离 + 索引版本失效。
+
+    用临时库和临时资料目录，跑完删干净，不碰用户的 data/。
+    这两条对应 GPT 独立测试报出的两个真实缺陷，留成回归防止改回去。
+    """
+    import shutil as _shutil
+    import tempfile
+
+    import rag as rag_mod
+    import store as store_mod
+
+    tmp = Path(tempfile.mkdtemp(prefix="csla-check-"))
+    old_dir = store_mod.MATERIAL_DIR
+    store_mod.MATERIAL_DIR = tmp / "materials"
+    try:
+        st = store_mod.Store(tmp / "t.db")
+        mat = st.add_material("审核隔离测试", "alphaunique", ext=".md")
+        st.replace_chunks(mat["id"], ["alphaunique"])
+        visible_before = any(c["material_id"] == mat["id"] for c in st.all_chunks())
+        rev_approved = st.rev()
+
+        st.set_material_status(mat["id"], "pending")
+        hidden = not any(c["material_id"] == mat["id"] for c in st.all_chunks())
+        check("待审核资料不进检索索引", visible_before and hidden,
+              f"通过时可见={visible_before}，待审核时可见={not hidden}")
+        check("审核状态变化使索引版本递增", st.rev() > rev_approved,
+              f"{rev_approved} -> {st.rev()}")
+
+        st.set_material_status(mat["id"], "approved")
+        rev_before_replace = st.rev()
+        # 切片数量不变、内容完全换掉：按"数量"判缓存的老实现察觉不到
+        st.replace_chunks(mat["id"], ["betaunique"])
+        check("内容变更但切片数不变也使版本递增", st.rev() > rev_before_replace,
+              f"{rev_before_replace} -> {st.rev()}")
+
+        old_hit = bool(rag_mod.Retriever(st.all_chunks()).search("alphaunique"))
+        new_hit = bool(rag_mod.Retriever(st.all_chunks()).search("betaunique"))
+        check("重建索引后命中新内容、不再命中旧内容", new_hit and not old_hit,
+              f"新内容命中={new_hit}，旧内容仍命中={old_hit}")
+
+        server_src = (APP / "server.py").read_text(encoding="utf-8")
+        check("检索缓存按索引版本失效（非切片数）", "STORE.rev()" in server_src,
+              "get_retriever 使用 rev()" if "STORE.rev()" in server_src else "仍在用切片数量")
+    finally:
+        store_mod.MATERIAL_DIR = old_dir
+        _shutil.rmtree(tmp, ignore_errors=True)
+
+
 # ---------------------------------------------------------------- 只读接口
 def check_api(base: str) -> None:
     endpoints = [
@@ -95,6 +146,13 @@ def check_api(base: str) -> None:
         ("/api/summaries", "总结列表"),
         ("/api/mistakes", "错题列表"),
         ("/api/profile", "学习者档案"),
+        ("/api/dashboard", "学习看板"),
+        ("/api/review", "复习队列"),
+        ("/api/usage", "用量统计"),
+        ("/api/search?q=%E4%B8%AD%E6%96%AD", "全文检索"),
+        ("/api/materials/pending", "待审核资料"),
+        ("/api/graph", "知识图谱"),
+        ("/api/activity", "学习热力图"),
     ]
     for path, name in endpoints:
         try:
@@ -107,7 +165,8 @@ def check_api(base: str) -> None:
 
 
 def check_assets(base: str) -> None:
-    for path in ("/", "/app.js", "/agent.js", "/landing.js", "/keepalive.js", "/style.css"):
+    for path in ("/", "/app.js", "/extras.js", "/agent.js", "/landing.js",
+                 "/keepalive.js", "/style.css"):
         try:
             status, body = get(base, path)
             check(f"GET {path}", status == 200 and len(body) > 200, f"{len(body)} 字节")
@@ -132,6 +191,19 @@ def check_page_markers(base: str) -> None:
         "资料管理": 'id="view-materials"',
         "总结放大弹窗": 'id="modal-summary-view"',
         "侧边栏五项": 'data-view="materials"',
+        "学习看板": 'id="view-dashboard"',
+        "看板KPI": 'id="dash-kpi"',
+        "复习队列": 'id="review-box"',
+        "全文检索": 'id="search-form"',
+        "费曼弹窗": 'id="modal-feynman"',
+        "变式题弹窗": 'id="modal-variant"',
+        "待审核条": 'id="pending-bar"',
+        "报告导出": 'id="btn-export-report"',
+        "回答风格": 'id="chat-style"',
+        "学习热力图": 'id="heatmap-box"',
+        "知识图谱": 'id="graph-canvas"',
+        "能力雷达": 'id="radar-canvas"',
+        "复习预测": 'id="forecast-box"',
     }
     missing = [k for k, v in markers.items() if v not in html]
     check("首页关键元素", not missing, "齐全" if not missing else f"缺少：{missing}")
@@ -173,6 +245,7 @@ def main() -> int:
     check_js_syntax()
     check_no_duplicate_decls()
     check_html_balance()
+    check_store_extensions()
 
     print("\n== 服务与接口 ==")
     try:

@@ -487,6 +487,13 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
   let started = false;
   let bound = false;
 
+  // 深链接（?view=dashboard 等）：直接进目标页，不播欢迎动画，也不抢回首页
+  const wantView = new URLSearchParams(location.search).get('view');
+  if (wantView && document.getElementById(`view-${wantView}`)) {
+    landing.classList.add('hidden');
+    return;
+  }
+
   // 粒子立刻开始跑：欢迎界面在 HTML 里就是可见的，不等接口
   landingField = createField($('#particles'), {
     count: 130, linkDist: 120, speed: 0.30, glow: true, grid: true, curves: 2,

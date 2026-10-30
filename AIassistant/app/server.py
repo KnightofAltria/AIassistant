@@ -14,9 +14,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import mimetypes
 import re
+import sys
 import threading
 import time
 import urllib.parse
@@ -26,6 +28,7 @@ from os import _exit
 from pathlib import Path
 
 import deepseek
+import extras
 import prompts
 import rag
 import seed
@@ -81,8 +84,14 @@ _RETRIEVER_VERSION = -1
 
 # ---------------------------------------------------------------- 检索缓存
 def get_retriever() -> rag.Retriever:
+    """检索器缓存：用索引版本号判断是否需要重建。
+
+    早期版本用"切片数量"当版本，内容变了但切片数不变（例如重抓后段落数恰好一致）
+    就不会重建，回答会一直引用旧内容。现在版本号由 Store 在任何资料/切片/审核
+    变动时显式 +1，见 store.rev() / store.bump()。
+    """
     global _RETRIEVER, _RETRIEVER_VERSION
-    version = STORE.stats()["chunks"]
+    version = STORE.rev()
     if _RETRIEVER is None or _RETRIEVER_VERSION != version:
         _RETRIEVER = rag.Retriever(STORE.all_chunks())
         _RETRIEVER_VERSION = version
@@ -94,20 +103,62 @@ def client() -> deepseek.DeepSeekClient:
     return deepseek.DeepSeekClient(cfg.get("api_key", ""), cfg.get("model", deepseek.DEFAULT_MODEL))
 
 
+def refine_threshold() -> float:
+    """拒答阈值可在设置里调；改小更容易硬答，改大更容易说"资料不足"。"""
+    try:
+        value = STORE.get_config().get("refuse_threshold") or rag.INSUFFICIENCY_FLOOR
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return rag.INSUFFICIENCY_FLOOR
+
+
 def rag_context(query: str, subject: str = "", k: int = 8) -> rag.RagContext:
     """检索并组装证据。科目未知时先自动路由，命中不到再回退全库。"""
     retriever = get_retriever()
     routed = subject or rag.route_subject(retriever, query)
-    hits = retriever.search(query, k=k, subject=routed or None)
+    hits, queries = rag.search_multi(retriever, query, k=k, subject=routed or None)
     if not hits and routed:
-        hits = retriever.search(query, k=k)          # 本科目无资料，回退全库
+        hits, queries = rag.search_multi(retriever, query, k=k)   # 本科目无资料，回退全库
         routed = ""
+    floor = refine_threshold()
     evidence, citations = rag.build_evidence(hits)
     return rag.RagContext(query=query, subject=routed, hits=hits, evidence=evidence,
-                          citations=citations, insufficient=rag.insufficient_evidence(hits, query))
+                          citations=citations, queries=queries, threshold=floor,
+                          insufficient=rag.insufficient_evidence(hits, query, floor=floor))
+
+
+def log_usage(kind: str, messages: list[dict], completion: str,
+              first_ms: int = 0, total_ms: int = 0, ok: bool = True) -> None:
+    """把一次模型调用记进 usage_log；统计页读的就是这张表。"""
+    prompt_chars = sum(len(m.get("content") or "") for m in messages)
+    completion_chars = len(completion or "")
+    tokens = rag.estimate_tokens(
+        "".join(m.get("content") or "" for m in messages) + (completion or ""))
+    try:
+        STORE.record_usage(kind, STORE.get_config().get("model", deepseek.DEFAULT_MODEL),
+                           prompt_chars, completion_chars, tokens,
+                           first_ms, total_ms, ok)
+    except Exception:                                  # noqa: BLE001 - 统计失败不影响主流程
+        pass
 
 
 # ---------------------------------------------------------------- HTTP 处理
+class QuietHTTPServer(ThreadingHTTPServer):
+    """浏览器刷新、关闭标签时会重置连接，这属于正常现象，不要打印一长串堆栈。
+
+    Windows 下几乎每次刷新都会触发 WinError 10054，堆栈会把控制台刷满，
+    演示时看起来像程序出错了，所以在这里统一静音。
+    """
+
+    daemon_threads = True
+
+    def handle_error(self, request, client_address) -> None:
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "CSLA/1.0"
     protocol_version = "HTTP/1.1"
@@ -266,6 +317,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"mistakes": STORE.list_mistakes()})
             return
 
+        if path == "/api/materials/pending":
+            self._json({"materials": STORE.pending_materials(),
+                        "stale": STORE.stale_materials()})
+            return
+
         m = re.fullmatch(r"/api/materials/([\w-]+)/raw", path)
         if m:
             self._serve_raw(m.group(1))
@@ -295,6 +351,51 @@ class Handler(BaseHTTPRequestHandler):
             self._json(ctx.as_dict())
             return
 
+        # ---- 扩展：学习看板 / 复习队列 / 用量 / 全文检索 / 报告导出
+        if path == "/api/dashboard":
+            self._json(self._dashboard())
+            return
+
+        if path == "/api/review":
+            due_only = query.get("due", [""])[0] in ("1", "true")
+            self._json({"reviews": STORE.list_reviews(due_only=due_only, limit=100),
+                        "due": STORE.due_review_count()})
+            return
+
+        if path == "/api/usage":
+            try:
+                days = int(query.get("days", ["14"])[0] or 14)
+            except ValueError:
+                days = 14
+            self._json(STORE.usage_stats(days=max(1, min(days, 365))))
+            return
+
+        if path == "/api/search":
+            q = query.get("q", [""])[0]
+            try:
+                k = int(query.get("k", ["8"])[0] or 8)
+            except ValueError:
+                k = 8
+            self._json(self._public_search(q, max(1, min(k, 20))))
+            return
+
+        if path == "/api/graph":
+            self._json(self._graph())
+            return
+
+        if path == "/api/activity":
+            try:
+                weeks = int(query.get("weeks", ["12"])[0] or 12)
+            except ValueError:
+                weeks = 12
+            self._json(STORE.activity_map(weeks=max(1, min(weeks, 52))))
+            return
+
+        if path == "/api/export/report":
+            data = extras.build_report(STORE)
+            self._download(data, f"学习报告-{time.strftime('%Y%m%d')}.docx")
+            return
+
         self._error("未知接口", 404)
 
     # ------------------------------------------------------------ POST API
@@ -308,6 +409,12 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 STORE.set_config("api_key", key)
                 STORE.set_config("model", model)
+                if body.get("refuse_threshold") is not None:
+                    try:
+                        STORE.set_config("refuse_threshold",
+                                         str(max(0.0, float(body["refuse_threshold"]))))
+                    except (TypeError, ValueError):
+                        pass
             self._json({"ok": True, "models": result.get("models", []), "mock": deepseek.MOCK})
             return
 
@@ -491,6 +598,47 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True})
             return
 
+        # ---- 扩展：复习评分 / 上传导入 / 审核 / 重抓 / 变式题 / 费曼
+        if path == "/api/review/grade":
+            quality = (body.get("quality") or "good").strip()
+            if quality not in ("again", "good", "easy"):
+                self._error("quality 只能是 again / good / easy", 400)
+                return
+            item = STORE.grade_review(body.get("id") or "", quality)
+            if not item:
+                self._error("复习条目不存在", 404)
+                return
+            self._json({"review": item, "due": STORE.due_review_count(),
+                        "next": extras.srs_label(item["stage"])})
+            return
+
+        if path == "/api/materials/import":
+            self._import_upload(body)
+            return
+
+        m = re.fullmatch(r"/api/materials/([\w-]+)/status", path)
+        if m:
+            item = STORE.set_material_status(m.group(1), body.get("status") or "approved")
+            if not item:
+                self._error("资料不存在", 404)
+                return
+            self._json({"material": item})
+            return
+
+        m = re.fullmatch(r"/api/materials/([\w-]+)/refresh", path)
+        if m:
+            self._refresh_material(m.group(1))
+            return
+
+        m = re.fullmatch(r"/api/mistakes/([\w-]+)/variant", path)
+        if m:
+            self._make_variant(m.group(1))
+            return
+
+        if path == "/api/feynman":
+            self._feynman(body)
+            return
+
         self._error("未知接口", 404)
 
     # ------------------------------------------------------------ DELETE API
@@ -538,6 +686,33 @@ class Handler(BaseHTTPRequestHandler):
         self._error("未知接口", 404)
 
     # ------------------------------------------------------------ 业务：对话
+    def _replay_cache(self, cid: str, ephemeral: bool, cached: dict) -> None:
+        """命中缓存：不调模型，把上次的答案与检索详情按同样的事件序列重放一遍。"""
+        payload = dict(cached.get("retrieval") or {})
+        hits = payload.get("hits") or []
+        self._sse_start()
+        self._sse("status", {"stage": "retrieving", "conversation_id": cid,
+                             "hits": len(hits),
+                             "insufficient": payload.get("insufficient", False),
+                             "subject": payload.get("subject", ""),
+                             "top_score": payload.get("top_score", 0), "cached": True})
+        self._sse("retrieval", {**payload, "cached": True})
+        answer = cached.get("answer") or ""
+        for i in range(0, len(answer), 12):
+            self._sse("delta", {"text": answer[i:i + 12]})
+        self._sse("status", {"stage": "verifying"})
+        verification = cached.get("citations") or {}
+        self._sse("citations", verification)
+        mid = "" if ephemeral else STORE.add_message(cid, "assistant", answer,
+                                                    verification.get("items") or [])
+        try:
+            STORE.record_usage("cache_hit", STORE.get_config().get("model", ""),
+                               0, len(answer), 0, 0, 0)
+        except Exception:                              # noqa: BLE001
+            pass
+        self._sse("completed", {"message_id": mid, "conversation_id": cid,
+                                "status": "completed", "cached": True})
+
     def _chat_stream(self, body: dict) -> None:
         text = (body.get("text") or "").strip()
         if not text:
@@ -552,11 +727,22 @@ class Handler(BaseHTTPRequestHandler):
             self._error("尚未配置 DeepSeek API Key", 401)
             return
 
-        ctx = rag_context(text)
         history = [{"role": m["role"], "content": m["content"]}
                    for m in STORE.messages(cid)][-8:] if cid else []
+        style = (body.get("style") or "concise").strip()
+        used_query = resolve_query(text, history)     # 多轮指代："它 / 这个" 补上前一问
+        ckey = cache_key(text, style, history)
 
-        system = prompts.CHAT_SYSTEM
+        if not ephemeral:
+            STORE.add_message(cid, "user", text)
+
+        cached = cache_get(ckey)
+        if cached:
+            self._replay_cache(cid, ephemeral, cached)
+            return
+
+        ctx = rag_context(used_query)
+        system = prompts.chat_system(style)
         meta_line = STORE.meta_summary()
         if meta_line:
             system += (f"\n\n学习者信息（供你调整讲解深浅与举例方式，不要主动复述这些信息）：{meta_line}")
@@ -569,20 +755,35 @@ class Handler(BaseHTTPRequestHandler):
                       "请明确说明「资料中没有找到足够依据」，再给出常识性补充并标明这是补充。")
         if ctx.subject:
             system += f"\n\n本次检索范围限定在科目：{ctx.subject}。"
+        if used_query != text:
+            system += (f"\n\n（本次追问已结合上文补全为：{used_query[:80]}。"
+                       "回答时以学生这句话为主，不要把补全的内容当新问题。）")
 
-        if not ephemeral:
-            STORE.add_message(cid, "user", text)
+        retrieval_payload = {
+            "query": text, "resolved": used_query,
+            "queries": ctx.queries or [used_query],
+            "subject": ctx.subject, "insufficient": ctx.insufficient,
+            "threshold": ctx.threshold, "top_score": round(ctx.top_score, 2),
+            "style": style, "cached": False,
+            "hits": [h.as_dict() for h in ctx.hits[:8]],
+        }
 
         self._sse_start()
         self._sse("status", {"stage": "retrieving", "conversation_id": cid,
                              "hits": len(ctx.hits), "insufficient": ctx.insufficient,
                              "subject": ctx.subject, "top_score": round(ctx.top_score, 2)})
+        # 检索详情：前端"凭什么这么答"面板直接用这个事件渲染，不额外再查一次
+        self._sse("retrieval", retrieval_payload)
         collected: list[str] = []
+        started = time.time()
+        first_at = 0.0
         try:
             self._sse("status", {"stage": "generating"})
             for piece in client().stream_chat(
                     [{"role": "system", "content": system}, *history,
                      {"role": "user", "content": text}]):
+                if not first_at:
+                    first_at = time.time()
                 collected.append(piece)
                 self._sse("delta", {"text": piece})
             answer = "".join(collected)
@@ -590,9 +791,18 @@ class Handler(BaseHTTPRequestHandler):
             self._sse("status", {"stage": "verifying"})
             self._sse("citations", verification)
             mid = "" if ephemeral else STORE.add_message(cid, "assistant", answer, verification["items"])
+            cache_put(ckey, {"answer": answer, "citations": verification,
+                             "retrieval": retrieval_payload})
+            log_usage("chat", [{"content": system}, *history, {"content": text}], answer,
+                      int((first_at - started) * 1000) if first_at else 0,
+                      int((time.time() - started) * 1000))
+            if not ephemeral:
+                STORE.touch_activity()
             self._sse("completed", {"message_id": mid, "conversation_id": cid,
-                                    "status": "completed"})
+                                    "status": "completed", "cached": False})
         except deepseek.DeepSeekError as exc:
+            log_usage("chat", [{"content": system}, {"content": text}], "", 0,
+                      int((time.time() - started) * 1000), ok=False)
             self._sse("failed", {"code": exc.status or 0, "message": str(exc),
                                  "retryable": exc.retryable})
         except BrokenPipeError:
@@ -625,6 +835,7 @@ class Handler(BaseHTTPRequestHandler):
         self._sse_start()
         self._sse("status", {"stage": "generating", "chapter_id": chapter_id})
         collected: list[str] = []
+        started = time.time()
         try:
             for piece in client().stream_chat(
                     [{"role": "system", "content": system},
@@ -632,6 +843,8 @@ class Handler(BaseHTTPRequestHandler):
                 collected.append(piece)
                 self._sse("delta", {"text": piece})
             answer = "".join(collected)
+            log_usage("tutor", [{"content": system}], answer, 0,
+                      int((time.time() - started) * 1000))
             STORE.set_outline(chapter_id, answer)
             verification = rag.validate_citations(answer, ctx.citations, ctx.insufficient)
             self._sse("citations", verification)
@@ -653,6 +866,7 @@ class Handler(BaseHTTPRequestHandler):
             user += f"\n参考资料：\n{ctx.evidence}"
         raw = client().complete([{"role": "system", "content": system},
                                  {"role": "user", "content": user}], max_tokens=1600)
+        log_usage("questions", [{"content": system}, {"content": user}], raw)
         items = _parse_questions(raw)
         created = []
         for item in items[:n]:
@@ -673,12 +887,18 @@ class Handler(BaseHTTPRequestHandler):
         correct = question["answer"].strip().upper()[:1]
         ok = picked == correct
         STORE.record_attempt(chapter_id, question_id, picked, ok)
+        subject_name = chapter["subject_name"] if chapter else ""
+        chapter_title = chapter["title"] if chapter else ""
         if not ok:
             STORE.add_mistake(
-                subject=chapter["subject_name"] if chapter else "",
-                chapter=chapter["title"] if chapter else "",
+                subject=subject_name, chapter=chapter_title,
                 stem=question["stem"], my_answer=picked, right_answer=correct,
                 note=question.get("explanation", ""))
+            # 进错题本的同时排进复习队列，保证"错过一次就不会忘"这条闭环成立
+            STORE.add_review(stem=question["stem"], answer=correct, subject=subject_name,
+                             chapter=chapter_title, note=question.get("explanation", ""),
+                             kind="mistake", ref_id=question_id)
+        STORE.touch_activity()
         self._json({"correct": ok, "right_answer": correct,
                     "explanation": question.get("explanation", "")})
 
@@ -802,6 +1022,7 @@ class Handler(BaseHTTPRequestHandler):
                   "请给这位学生写一段本章学习小结，包含：掌握情况判断、错题暴露的薄弱点、"
                   "接下来 3 天该复习什么。控制在 300 字以内，中文，不要客套话。")
         text = client().complete([{"role": "user", "content": prompt}], max_tokens=700)
+        log_usage("chapter_summary", [{"content": prompt}], text)
         saved = STORE.add_summary("chapter", f"{chapter['subject_name']} · {chapter['title']} 小结",
                                   text, "")
         self._json({"summary": saved, "stats": stats}, 201)
@@ -844,6 +1065,7 @@ class Handler(BaseHTTPRequestHandler):
         text = client().complete(
             [{"role": "system", "content": prompts.PROFILE_SYSTEM},
              {"role": "user", "content": prompt}], max_tokens=800)
+        log_usage("profile", [{"content": prompts.PROFILE_SYSTEM}, {"content": prompt}], text)
         saved = STORE.save_profile(text, month)
         self._json({"ok": True, **saved, "content": text}, 201)
 
@@ -859,8 +1081,271 @@ class Handler(BaseHTTPRequestHandler):
         text = client().complete(
             [{"role": "system", "content": prompts.MISTAKE_SYSTEM},
              {"role": "user", "content": lines}], max_tokens=800)
+        log_usage("tips", [{"content": prompts.MISTAKE_SYSTEM}, {"content": lines}], text)
         saved = STORE.add_summary("tips", "易错提示本", text, "")
         self._json({"summary": saved}, 201)
+
+
+# ---------------------------------------------------------------- 扩展：看板 / 检索 / 报告 / 上传
+    def _dashboard(self) -> dict:
+        mastery = STORE.mastery()
+        return {
+            "streak": STORE.streak(),
+            "due": STORE.due_review_count(),
+            "reviews": STORE.list_due_reviews(limit=10),
+            "recommend": STORE.recommendations(),
+            "mastery": mastery,
+            "usage": STORE.usage_stats(days=7),
+            "forecast": STORE.review_forecast(7),
+            "activity": STORE.activity_map(weeks=12),
+            "pending": len(STORE.pending_materials()),
+            "stale": len(STORE.stale_materials()),
+            "stats": STORE.stats(),
+        }
+
+    def _public_search(self, query: str, k: int = 8) -> dict:
+        """用户侧全文检索：返回命中片段与定位信息，供前端高亮展示。"""
+        if not (query or "").strip():
+            return {"query": query, "hits": [], "queries": []}
+        retriever = get_retriever()
+        hits, queries = rag.search_multi(retriever, query, k=k)
+        return {"query": query, "queries": queries,
+                "hits": [h.as_dict() for h in hits]}
+
+    def _graph(self) -> dict:
+        """章节—资料关系图：节点是章节与资料，边是"标题/大纲词共现"。
+
+        纯本地计算（分词后取交集），不调模型；节点数控制在上限内，保证前端画得动。
+        """
+        subjects = STORE.subjects()
+        materials = STORE.list_materials()
+        nodes: list[dict] = []
+        links: list[dict] = []
+        chapter_tokens: dict[str, set[str]] = {}
+        for sub in subjects:
+            for ch in sub["chapters"]:
+                cid = f"ch:{ch['id']}"
+                chapter_tokens[cid] = set(rag.tokenize(
+                    f"{ch['title']} {ch.get('outline') or ''}"))
+                nodes.append({"id": cid, "label": ch["title"][:16], "type": "chapter",
+                              "group": sub["name"], "weight": 2})
+        for m in materials:
+            mid = f"mat:{m['id']}"
+            toks = set(rag.tokenize(m["title"]))
+            nodes.append({"id": mid, "label": m["title"][:18], "type": "material",
+                          "group": m.get("subject") or "未分类",
+                          "weight": 1 + min(3, (m.get("bytes") or 0) // 8000)})
+            best, best_n = "", 0
+            for cid, ctoks in chapter_tokens.items():
+                n = len(toks & ctoks)
+                if n > best_n:
+                    best, best_n = cid, n
+            if best and best_n >= 2:
+                links.append({"source": best, "target": mid, "weight": min(3, best_n)})
+        linked = {x["source"] for x in links} | {x["target"] for x in links}
+        if len(nodes) > 70:                            # 节点太多，只留有连线的
+            nodes = [n for n in nodes if n["id"] in linked]
+        return {"nodes": nodes, "links": links,
+                "subjects": [s["name"] for s in subjects]}
+
+    def _download(self, data: bytes, filename: str) -> None:
+        quoted = urllib.parse.quote(filename)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument"
+                                        ".wordprocessingml.document")
+        self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quoted}")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _import_upload(self, body: dict) -> None:
+        """上传导入：支持 .docx / .txt / .md / .csv；老式 .doc 明确拒绝。"""
+        filename = (body.get("filename") or "").strip()
+        low = filename.lower()
+        title = (body.get("title") or "").strip() or re.sub(r"\.[^.]+$", "", filename) or "导入资料"
+        text = (body.get("text") or "").strip()
+        if not text and body.get("content"):
+            try:
+                raw = extras.b64decode(body["content"])
+            except Exception:                          # noqa: BLE001
+                self._error("上传内容不是合法的 base64", 400)
+                return
+            if low.endswith(".docx"):
+                try:
+                    text = extras.docx_to_text(raw)
+                except Exception as exc:               # noqa: BLE001
+                    self._error(f"解析 .docx 失败：{exc}", 400)
+                    return
+            elif low.endswith(".doc"):
+                self._error("老式 .doc 无法直接解析，请先在 Word 里另存为 .docx", 400)
+                return
+            else:
+                text = raw.decode("utf-8", "replace")
+        if not text.strip():
+            self._error("文件里没有可用的文字内容", 400)
+            return
+        status = "pending" if body.get("review") else "approved"
+        material = STORE.add_material(
+            title=title[:120], text=text, subject=body.get("subject", ""),
+            folder_id=body.get("folder_id", ""), ext=".md", status=status)
+        chunks = rag.chunk_text(text)
+        STORE.replace_chunks(material["id"], chunks)
+        if not body.get("review"):
+            STORE.touch_activity()
+        self._json({"material": material, "chunks": len(chunks),
+                    "chars": len(text), "status": status}, 201)
+
+    def _refresh_material(self, material_id: str) -> None:
+        """按来源链接重新抓取，用内容 hash 判断"到底变没变"，变了才重建索引。"""
+        rows = [m for m in STORE.list_materials() if m["id"] == material_id]
+        if not rows:
+            self._error("资料不存在", 404)
+            return
+        item = rows[0]
+        url = item.get("source_url") or ""
+        if not url:
+            self._error("这份资料没有来源链接，无法重新抓取", 400)
+            return
+        try:
+            text = tools.fetch_url(url)
+        except Exception as exc:                       # noqa: BLE001
+            self._error(f"重新抓取失败：{exc}", 502)
+            return
+        old = STORE.get_material_text(material_id)
+        new_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+        changed = bool(old.strip()) and old.strip() != text.strip()
+        path = Path(item.get("path") or "")
+        if changed and path.is_file():
+            path.write_text(text, encoding="utf-8")
+            STORE.replace_chunks(material_id, rag.chunk_text(text))
+        STORE.update_material_meta(
+            material_id, hash=new_hash, fetched_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+            bytes=path.stat().st_size if path.is_file() else item.get("bytes", 0))
+        self._json({"changed": changed, "old_hash": item.get("hash", ""),
+                    "new_hash": new_hash, "chars": len(text)})
+
+    def _find_chapter_id(self, subject: str, chapter: str) -> str:
+        for sub in STORE.subjects():
+            if subject and sub["name"] != subject:
+                continue
+            for ch in sub["chapters"]:
+                if ch["title"] == chapter:
+                    return ch["id"]
+        return ""
+
+    def _make_variant(self, mistake_id: str) -> None:
+        mistake = next((m for m in STORE.list_mistakes() if m["id"] == mistake_id), None)
+        if not mistake:
+            self._error("错题不存在", 404)
+            return
+        if not STORE.has_api_key() and not deepseek.MOCK:
+            self._error("尚未配置 DeepSeek API Key", 401)
+            return
+        ctx = rag_context(f"{mistake.get('subject', '')} {mistake.get('chapter', '')} "
+                          f"{mistake['stem']}")
+        user = (f"科目：{mistake.get('subject') or '未分类'}\n"
+                f"章节：{mistake.get('chapter') or '未指定'}\n"
+                f"原题：{mistake['stem']}\n正确答案：{mistake.get('right_answer', '')}\n"
+                f"学生当时选了：{mistake.get('my_answer', '')}\n"
+                f"原题解析：{mistake.get('note', '')}\n")
+        if ctx.evidence:
+            user += f"\n参考资料：\n{ctx.evidence}"
+        messages = [{"role": "system", "content": prompts.VARIANT_SYSTEM},
+                    {"role": "user", "content": user}]
+        started = time.time()
+        raw = client().complete(messages, max_tokens=900)
+        log_usage("variant", messages, raw, 0, int((time.time() - started) * 1000))
+        item = _parse_one(raw)
+        if not item or not item.get("stem"):
+            self._error("模型没有给出可解析的题目，请重试", 502)
+            return
+        chapter_id = self._find_chapter_id(mistake.get("subject", ""),
+                                           mistake.get("chapter", ""))
+        saved = None
+        if chapter_id:
+            saved = STORE.add_question(chapter_id, item["stem"], item.get("options", []),
+                                       item.get("answer", "A"),
+                                       item.get("explanation", ""))
+        self._json({"question": saved or item, "changed": item.get("changed", ""),
+                    "saved": bool(saved), "chapter_id": chapter_id})
+
+    def _feynman(self, body: dict) -> None:
+        text = (body.get("text") or "").strip()
+        if not text:
+            self._error("先写一段你自己的复述", 400)
+            return
+        if not STORE.has_api_key() and not deepseek.MOCK:
+            self._error("尚未配置 DeepSeek API Key", 401)
+            return
+        chapter = STORE.chapter(body.get("chapter_id")) if body.get("chapter_id") else None
+        topic = chapter["title"] if chapter else (body.get("topic") or "本知识点").strip()
+        ctx = rag_context(f"{topic} {body.get('subject', '')}")
+        user = f"知识点：{topic}\n\n学生复述：\n{text}\n"
+        if ctx.evidence:
+            user += f"\n参考资料（可作为判断依据）：\n{ctx.evidence}"
+        messages = [{"role": "system", "content": prompts.FEYNMAN_SYSTEM},
+                    {"role": "user", "content": user}]
+        started = time.time()
+        out = client().complete(messages, max_tokens=700)
+        log_usage("feynman", messages, out, 0, int((time.time() - started) * 1000))
+        STORE.touch_activity()
+        self._json({"feedback": out, "topic": topic, "citations": ctx.citations[:3]})
+
+
+# ---------------------------------------------------------------- 回答缓存 / 指代消解
+# 同一问题（同一上下文、同一风格）在半小时内重复提问，直接重放上次答案：
+# 省 token、省等待，且答案与被引用的资料完全一致，不会出现"同问不同答"。
+_ANSWER_CACHE: dict[str, dict] = {}
+CACHE_TTL = 1800.0
+CACHE_MAX = 64
+_PRONOUNS = ("它", "这个", "那个", "这些", "那些", "上面", "刚才", "上述", "该", "这题", "这条")
+
+
+def cache_key(text: str, style: str, history: list[dict]) -> str:
+    norm = re.sub(r"\s+", "", text or "").lower()
+    last = ""
+    for m in reversed(history):
+        if m.get("role") == "user":
+            last = re.sub(r"\s+", "", m.get("content") or "")[:80]
+            break
+    return hashlib.sha1(f"{norm}|{style}|{last}".encode("utf-8")).hexdigest()
+
+
+def cache_get(key: str) -> dict | None:
+    item = _ANSWER_CACHE.get(key)
+    if not item:
+        return None
+    if time.time() - item.get("ts", 0) > CACHE_TTL:
+        _ANSWER_CACHE.pop(key, None)
+        return None
+    return item
+
+
+def cache_put(key: str, payload: dict) -> None:
+    if len(_ANSWER_CACHE) >= CACHE_MAX:
+        oldest = min(_ANSWER_CACHE, key=lambda k: _ANSWER_CACHE[k].get("ts", 0))
+        _ANSWER_CACHE.pop(oldest, None)
+    payload["ts"] = time.time()
+    _ANSWER_CACHE[key] = payload
+
+
+def resolve_query(text: str, history: list[dict]) -> str:
+    """多轮追问里的"它 / 这个 / 刚才那个"补上前一轮的问题，再拿去检索。
+
+    只影响检索，发给模型和存库的仍是学生原话；补全结果也会写进检索详情。
+    """
+    text = (text or "").strip()
+    if not history or len(text) > 16:
+        return text
+    if not any(p in text for p in _PRONOUNS):
+        return text
+    prev = next((m.get("content") or "" for m in reversed(history)
+                 if m.get("role") == "user"), "")
+    prev = prev.strip()
+    if not prev:
+        return text
+    return f"{prev[:60]} {text}"
 
 
 # ---------------------------------------------------------------- 工具函数
@@ -943,6 +1428,31 @@ def _parse_questions(raw: str) -> list[dict]:
     return out
 
 
+def _parse_one(raw: str) -> dict:
+    """从模型输出里抠出单个 JSON 对象（变式题用）。"""
+    text = (raw or "").strip()
+    fence = re.search(r"```(?:json)?\s*(.+?)```", text, re.S)
+    if fence:
+        text = fence.group(1).strip()
+    start = text.find("{")
+    if start < 0:
+        return {}
+    try:
+        data, _end = json.JSONDecoder().raw_decode(text[start:])   # 只取第一个完整对象
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    options = data.get("options") or []
+    if not isinstance(options, list) or len(options) < 2:
+        return {}
+    return {"stem": str(data.get("stem", ""))[:500],
+            "options": [str(o)[:300] for o in options[:6]],
+            "answer": str(data.get("answer", "A"))[:1].upper(),
+            "explanation": str(data.get("explanation", ""))[:600],
+            "changed": str(data.get("changed", ""))[:200]}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="计算机课程学习助手本地服务")
     ap.add_argument("--port", type=int, default=8737)
@@ -977,7 +1487,7 @@ def main() -> int:
         print(f"  已导入内置示例资料 {samples} 份（可在界面里删除）")
 
     try:
-        httpd = ThreadingHTTPServer((args.host, args.port), Handler)
+        httpd = QuietHTTPServer((args.host, args.port), Handler)
     except OSError as exc:
         print("=" * 56)
         print(f"  启动失败：端口 {args.port} 已被占用（{exc}）")

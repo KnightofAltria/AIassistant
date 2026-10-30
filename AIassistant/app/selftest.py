@@ -76,6 +76,10 @@ def main() -> int:
     args = ap.parse_args()
     base = args.base.rstrip("/")
 
+    import time                                   # 仅用于记录自检起始时刻
+    started = time.strftime("%Y-%m-%d %H:%M:%S")
+    activity_before = _activity_today()
+
     # 1. 状态
     status, st = call(base, "/api/state")
     check("GET /api/state", status == 200 and "configured" in st,
@@ -206,8 +210,11 @@ def main() -> int:
           f"{len(events)} 个事件，文本 {len(delta_text)} 字")
     check("SSE 引用校验事件", "citations" in names,
           f"verification={cite_event.get('verification')}")
-    check("SSE 事件顺序", names[:2] == ["status", "status"] and names[-1] == "completed",
-          " -> ".join(names))
+    # 顺序断言按"首 status、末 completed、中间必须有 retrieval 与 delta"来判，
+    # 不再写死前两个事件名——新增 retrieval 事件时这里不会误报。
+    order_ok = (names[:1] == ["status"] and names[-1] == "completed"
+                and "retrieval" in names and "delta" in names)
+    check("SSE 事件顺序", order_ok, " -> ".join(names))
 
     # 7. 会话与消息落库
     status, convs = call(base, "/api/conversations")
@@ -314,7 +321,7 @@ def main() -> int:
     check("空资料返回 400", status == 400 and "error" in err, str(err.get("error", {}))[:60])
 
     # 14. 收尾：把自检自己造出来的数据全部删掉，避免污染用户库
-    cleaned = cleanup_artifacts(base)
+    cleaned = cleanup_artifacts(base) + cleanup_local_stats(started, activity_before)
     check("自检数据已清理", True, cleaned)
 
     # 汇总
@@ -379,6 +386,49 @@ def cleanup_artifacts(base: str) -> str:
             removed.append("错题")
 
     return f"清理 {len(removed)} 项：{'/'.join(sorted(set(removed))) or '无'}"
+
+
+def _activity_today() -> int | None:
+    """自检前今天的打卡事件数；没有记录返回 None。读不到库时也返回 None。"""
+    try:
+        import time
+
+        import store as store_mod
+        st = store_mod.Store()
+        row = st.conn.execute("SELECT events FROM activity WHERE day=?",
+                              (time.strftime("%Y-%m-%d"),)).fetchone()
+        return int(row["events"]) if row else None
+    except Exception:                              # noqa: BLE001
+        return None
+
+
+def cleanup_local_stats(started: str, activity_before: int | None) -> str:
+    """回滚自检期间产生的作答、复习条目、调用日志与打卡记录。
+
+    这些是本次扩展新增的副作用，老的 cleanup_artifacts 走接口删不到，
+    所以这里直接对本机库做时间窗清理；--base 指向远端时读不到库就跳过。
+    """
+    try:
+        import time
+
+        import store as store_mod
+        st = store_mod.Store()
+    except Exception as exc:                       # noqa: BLE001
+        return f"；统计清理跳过（{exc}）"
+    today = time.strftime("%Y-%m-%d")
+    removed: list[str] = []
+    for table, label in (("attempts", "作答"), ("reviews", "复习条目"),
+                         ("usage_log", "调用日志")):
+        count = st.conn.execute(
+            f"DELETE FROM {table} WHERE created_at >= ?", (started,)).rowcount
+        if count:
+            removed.append(f"{label}{count}")
+    if activity_before is None:
+        st.conn.execute("DELETE FROM activity WHERE day=?", (today,))
+    else:
+        st.conn.execute("UPDATE activity SET events=? WHERE day=?", (activity_before, today))
+    st.conn.commit()
+    return ("；回滚 " + "/".join(removed)) if removed else ""
 
 
 if __name__ == "__main__":

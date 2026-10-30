@@ -12,11 +12,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import sqlite3
 import time
 import uuid
+from datetime import datetime, timedelta
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
@@ -135,6 +137,40 @@ CREATE TABLE IF NOT EXISTS questions (
     created_at TEXT NOT NULL,
     FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS reviews (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL DEFAULT 'mistake',
+    ref_id TEXT DEFAULT '',
+    subject TEXT DEFAULT '',
+    chapter TEXT DEFAULT '',
+    stem TEXT NOT NULL,
+    answer TEXT DEFAULT '',
+    note TEXT DEFAULT '',
+    stage INTEGER DEFAULT 0,
+    due_at TEXT NOT NULL,
+    last_at TEXT DEFAULT '',
+    reps INTEGER DEFAULT 0,
+    lapses INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reviews_due ON reviews(due_at);
+CREATE TABLE IF NOT EXISTS usage_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    model TEXT DEFAULT '',
+    prompt_chars INTEGER DEFAULT 0,
+    completion_chars INTEGER DEFAULT 0,
+    tokens_est INTEGER DEFAULT 0,
+    first_ms INTEGER DEFAULT 0,
+    total_ms INTEGER DEFAULT 0,
+    ok INTEGER DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_usage_time ON usage_log(created_at);
+CREATE TABLE IF NOT EXISTS activity (
+    day TEXT PRIMARY KEY,
+    events INTEGER DEFAULT 0
+);
 """
 
 
@@ -179,6 +215,19 @@ class Store:
         self.conn.execute(
             "UPDATE chapters SET is_builtin=1 WHERE subject_id IN "
             "(SELECT id FROM subjects WHERE slug IN ('co','cn','os','ds'))")
+        mat_cols = {row["name"] for row in self.conn.execute("PRAGMA table_info(materials)")}
+        for name, ddl in (("hash", "TEXT DEFAULT ''"),
+                          ("status", "TEXT DEFAULT 'approved'"),
+                          ("fetched_at", "TEXT DEFAULT ''")):
+            if name not in mat_cols:
+                self.conn.execute(f"ALTER TABLE materials ADD COLUMN {name} {ddl}")
+        # 老资料补 hash：用于"重抓后内容是否真的变了"的判断
+        for row in self.conn.execute(
+                "SELECT id, path, hash FROM materials WHERE (hash IS NULL OR hash='')").fetchall():
+            p = Path(row["path"] or "")
+            if p.is_file():
+                digest = hashlib.sha256(p.read_bytes()).hexdigest()[:16]
+                self.conn.execute("UPDATE materials SET hash=? WHERE id=?", (digest, row["id"]))
         self.conn.commit()
 
     # ---------------------------------------------------------------- 配置
@@ -249,18 +298,22 @@ class Store:
 
     # ---------------------------------------------------------------- 资料
     def add_material(self, title: str, text: str, subject: str = "", folder_id: str = "",
-                     source_url: str = "", ext: str = ".md") -> dict:
+                     source_url: str = "", ext: str = ".md",
+                     status: str = "approved") -> dict:
         mid = new_id()
         MATERIAL_DIR.mkdir(parents=True, exist_ok=True)
         safe = "".join(ch for ch in title if ch not in '\\/:*?"<>|').strip() or mid
         path = MATERIAL_DIR / f"{mid[:8]}_{safe}{ext}"
         path.write_text(text, encoding="utf-8")
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+        ts = now()
         self.conn.execute(
-            "INSERT INTO materials(id,title,subject,folder_id,source_url,path,bytes,created_at)"
-            " VALUES(?,?,?,?,?,?,?,?)",
+            "INSERT INTO materials(id,title,subject,folder_id,source_url,path,bytes,created_at,"
+            "hash,status,fetched_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (mid, title, subject, folder_id, source_url, str(path),
-             path.stat().st_size, now()))
+             path.stat().st_size, ts, digest, status, ts if source_url else ""))
         self.conn.commit()
+        self.bump()
         return dict(self.conn.execute("SELECT * FROM materials WHERE id=?", (mid,)).fetchone())
 
     def list_materials(self, folder_id: str | None = None) -> list[dict]:
@@ -287,11 +340,18 @@ class Store:
         self.conn.execute("DELETE FROM chunks WHERE material_id=?", (material_id,))
         self.conn.execute("DELETE FROM materials WHERE id=?", (material_id,))
         self.conn.commit()
+        self.bump()
 
     def all_chunks(self) -> list[dict]:
+        """只返回"已审核通过"资料的切片。
+
+        审核不是装饰：待审核（pending）和已驳回（rejected）的资料不进入检索索引，
+        否则等于没审。老的空状态按通过处理，避免历史数据整体消失。
+        """
         rows = self.conn.execute(
             "SELECT c.id, c.material_id, c.ord, c.text, m.title, m.subject "
-            "FROM chunks c JOIN materials m ON m.id=c.material_id").fetchall()
+            "FROM chunks c JOIN materials m ON m.id=c.material_id "
+            "WHERE COALESCE(NULLIF(m.status, ''), 'approved') = 'approved'").fetchall()
         return [dict(r) for r in rows]
 
     def replace_chunks(self, material_id: str, texts: list[str]) -> None:
@@ -300,6 +360,28 @@ class Store:
             "INSERT INTO chunks(material_id, ord, text) VALUES(?,?,?)",
             [(material_id, i, t) for i, t in enumerate(texts)])
         self.conn.commit()
+        self.bump()
+
+    # ---------------------------------------------------------------- 索引版本
+    def rev(self) -> int:
+        """索引版本号：资料增删、切片重建、审核状态变化都会 +1。
+
+        之前用"切片数量"当缓存版本，内容变了但切片数没变时就完全察觉不到，
+        所以改成显式版本号——检索器只要对不上版本就重建。
+        """
+        row = self.conn.execute("SELECT value FROM config WHERE key='index_rev'").fetchone()
+        try:
+            return int(row["value"]) if row else 0
+        except (TypeError, ValueError):
+            return 0
+
+    def bump(self) -> int:
+        cur = self.rev() + 1
+        self.conn.execute(
+            "INSERT INTO config(key, value) VALUES('index_rev', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(cur),))
+        self.conn.commit()
+        return cur
 
     # ---------------------------------------------------------------- 文件夹
     def add_folder(self, name: str, slug: str = "", is_shared: bool = False,
@@ -648,6 +730,246 @@ class Store:
         if path.exists():
             path.unlink()
 
+    # ---------------------------------------------------------------- 复习队列（间隔重复）
+    def add_review(self, stem: str, answer: str = "", subject: str = "", chapter: str = "",
+                   note: str = "", kind: str = "mistake", ref_id: str = "",
+                   stage: int = 0, due_at: str = "") -> dict:
+        """把一个待复习项排入队列。同一个题干不重复入队，只刷新到期时间。"""
+        exists = self.conn.execute("SELECT * FROM reviews WHERE stem=?", (stem,)).fetchone()
+        if exists:
+            return dict(exists)
+        rid = new_id()
+        ts = now()
+        self.conn.execute(
+            "INSERT INTO reviews(id,kind,ref_id,subject,chapter,stem,answer,note,stage,"
+            "due_at,last_at,reps,lapses,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (rid, kind, ref_id, subject, chapter, stem[:500], answer, note,
+             int(stage), due_at or ts, "", 0, 0, ts))
+        self.conn.commit()
+        return dict(self.conn.execute("SELECT * FROM reviews WHERE id=?", (rid,)).fetchone())
+
+    def list_reviews(self, due_only: bool = False, limit: int = 200) -> list[dict]:
+        sql = "SELECT * FROM reviews"
+        args: tuple = ()
+        if due_only:
+            sql += " WHERE due_at <= ?"
+            args = (now(),)
+        sql += " ORDER BY due_at, created_at LIMIT ?"
+        return [dict(r) for r in self.conn.execute(sql, args + (limit,)).fetchall()]
+
+    def list_due_reviews(self, limit: int = 20) -> list[dict]:
+        return self.list_reviews(due_only=True, limit=limit)
+
+    def due_review_count(self) -> int:
+        return int(self.conn.execute(
+            "SELECT COUNT(*) FROM reviews WHERE due_at <= ?", (now(),)).fetchone()[0])
+
+    def review_forecast(self, days: int = 7) -> dict:
+        """未来几天各有多少条到期，外加"已过期"的数量，用于看板上的预测条。"""
+        today = datetime.now().date()
+        items = []
+        for offset in range(max(1, days)):
+            day = (today + timedelta(days=offset)).isoformat()
+            count = int(self.conn.execute(
+                "SELECT COUNT(*) FROM reviews WHERE substr(due_at,1,10)=?", (day,)).fetchone()[0])
+            items.append({"day": day, "count": count, "label": day[5:]})
+        overdue = int(self.conn.execute(
+            "SELECT COUNT(*) FROM reviews WHERE due_at < ?", (today.isoformat(),)).fetchone()[0])
+        return {"days": items, "overdue": overdue,
+                "peak": max([i["count"] for i in items] + [1])}
+
+    def grade_review(self, review_id: str, quality: str) -> dict | None:
+        import extras                                  # 延迟导入：extras 不反向依赖 store
+        row = self.conn.execute("SELECT * FROM reviews WHERE id=?", (review_id,)).fetchone()
+        if not row:
+            return None
+        stage, due = extras.srs_next(int(row["stage"] or 0), quality)
+        lapses = int(row["lapses"] or 0) + (1 if quality == "again" else 0)
+        self.conn.execute(
+            "UPDATE reviews SET stage=?, due_at=?, last_at=?, reps=reps+1, lapses=? WHERE id=?",
+            (stage, due.strftime("%Y-%m-%d %H:%M:%S"), now(), lapses, review_id))
+        self.conn.commit()
+        self.touch_activity()
+        return dict(self.conn.execute("SELECT * FROM reviews WHERE id=?", (review_id,)).fetchone())
+
+    def delete_review(self, review_id: str) -> None:
+        self.conn.execute("DELETE FROM reviews WHERE id=?", (review_id,))
+        self.conn.commit()
+
+    # ---------------------------------------------------------------- 调用统计（token / 耗时）
+    def record_usage(self, kind: str, model: str = "", prompt_chars: int = 0,
+                     completion_chars: int = 0, tokens_est: int = 0,
+                     first_ms: int = 0, total_ms: int = 0, ok: bool = True) -> None:
+        self.conn.execute(
+            "INSERT INTO usage_log(kind,model,prompt_chars,completion_chars,tokens_est,"
+            "first_ms,total_ms,ok,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            (kind, model, int(prompt_chars), int(completion_chars), int(tokens_est),
+             int(first_ms), int(total_ms), 1 if ok else 0, now()))
+        self.conn.commit()
+
+    def usage_stats(self, days: int = 14) -> dict:
+        since = (datetime.now() - timedelta(days=max(1, days))).strftime("%Y-%m-%d 00:00:00")
+        rows = self.conn.execute(
+            "SELECT * FROM usage_log WHERE created_at >= ? ORDER BY created_at", (since,)
+        ).fetchall()
+        calls = len(rows)
+        tokens = sum(int(r["tokens_est"] or 0) for r in rows)
+        firsts = [int(r["first_ms"] or 0) for r in rows if int(r["first_ms"] or 0) > 0]
+        totals = [int(r["total_ms"] or 0) for r in rows if int(r["total_ms"] or 0) > 0]
+        by_kind: dict[str, int] = {}
+        for r in rows:
+            by_kind[r["kind"]] = by_kind.get(r["kind"], 0) + 1
+        daily: dict[str, int] = {}
+        for r in rows:
+            day = (r["created_at"] or "")[:10]
+            daily[day] = daily.get(day, 0) + 1
+        return {
+            "days": days, "calls": calls, "tokens_est": tokens,
+            "avg_first_ms": int(sum(firsts) / len(firsts)) if firsts else 0,
+            "avg_total_ms": int(sum(totals) / len(totals)) if totals else 0,
+            "by_kind": by_kind,
+            "daily": [{"day": d, "calls": n} for d, n in sorted(daily.items())],
+            "failed": sum(1 for r in rows if not r["ok"]),
+        }
+
+    # ---------------------------------------------------------------- 打卡 / 连续学习
+    def activity_map(self, weeks: int = 12) -> dict:
+        """按天汇总学习活动：作答 + 提问 + 导入 + 复习，够画一张热力图。"""
+        days: dict[str, int] = {}
+        for sql in ("SELECT substr(created_at,1,10) d, COUNT(*) n FROM attempts GROUP BY d",
+                    "SELECT substr(created_at,1,10) d, COUNT(*) n FROM messages "
+                    "WHERE role='user' GROUP BY d",
+                    "SELECT day d, events n FROM activity"):
+            for row in self.conn.execute(sql).fetchall():
+                if row["d"]:
+                    days[row["d"]] = days.get(row["d"], 0) + int(row["n"] or 0)
+        return {"days": [{"day": d, "count": n} for d, n in sorted(days.items())],
+                "weeks": weeks, "total": sum(days.values()),
+                "max": max(days.values()) if days else 0}
+
+    def touch_activity(self, n: int = 1) -> None:
+        day = time.strftime("%Y-%m-%d")
+        self.conn.execute(
+            "INSERT INTO activity(day, events) VALUES(?,?) "
+            "ON CONFLICT(day) DO UPDATE SET events=events+excluded.events", (day, int(n)))
+        self.conn.commit()
+
+    def streak(self) -> dict:
+        days = {r["day"] for r in self.conn.execute("SELECT day FROM activity").fetchall()}
+        if not days:
+            return {"days": 0, "today": time.strftime("%Y-%m-%d"), "total_days": 0}
+        today = datetime.now().date()
+        cursor = today
+        if today.isoformat() not in days:          # 今天还没学，从昨天开始算
+            cursor = today - timedelta(days=1)
+        count = 0
+        while cursor.isoformat() in days:
+            count += 1
+            cursor -= timedelta(days=1)
+        return {"days": count, "today": today.isoformat(), "total_days": len(days)}
+
+    # ---------------------------------------------------------------- 掌握度
+    def mastery(self) -> dict:
+        rows = self.conn.execute(
+            "SELECT c.id, c.title, s.name AS subject, s.slug AS subject_slug, "
+            "COUNT(a.id) AS total, COALESCE(SUM(a.correct),0) AS right, "
+            "MAX(a.created_at) AS last_at "
+            "FROM chapters c JOIN subjects s ON s.id=c.subject_id "
+            "LEFT JOIN attempts a ON a.chapter_id=c.id "
+            "GROUP BY c.id ORDER BY s.ord, c.ord").fetchall()
+        chapters: list[dict] = []
+        for r in rows:
+            total, right = int(r["total"] or 0), int(r["right"] or 0)
+            rate = round(right / total * 100, 1) if total else 0.0
+            if total == 0:
+                status = "未练习"
+            elif rate < 60:
+                status = "薄弱"
+            elif rate < 85:
+                status = "巩固中"
+            else:
+                status = "已掌握"
+            chapters.append({
+                "chapter_id": r["id"], "title": r["title"],
+                "label": f"{r['subject']} · {r['title']}",
+                "subject": r["subject"], "subject_slug": r["subject_slug"],
+                "attempts": total, "correct": right, "rate": rate,
+                "status": status, "last_at": r["last_at"] or "",
+            })
+        subjects: dict[str, dict] = {}
+        for c in chapters:
+            agg = subjects.setdefault(c["subject"], {"subject": c["subject"], "attempts": 0,
+                                                     "correct": 0, "chapters": 0})
+            agg["attempts"] += c["attempts"]
+            agg["correct"] += c["correct"]
+            agg["chapters"] += 1
+        for agg in subjects.values():
+            agg["rate"] = round(agg["correct"] / agg["attempts"] * 100, 1) if agg["attempts"] else 0.0
+        total_a = sum(c["attempts"] for c in chapters)
+        total_c = sum(c["correct"] for c in chapters)
+        return {
+            "chapters": chapters,
+            "subjects": sorted(subjects.values(), key=lambda x: -x["attempts"]),
+            "overall": {"attempts": total_a, "correct": total_c,
+                        "rate": round(total_c / total_a * 100, 1) if total_a else 0.0},
+        }
+
+    def recommendations(self, limit: int = 5) -> list[dict]:
+        """今日建议：复习到期 > 薄弱章节 > 没练过的章节。纯规则，不调模型。"""
+        out: list[dict] = []
+        due = self.due_review_count()
+        if due:
+            out.append({"type": "review", "title": f"先复习 {due} 条到期内容",
+                        "detail": "间隔重复队列里到期了，趁热打铁最省时间", "weight": 100})
+        mastery = self.mastery()
+        weak = [c for c in mastery["chapters"] if c["status"] == "薄弱"]
+        for c in weak[:2]:
+            out.append({"type": "weak", "title": f"补一补「{c['title']}」",
+                        "detail": f"正确率 {c['rate']}%，低于 60% 的及格线",
+                        "weight": 80, "chapter_id": c["chapter_id"]})
+        idle = [c for c in mastery["chapters"] if c["status"] == "未练习"]
+        if idle:
+            out.append({"type": "new", "title": f"开新章节：「{idle[0]['title']}」",
+                        "detail": "还没做过这一章的题，先看讲解再练 3 道",
+                        "weight": 60, "chapter_id": idle[0]["chapter_id"]})
+        if not out:
+            out.append({"type": "idle", "title": "今天状态清零，随便问一个问题",
+                        "detail": "没有到期复习，也没有薄弱章节；可以去「AI 聊天」随便聊聊",
+                        "weight": 10})
+        return sorted(out, key=lambda x: -x["weight"])[:limit]
+
+    # ---------------------------------------------------------------- 资料审核 / 版本
+    def set_material_status(self, material_id: str, status: str) -> dict | None:
+        status = status if status in ("pending", "approved", "rejected") else "pending"
+        self.conn.execute("UPDATE materials SET status=? WHERE id=?", (status, material_id))
+        self.conn.commit()
+        self.bump()                        # 状态变了，检索索引必须跟着变
+        row = self.conn.execute("SELECT * FROM materials WHERE id=?", (material_id,)).fetchone()
+        return dict(row) if row else None
+
+    def update_material_meta(self, material_id: str, **fields) -> None:
+        allowed = {"hash", "status", "fetched_at", "title", "subject", "bytes"}
+        pairs = [(k, v) for k, v in fields.items() if k in allowed]
+        if not pairs:
+            return
+        sets = ", ".join(f"{k}=?" for k, _ in pairs)
+        self.conn.execute(f"UPDATE materials SET {sets} WHERE id=?",
+                          [v for _, v in pairs] + [material_id])
+        self.conn.commit()
+        self.bump()
+
+    def pending_materials(self) -> list[dict]:
+        return [dict(r) for r in self.conn.execute(
+            "SELECT * FROM materials WHERE status='pending' ORDER BY created_at DESC").fetchall()]
+
+    def stale_materials(self, days: int = 30) -> list[dict]:
+        """有来源链接、且抓取时间超过 days 天的资料，提醒复核。"""
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        rows = self.conn.execute(
+            "SELECT * FROM materials WHERE source_url != '' AND (fetched_at='' OR fetched_at < ?)",
+            (cutoff,)).fetchall()
+        return [dict(r) for r in rows]
+
     # ---------------------------------------------------------------- 统计
     def stats(self) -> dict:
         def one(sql: str, *args) -> int:
@@ -665,7 +987,8 @@ class Store:
     def wipe_all(self) -> None:
         """清空所有本地数据（设计文档要求所有资料都可删除）。"""
         for table in ("chunks", "materials", "messages", "conversations", "summaries",
-                      "mistakes", "questions", "chapters", "subjects", "folders"):
+                      "mistakes", "questions", "chapters", "subjects", "folders",
+                      "reviews", "usage_log", "activity"):
             self.conn.execute(f"DELETE FROM {table}")
         self.conn.commit()
         if MATERIAL_DIR.exists():
