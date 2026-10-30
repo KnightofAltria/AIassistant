@@ -379,6 +379,18 @@ class Handler(BaseHTTPRequestHandler):
             self._json(self._public_search(q, max(1, min(k, 20))))
             return
 
+        if path == "/api/graph":
+            self._json(self._graph())
+            return
+
+        if path == "/api/activity":
+            try:
+                weeks = int(query.get("weeks", ["12"])[0] or 12)
+            except ValueError:
+                weeks = 12
+            self._json(STORE.activity_map(weeks=max(1, min(weeks, 52))))
+            return
+
         if path == "/api/export/report":
             data = extras.build_report(STORE)
             self._download(data, f"学习报告-{time.strftime('%Y%m%d')}.docx")
@@ -674,6 +686,33 @@ class Handler(BaseHTTPRequestHandler):
         self._error("未知接口", 404)
 
     # ------------------------------------------------------------ 业务：对话
+    def _replay_cache(self, cid: str, ephemeral: bool, cached: dict) -> None:
+        """命中缓存：不调模型，把上次的答案与检索详情按同样的事件序列重放一遍。"""
+        payload = dict(cached.get("retrieval") or {})
+        hits = payload.get("hits") or []
+        self._sse_start()
+        self._sse("status", {"stage": "retrieving", "conversation_id": cid,
+                             "hits": len(hits),
+                             "insufficient": payload.get("insufficient", False),
+                             "subject": payload.get("subject", ""),
+                             "top_score": payload.get("top_score", 0), "cached": True})
+        self._sse("retrieval", {**payload, "cached": True})
+        answer = cached.get("answer") or ""
+        for i in range(0, len(answer), 12):
+            self._sse("delta", {"text": answer[i:i + 12]})
+        self._sse("status", {"stage": "verifying"})
+        verification = cached.get("citations") or {}
+        self._sse("citations", verification)
+        mid = "" if ephemeral else STORE.add_message(cid, "assistant", answer,
+                                                    verification.get("items") or [])
+        try:
+            STORE.record_usage("cache_hit", STORE.get_config().get("model", ""),
+                               0, len(answer), 0, 0, 0)
+        except Exception:                              # noqa: BLE001
+            pass
+        self._sse("completed", {"message_id": mid, "conversation_id": cid,
+                                "status": "completed", "cached": True})
+
     def _chat_stream(self, body: dict) -> None:
         text = (body.get("text") or "").strip()
         if not text:
@@ -688,11 +727,21 @@ class Handler(BaseHTTPRequestHandler):
             self._error("尚未配置 DeepSeek API Key", 401)
             return
 
-        ctx = rag_context(text)
         history = [{"role": m["role"], "content": m["content"]}
                    for m in STORE.messages(cid)][-8:] if cid else []
-
         style = (body.get("style") or "concise").strip()
+        used_query = resolve_query(text, history)     # 多轮指代："它 / 这个" 补上前一问
+        ckey = cache_key(text, style, history)
+
+        if not ephemeral:
+            STORE.add_message(cid, "user", text)
+
+        cached = cache_get(ckey)
+        if cached:
+            self._replay_cache(cid, ephemeral, cached)
+            return
+
+        ctx = rag_context(used_query)
         system = prompts.chat_system(style)
         meta_line = STORE.meta_summary()
         if meta_line:
@@ -706,21 +755,25 @@ class Handler(BaseHTTPRequestHandler):
                       "请明确说明「资料中没有找到足够依据」，再给出常识性补充并标明这是补充。")
         if ctx.subject:
             system += f"\n\n本次检索范围限定在科目：{ctx.subject}。"
+        if used_query != text:
+            system += (f"\n\n（本次追问已结合上文补全为：{used_query[:80]}。"
+                       "回答时以学生这句话为主，不要把补全的内容当新问题。）")
 
-        if not ephemeral:
-            STORE.add_message(cid, "user", text)
+        retrieval_payload = {
+            "query": text, "resolved": used_query,
+            "queries": ctx.queries or [used_query],
+            "subject": ctx.subject, "insufficient": ctx.insufficient,
+            "threshold": ctx.threshold, "top_score": round(ctx.top_score, 2),
+            "style": style, "cached": False,
+            "hits": [h.as_dict() for h in ctx.hits[:8]],
+        }
 
         self._sse_start()
         self._sse("status", {"stage": "retrieving", "conversation_id": cid,
                              "hits": len(ctx.hits), "insufficient": ctx.insufficient,
                              "subject": ctx.subject, "top_score": round(ctx.top_score, 2)})
         # 检索详情：前端"凭什么这么答"面板直接用这个事件渲染，不额外再查一次
-        self._sse("retrieval", {
-            "query": ctx.query, "queries": ctx.queries or [ctx.query],
-            "subject": ctx.subject, "insufficient": ctx.insufficient,
-            "threshold": ctx.threshold, "top_score": round(ctx.top_score, 2),
-            "style": style, "hits": [h.as_dict() for h in ctx.hits[:8]],
-        })
+        self._sse("retrieval", retrieval_payload)
         collected: list[str] = []
         started = time.time()
         first_at = 0.0
@@ -738,13 +791,15 @@ class Handler(BaseHTTPRequestHandler):
             self._sse("status", {"stage": "verifying"})
             self._sse("citations", verification)
             mid = "" if ephemeral else STORE.add_message(cid, "assistant", answer, verification["items"])
+            cache_put(ckey, {"answer": answer, "citations": verification,
+                             "retrieval": retrieval_payload})
             log_usage("chat", [{"content": system}, *history, {"content": text}], answer,
                       int((first_at - started) * 1000) if first_at else 0,
                       int((time.time() - started) * 1000))
             if not ephemeral:
                 STORE.touch_activity()
             self._sse("completed", {"message_id": mid, "conversation_id": cid,
-                                    "status": "completed"})
+                                    "status": "completed", "cached": False})
         except deepseek.DeepSeekError as exc:
             log_usage("chat", [{"content": system}, {"content": text}], "", 0,
                       int((time.time() - started) * 1000), ok=False)
@@ -1041,6 +1096,8 @@ class Handler(BaseHTTPRequestHandler):
             "recommend": STORE.recommendations(),
             "mastery": mastery,
             "usage": STORE.usage_stats(days=7),
+            "forecast": STORE.review_forecast(7),
+            "activity": STORE.activity_map(weeks=12),
             "pending": len(STORE.pending_materials()),
             "stale": len(STORE.stale_materials()),
             "stats": STORE.stats(),
@@ -1054,6 +1111,42 @@ class Handler(BaseHTTPRequestHandler):
         hits, queries = rag.search_multi(retriever, query, k=k)
         return {"query": query, "queries": queries,
                 "hits": [h.as_dict() for h in hits]}
+
+    def _graph(self) -> dict:
+        """章节—资料关系图：节点是章节与资料，边是"标题/大纲词共现"。
+
+        纯本地计算（分词后取交集），不调模型；节点数控制在上限内，保证前端画得动。
+        """
+        subjects = STORE.subjects()
+        materials = STORE.list_materials()
+        nodes: list[dict] = []
+        links: list[dict] = []
+        chapter_tokens: dict[str, set[str]] = {}
+        for sub in subjects:
+            for ch in sub["chapters"]:
+                cid = f"ch:{ch['id']}"
+                chapter_tokens[cid] = set(rag.tokenize(
+                    f"{ch['title']} {ch.get('outline') or ''}"))
+                nodes.append({"id": cid, "label": ch["title"][:16], "type": "chapter",
+                              "group": sub["name"], "weight": 2})
+        for m in materials:
+            mid = f"mat:{m['id']}"
+            toks = set(rag.tokenize(m["title"]))
+            nodes.append({"id": mid, "label": m["title"][:18], "type": "material",
+                          "group": m.get("subject") or "未分类",
+                          "weight": 1 + min(3, (m.get("bytes") or 0) // 8000)})
+            best, best_n = "", 0
+            for cid, ctoks in chapter_tokens.items():
+                n = len(toks & ctoks)
+                if n > best_n:
+                    best, best_n = cid, n
+            if best and best_n >= 2:
+                links.append({"source": best, "target": mid, "weight": min(3, best_n)})
+        linked = {x["source"] for x in links} | {x["target"] for x in links}
+        if len(nodes) > 70:                            # 节点太多，只留有连线的
+            nodes = [n for n in nodes if n["id"] in linked]
+        return {"nodes": nodes, "links": links,
+                "subjects": [s["name"] for s in subjects]}
 
     def _download(self, data: bytes, filename: str) -> None:
         quoted = urllib.parse.quote(filename)
@@ -1198,6 +1291,61 @@ class Handler(BaseHTTPRequestHandler):
         log_usage("feynman", messages, out, 0, int((time.time() - started) * 1000))
         STORE.touch_activity()
         self._json({"feedback": out, "topic": topic, "citations": ctx.citations[:3]})
+
+
+# ---------------------------------------------------------------- 回答缓存 / 指代消解
+# 同一问题（同一上下文、同一风格）在半小时内重复提问，直接重放上次答案：
+# 省 token、省等待，且答案与被引用的资料完全一致，不会出现"同问不同答"。
+_ANSWER_CACHE: dict[str, dict] = {}
+CACHE_TTL = 1800.0
+CACHE_MAX = 64
+_PRONOUNS = ("它", "这个", "那个", "这些", "那些", "上面", "刚才", "上述", "该", "这题", "这条")
+
+
+def cache_key(text: str, style: str, history: list[dict]) -> str:
+    norm = re.sub(r"\s+", "", text or "").lower()
+    last = ""
+    for m in reversed(history):
+        if m.get("role") == "user":
+            last = re.sub(r"\s+", "", m.get("content") or "")[:80]
+            break
+    return hashlib.sha1(f"{norm}|{style}|{last}".encode("utf-8")).hexdigest()
+
+
+def cache_get(key: str) -> dict | None:
+    item = _ANSWER_CACHE.get(key)
+    if not item:
+        return None
+    if time.time() - item.get("ts", 0) > CACHE_TTL:
+        _ANSWER_CACHE.pop(key, None)
+        return None
+    return item
+
+
+def cache_put(key: str, payload: dict) -> None:
+    if len(_ANSWER_CACHE) >= CACHE_MAX:
+        oldest = min(_ANSWER_CACHE, key=lambda k: _ANSWER_CACHE[k].get("ts", 0))
+        _ANSWER_CACHE.pop(oldest, None)
+    payload["ts"] = time.time()
+    _ANSWER_CACHE[key] = payload
+
+
+def resolve_query(text: str, history: list[dict]) -> str:
+    """多轮追问里的"它 / 这个 / 刚才那个"补上前一轮的问题，再拿去检索。
+
+    只影响检索，发给模型和存库的仍是学生原话；补全结果也会写进检索详情。
+    """
+    text = (text or "").strip()
+    if not history or len(text) > 16:
+        return text
+    if not any(p in text for p in _PRONOUNS):
+        return text
+    prev = next((m.get("content") or "" for m in reversed(history)
+                 if m.get("role") == "user"), "")
+    prev = prev.strip()
+    if not prev:
+        return text
+    return f"{prev[:60]} {text}"
 
 
 # ---------------------------------------------------------------- 工具函数

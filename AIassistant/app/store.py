@@ -764,6 +764,20 @@ class Store:
         return int(self.conn.execute(
             "SELECT COUNT(*) FROM reviews WHERE due_at <= ?", (now(),)).fetchone()[0])
 
+    def review_forecast(self, days: int = 7) -> dict:
+        """未来几天各有多少条到期，外加"已过期"的数量，用于看板上的预测条。"""
+        today = datetime.now().date()
+        items = []
+        for offset in range(max(1, days)):
+            day = (today + timedelta(days=offset)).isoformat()
+            count = int(self.conn.execute(
+                "SELECT COUNT(*) FROM reviews WHERE substr(due_at,1,10)=?", (day,)).fetchone()[0])
+            items.append({"day": day, "count": count, "label": day[5:]})
+        overdue = int(self.conn.execute(
+            "SELECT COUNT(*) FROM reviews WHERE due_at < ?", (today.isoformat(),)).fetchone()[0])
+        return {"days": items, "overdue": overdue,
+                "peak": max([i["count"] for i in items] + [1])}
+
     def grade_review(self, review_id: str, quality: str) -> dict | None:
         import extras                                  # 延迟导入：extras 不反向依赖 store
         row = self.conn.execute("SELECT * FROM reviews WHERE id=?", (review_id,)).fetchone()
@@ -819,6 +833,20 @@ class Store:
         }
 
     # ---------------------------------------------------------------- 打卡 / 连续学习
+    def activity_map(self, weeks: int = 12) -> dict:
+        """按天汇总学习活动：作答 + 提问 + 导入 + 复习，够画一张热力图。"""
+        days: dict[str, int] = {}
+        for sql in ("SELECT substr(created_at,1,10) d, COUNT(*) n FROM attempts GROUP BY d",
+                    "SELECT substr(created_at,1,10) d, COUNT(*) n FROM messages "
+                    "WHERE role='user' GROUP BY d",
+                    "SELECT day d, events n FROM activity"):
+            for row in self.conn.execute(sql).fetchall():
+                if row["d"]:
+                    days[row["d"]] = days.get(row["d"], 0) + int(row["n"] or 0)
+        return {"days": [{"day": d, "count": n} for d, n in sorted(days.items())],
+                "weeks": weeks, "total": sum(days.values()),
+                "max": max(days.values()) if days else 0}
+
     def touch_activity(self, n: int = 1) -> None:
         day = time.strftime("%Y-%m-%d")
         self.conn.execute(

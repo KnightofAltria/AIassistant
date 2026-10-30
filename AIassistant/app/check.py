@@ -151,6 +151,8 @@ def check_api(base: str) -> None:
         ("/api/usage", "用量统计"),
         ("/api/search?q=%E4%B8%AD%E6%96%AD", "全文检索"),
         ("/api/materials/pending", "待审核资料"),
+        ("/api/graph", "知识图谱"),
+        ("/api/activity", "学习热力图"),
     ]
     for path, name in endpoints:
         try:
@@ -198,6 +200,10 @@ def check_page_markers(base: str) -> None:
         "待审核条": 'id="pending-bar"',
         "报告导出": 'id="btn-export-report"',
         "回答风格": 'id="chat-style"',
+        "学习热力图": 'id="heatmap-box"',
+        "知识图谱": 'id="graph-canvas"',
+        "能力雷达": 'id="radar-canvas"',
+        "复习预测": 'id="forecast-box"',
     }
     missing = [k for k, v in markers.items() if v not in html]
     check("首页关键元素", not missing, "齐全" if not missing else f"缺少：{missing}")

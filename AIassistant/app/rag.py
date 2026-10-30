@@ -151,9 +151,96 @@ class Hit:
         }
 
 
+# ---------------------------------------------------------------- 检索词扩展
+# 课程里最常见的召回断层是"英文缩写 ↔ 中文全称"：学生问 TCP，资料里写的是"传输控制协议"。
+# 这里只做检索期扩展，不往索引里塞东西，所以不会污染原始文本、也不会影响引用片段。
+SYNONYMS: dict[str, list[str]] = {
+    "tcp": ["传输控制协议", "三次握手", "可靠传输"],
+    "udp": ["用户数据报协议", "无连接"],
+    "ip": ["网际协议", "分组"],
+    "dns": ["域名", "解析"],
+    "http": ["超文本传输协议", "请求响应"],
+    "cpu": ["中央处理器", "处理器", "控制器", "运算器"],
+    "alu": ["算术逻辑单元", "运算器"],
+    "ram": ["主存", "内存"],
+    "rom": ["只读存储器"],
+    "cache": ["高速缓存", "缓冲区"],
+    "os": ["操作系统"],
+    "pcb": ["进程控制块"],
+    "tlb": ["快表", "页表缓存"],
+    "mmu": ["存储管理部件"],
+    "rag": ["检索增强", "检索增强生成"],
+    "llm": ["大模型", "大语言模型"],
+    "b+树": ["b树", "索引"],
+    "二叉树": ["遍历", "左子树", "右子树"],
+    "哈希": ["散列", "hash"],
+    "死锁": ["循环等待", "互斥", "资源分配"],
+    "进程": ["任务", "并发"],
+    "线程": ["轻量级进程"],
+    "分页": ["页面", "页表"],
+    "补码": ["原码", "反码", "溢出"],
+    "中断": ["异常", "内中断", "外中断"],
+    "流水线": ["指令流水", "冒险"],
+    "流水": ["流水线", "冒险"],
+    "总线": ["地址总线", "数据总线", "控制总线"],
+    "栈": ["后进先出", "入栈", "出栈"],
+    "队列": ["先进先出"],
+    "最短路径": ["dijkstra", "负权", "relax"],
+}
+
+
+def _build_expansions() -> dict[str, list[str]]:
+    """把同义表展开成双向表：缩写→中文、中文→缩写、中文→中文近义。
+
+    只查单向不够用：学生可能问"只读存储器"，而资料里写的是 ROM。
+    """
+    table: dict[str, list[str]] = {}
+    for key, values in SYNONYMS.items():
+        bucket = table.setdefault(key.lower(), [])
+        for v in values:
+            if v.lower() not in bucket:
+                bucket.append(v)
+            reverse = table.setdefault(v.lower(), [])
+            for other in [key, *values]:
+                if other.lower() != v.lower() and other.lower() not in reverse:
+                    reverse.append(other)
+    return table
+
+
+_EXPANSIONS = _build_expansions()
+
+
+def expand_query(query: str, limit: int = 6) -> list[str]:
+    """把查询里的术语换成同义表达，返回额外检索词（不含原句已有的词）。
+
+    两步：先按整串子串匹配（中文术语常被切成单字，整串匹配更可靠），
+    再按分词得到的 token 匹配（英文缩写靠这一步）。
+    """
+    out: list[str] = []
+    lower = (query or "").lower()
+    if not lower:
+        return out
+
+    def add(term: str) -> bool:
+        if not term or term.lower() in lower or term in out:
+            return False
+        out.append(term)
+        return len(out) >= limit
+
+    for term, syns in _EXPANSIONS.items():
+        if term in lower:
+            for syn in syns:
+                if add(syn):
+                    return out
+    for token in tokenize(query):
+        for syn in _EXPANSIONS.get(token, []):
+            if add(syn):
+                return out
+    return out
+
+
 class Retriever:
     """BM25 检索。索引在每次资料变动后重建（资料量在课程作业规模内，重建成本可接受）。"""
-
     K1 = 1.5
     B = 0.75
 
@@ -170,17 +257,43 @@ class Retriever:
         self.n = len(self.docs)
 
     TITLE_BOOST = 3.0
+    EXPAND_WEIGHT = 0.35      # 同义词命中只按 35% 计分，避免扩展词盖过原句
+    MAX_PER_MATERIAL = 2      # 同一份资料最多贡献 2 个片段，保证来源多样
 
     def _idf(self, term: str) -> float:
         df = self.df.get(term, 0)
         return math.log(1 + (self.n - df + 0.5) / (df + 0.5))
 
-    def search(self, query: str, k: int = 12, subject: str | None = None) -> list[Hit]:
+    def _select(self, scored: list[tuple[float, int]], k: int,
+                diversify: bool) -> list[int]:
+        """挑出最终片段。diversify=True 时限制单一来源占比、去掉高度重复的片段。"""
+        if not diversify:
+            return [i for _, i in scored[:k]]
+        picked: list[int] = []
+        per_material: dict[str, int] = {}
+        picked_sets: list[set[str]] = []
+        for _, i in scored:
+            material = self.chunks[i].get("material_id", "")
+            if per_material.get(material, 0) >= self.MAX_PER_MATERIAL:
+                continue
+            toks = set(self.docs[i])
+            if any(len(toks & s) / max(1, len(toks | s)) > 0.75 for s in picked_sets):
+                continue            # 与已选片段高度重复（Jaccard > 0.75）就跳过
+            picked.append(i)
+            per_material[material] = per_material.get(material, 0) + 1
+            picked_sets.append(toks)
+            if len(picked) >= k:
+                break
+        return picked
+
+    def search(self, query: str, k: int = 12, subject: str | None = None,
+               expand: bool = True, diversify: bool = True) -> list[Hit]:
         if not self.docs:
             return []
         q_tokens = tokenize(query)
         if not q_tokens:
             return []
+        exp_tokens = expand_query(query) if expand else []
         scored: list[tuple[float, int]] = []
         for i, toks in enumerate(self.docs):
             if subject and self.chunks[i].get("subject") not in ("", subject):
@@ -200,16 +313,24 @@ class Retriever:
             if title_hits:
                 # 标题命中的词，按 IDF 加权再补一次
                 score += self.TITLE_BOOST * sum(self._idf(t) for t in (set(q_tokens) & self.titles[i]))
+            if exp_tokens:
+                # 同义词（"TCP" ↔ "传输控制协议"）按低权重补齐召回
+                for t in exp_tokens:
+                    f = tf.get(t)
+                    if f:
+                        denom = f + self.K1 * (1 - self.B + self.B * dl / (self.avgdl or 1))
+                        score += self.EXPAND_WEIGHT * self._idf(t) * f * (self.K1 + 1) / denom
             if score > 0:
                 scored.append((score, i))
         scored.sort(reverse=True)
+        score_of = {i: s for s, i in scored}
         hits: list[Hit] = []
-        for rank, (score, i) in enumerate(scored[:k], start=1):
+        for rank, i in enumerate(self._select(scored, k, diversify), start=1):
             c = self.chunks[i]
             hits.append(Hit(
                 citation_id=f"c{rank}", material_id=c["material_id"],
                 title=c["title"], subject=c.get("subject", ""), ord=c["ord"],
-                text=c["text"], score=score))
+                text=c["text"], score=score_of[i]))
         return hits
 
 

@@ -203,6 +203,30 @@
         </div>
       </div>
       <div class="panel">
+        <div class="panel-head"><h3>学习热力图 <span class="muted small">近 12 周</span></h3>
+          <span class="muted small" id="heatmap-sub"></span></div>
+        <div class="panel-body"><div id="heatmap-box" class="heatmap"></div></div>
+      </div>
+
+      <div class="dash-grid">
+        <div class="panel">
+          <div class="panel-head"><h3>知识图谱</h3>
+            <span class="muted small">章节与资料的关键词关联，鼠标悬停看名称</span></div>
+          <div class="panel-body"><canvas id="graph-canvas" class="viz-canvas" height="330"></canvas></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>能力雷达</h3>
+            <span class="muted small">练习量 / 正确率 / 复习完成 / 资料覆盖</span></div>
+          <div class="panel-body"><canvas id="radar-canvas" class="viz-canvas" height="330"></canvas></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>未来 7 天复习量</h3></div>
+        <div class="panel-body"><div id="forecast-box" class="forecast"></div></div>
+      </div>
+
+      <div class="panel">
         <div class="panel-head"><h3>章节掌握度</h3></div>
         <div id="mastery-box" class="panel-body"></div>
       </div>

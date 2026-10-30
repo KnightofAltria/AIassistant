@@ -37,13 +37,289 @@ async function loadDashboard() {
     renderKpi(d);
     renderRecommend(d.recommend || []);
     renderReviews(d.reviews || [], d.due || 0);
+    renderHeatmap(d.activity || {});
+    renderForecast(d.forecast || {});
+    renderRadar(d);
     renderMastery(d.mastery || { chapters: [], subjects: [], overall: {} });
     renderUsage(d.usage || {});
     loadMistakes();
     loadPending();
+    renderGraph();
   } catch (err) {
     toast('看板加载失败：' + err.message, true);
   }
+}
+
+/* ---------------------------------------------------------------- 可视化：热力图 */
+function renderHeatmap(activity) {
+  const box = $('#heatmap-box');
+  if (!box) return;
+  const counts = {};
+  (activity.days || []).forEach((x) => { counts[x.day] = x.count; });
+  const max = Math.max(1, activity.max || 1);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start = new Date(today);
+  start.setDate(start.getDate() - 12 * 7 + 1);
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));   // 对齐到周一
+
+  box.innerHTML = '';
+  let total = 0;
+  for (let w = 0; w < 14; w += 1) {
+    const col = document.createElement('div');
+    col.className = 'hm-col';
+    for (let day = 0; day < 7; day += 1) {
+      const dt = new Date(start);
+      dt.setDate(start.getDate() + w * 7 + day);
+      const cell = document.createElement('i');
+      if (dt > today) { cell.className = 'hm-cell empty'; col.appendChild(cell); continue; }
+      const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+      const n = counts[key] || 0;
+      total += n;
+      const level = n === 0 ? 0 : Math.min(4, 1 + Math.floor((n / max) * 3.99));
+      cell.className = `hm-cell l${level}`;
+      cell.title = `${key}：${n} 次学习活动`;
+      col.appendChild(cell);
+    }
+    box.appendChild(col);
+  }
+  const sub = $('#heatmap-sub');
+  if (sub) sub.textContent = `合计 ${total} 次 · 最深一格 ${max} 次`;
+}
+
+/* ---------------------------------------------------------------- 可视化：复习预测 */
+function renderForecast(forecast) {
+  const box = $('#forecast-box');
+  if (!box) return;
+  const days = forecast.days || [];
+  const peak = Math.max(1, forecast.peak || 1);
+  box.innerHTML = days.map((d) => `
+    <div class="fc-col" title="${esc(d.day)}：${d.count} 条到期">
+      <div class="fc-bar${d.count ? '' : ' zero'}" style="height:${Math.max(3, (d.count / peak) * 74)}px"></div>
+      <div class="fc-count">${d.count}</div>
+      <div class="fc-label">${esc(d.label)}</div>
+    </div>`).join('');
+  if (forecast.overdue) {
+    const tip = document.createElement('div');
+    tip.className = 'fc-overdue';
+    tip.textContent = `另有 ${forecast.overdue} 条已过期，建议先清掉`;
+    box.appendChild(tip);
+  }
+}
+
+/* ---------------------------------------------------------------- 可视化：能力雷达 */
+function renderRadar(d) {
+  const cv = $('#radar-canvas');
+  if (!cv) return;
+  const mastery = d.mastery || {};
+  const overall = mastery.overall || {};
+  const chapters = mastery.chapters || [];
+  const practiced = chapters.filter((c) => c.attempts > 0).length;
+  const dims = [
+    { label: '练习量', value: Math.min(1, (overall.attempts || 0) / 30) },
+    { label: '正确率', value: Math.min(1, (overall.rate || 0) / 100) },
+    { label: '复习完成', value: Math.max(0, 1 - Math.min(1, (d.due || 0) / 8)) },
+    { label: '资料覆盖', value: chapters.length ? practiced / chapters.length : 0 },
+  ];
+  const ctx = setupCanvas(cv, 330);
+  if (!ctx) return;
+  const { w, h } = ctx;
+  const cx = w / 2;
+  const cy = h / 2 + 4;
+  const radius = Math.min(w, h) / 2 - 38;
+  const n = dims.length;
+  const angle = (i) => -Math.PI / 2 + (i * 2 * Math.PI) / n;
+
+  ctx.clearRect(0, 0, w, h);
+  for (let ring = 4; ring >= 1; ring -= 1) {
+    ctx.beginPath();
+    for (let i = 0; i < n; i += 1) {
+      const r = (radius * ring) / 4;
+      const x = cx + Math.cos(angle(i)) * r;
+      const y = cy + Math.sin(angle(i)) * r;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = ring === 4 ? '#d7e0ee' : '#eef2f8';
+    ctx.stroke();
+  }
+  for (let i = 0; i < n; i += 1) {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(angle(i)) * radius, cy + Math.sin(angle(i)) * radius);
+    ctx.strokeStyle = '#eef2f8';
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  dims.forEach((dim, i) => {
+    const r = radius * Math.max(0.04, Math.min(1, dim.value));
+    const x = cx + Math.cos(angle(i)) * r;
+    const y = cy + Math.sin(angle(i)) * r;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(47,111,237,.18)';
+  ctx.fill();
+  ctx.strokeStyle = '#2f6fed';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.lineWidth = 1;
+
+  ctx.font = '12px "Microsoft YaHei", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  dims.forEach((dim, i) => {
+    const x = cx + Math.cos(angle(i)) * (radius + 20);
+    const y = cy + Math.sin(angle(i)) * (radius + 16);
+    ctx.fillStyle = '#5b6b7f';
+    ctx.fillText(dim.label, x, y - 6);
+    ctx.fillStyle = '#2f6fed';
+    ctx.fillText(`${Math.round(dim.value * 100)}`, x, y + 8);
+  });
+}
+
+/* ---------------------------------------------------------------- 可视化：知识图谱 */
+function setupCanvas(cv, height) {
+  if (!cv) return null;
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || cv.parentElement.clientWidth || 440;
+  cv.width = Math.round(w * dpr);
+  cv.height = Math.round(height * dpr);
+  cv.style.height = `${height}px`;
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return Object.assign(ctx, { w, h: height });
+}
+
+function groupColor(name) {
+  const palette = ['#2f6fed', '#12a45a', '#c9820a', '#8b5cf6', '#d64545', '#0ea5e9', '#ec4899'];
+  let sum = 0;
+  for (let i = 0; i < (name || '').length; i += 1) sum += name.charCodeAt(i);
+  return palette[sum % palette.length];
+}
+
+async function renderGraph() {
+  const cv = $('#graph-canvas');
+  if (!cv) return;
+  let data;
+  try { data = await api('/api/graph'); } catch (e) { return; }
+  const ctx = setupCanvas(cv, 330);
+  if (!ctx) return;
+  const { w, h } = ctx;
+  const raw = data.nodes || [];
+  if (!raw.length) {
+    ctx.fillStyle = '#93a1b3';
+    ctx.font = '13px "Microsoft YaHei", sans-serif';
+    ctx.fillText('还没有章节或资料', 16, 28);
+    return;
+  }
+  const nodes = raw.map((n, i) => ({
+    ...n,
+    x: w / 2 + Math.cos((i / raw.length) * Math.PI * 2) * (w / 4),
+    y: h / 2 + Math.sin((i / raw.length) * Math.PI * 2) * (h / 4),
+    vx: 0, vy: 0,
+  }));
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const links = (data.links || [])
+    .map((l) => ({ ...l, s: byId.get(l.source), t: byId.get(l.target) }))
+    .filter((l) => l.s && l.t);
+
+  for (let iter = 0; iter < 200; iter += 1) {
+    const cooling = 1 - iter / 260;
+    for (let i = 0; i < nodes.length; i += 1) {
+      for (let j = i + 1; j < nodes.length; j += 1) {
+        const a = nodes[i];
+        const b = nodes[j];
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let dist2 = dx * dx + dy * dy || 0.01;
+        if (dist2 > 40000) continue;
+        const force = 520 / dist2;
+        const dist = Math.sqrt(dist2);
+        dx = (dx / dist) * force;
+        dy = (dy / dist) * force;
+        a.vx -= dx; a.vy -= dy;
+        b.vx += dx; b.vy += dy;
+      }
+    }
+    links.forEach((l) => {
+      const dx = l.t.x - l.s.x;
+      const dy = l.t.y - l.s.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+      const force = (dist - 92) * 0.012;
+      l.s.vx += (dx / dist) * force;
+      l.s.vy += (dy / dist) * force;
+      l.t.vx -= (dx / dist) * force;
+      l.t.vy -= (dy / dist) * force;
+    });
+    nodes.forEach((n) => {
+      n.vx += (w / 2 - n.x) * 0.0016;
+      n.vy += (h / 2 - n.y) * 0.0016;
+      n.x += Math.max(-8, Math.min(8, n.vx * cooling));
+      n.y += Math.max(-8, Math.min(8, n.vy * cooling));
+      n.vx *= 0.82; n.vy *= 0.82;
+      n.x = Math.max(14, Math.min(w - 14, n.x));
+      n.y = Math.max(14, Math.min(h - 14, n.y));
+    });
+  }
+
+  let hovered = null;
+  const draw = () => {
+    ctx.clearRect(0, 0, w, h);
+    links.forEach((l) => {
+      ctx.beginPath();
+      ctx.moveTo(l.s.x, l.s.y);
+      ctx.lineTo(l.t.x, l.t.y);
+      ctx.strokeStyle = 'rgba(120,145,180,.28)';
+      ctx.lineWidth = 0.6 + (l.weight || 1) * 0.4;
+      ctx.stroke();
+    });
+    nodes.forEach((n) => {
+      const r = n.type === 'chapter' ? 6 : 4 + Math.min(3, n.weight || 1);
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = groupColor(n.group);
+      ctx.globalAlpha = n.type === 'chapter' ? 0.95 : 0.6;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      if (n === hovered) {
+        ctx.strokeStyle = '#1b2430';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
+    });
+    if (hovered) {
+      const text = hovered.label || '';
+      ctx.font = '12px "Microsoft YaHei", sans-serif';
+      const tw = ctx.measureText(text).width + 14;
+      const bx = Math.min(w - tw - 4, Math.max(4, hovered.x - tw / 2));
+      const by = hovered.y - 30 < 4 ? hovered.y + 12 : hovered.y - 30;
+      ctx.fillStyle = 'rgba(27,36,48,.9)';
+      ctx.beginPath();
+      if (ctx.roundRect) { ctx.roundRect(bx, by, tw, 22, 6); } else { ctx.rect(bx, by, tw, 22); }
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, bx + tw / 2, by + 11);
+    }
+  };
+
+  cv.onmousemove = (ev) => {
+    const rect = cv.getBoundingClientRect();
+    const mx = ev.clientX - rect.left;
+    const my = ev.clientY - rect.top;
+    let best = null;
+    let bestD = 18;
+    nodes.forEach((n) => {
+      const d2 = (n.x - mx) ** 2 + (n.y - my) ** 2;
+      if (d2 < bestD * bestD) { best = n; bestD = Math.sqrt(d2); }
+    });
+    if (best !== hovered) { hovered = best; draw(); }
+  };
+  cv.onmouseleave = () => { if (hovered) { hovered = null; draw(); } };
+  draw();
 }
 
 function renderKpi(d) {
@@ -256,17 +532,23 @@ function renderRetrievalDetail(wrap, data) {
   if (old) old.remove();
   const hits = data.hits || [];
   const queries = (data.queries || []).filter((q, i, arr) => arr.indexOf(q) === i);
+  const topScore = Math.max(1, ...hits.map((h) => Number(h.score) || 0));
   const rows = hits.map((h) => `
     <div class="retrieval-hit">
       <div class="rh-head"><b>${esc(h.citation_id)}</b>
         <span class="tag">${esc(h.title)}</span>
         <span class="muted small">${esc(h.locator || '')} · 得分 ${esc(h.score)}</span></div>
+      <div class="rh-bar"><i style="width:${Math.max(2, ((Number(h.score) || 0) / topScore) * 100)}%"></i></div>
       <div class="rh-snippet">${esc(h.snippet || '')}</div>
     </div>`).join('') || '<p class="muted small">没有命中任何片段</p>';
   const box = document.createElement('details');
   box.className = 'retrieval-box';
+  const resolved = data.resolved && data.resolved !== data.query
+    ? `<div class="retrieval-queries muted small">已按上文补全为：<code>${esc(data.resolved)}</code></div>` : '';
   box.innerHTML = `<summary>检索详情：命中 ${hits.length} 段 · 最高分 ${esc(data.top_score)} · 阈值 ${esc(data.threshold)}
-      ${data.insufficient ? '（判定为资料不足）' : ''}${data.subject ? ' · 科目 ' + esc(data.subject) : ''}</summary>
+      ${data.insufficient ? '（判定为资料不足）' : ''}${data.subject ? ' · 科目 ' + esc(data.subject) : ''}
+      ${data.cached ? ' · 命中缓存' : ''}</summary>
+    ${resolved}
     <div class="retrieval-queries muted small">检索式：${queries.map((q) => `<code>${esc(q)}</code>`).join(' ')}</div>
     ${rows}
     <div class="muted small">编号由服务端生成，模型只能引用这些编号；得分是本地 BM25 分数。</div>`;
