@@ -97,6 +97,8 @@ AUTH: auth_client.AuthClient | None = None      # None 表示 --no-auth 单用�
 CURRENT_UID = ""
 # 未登录也能访问的接口
 OPEN_PATHS = {"/api/state", "/api/heartbeat", "/api/client-closed"}
+# 需要带着当前会话去认证服务的操作：会话已失效时要清掉本机登录，让前端回登录页
+SESSION_PATHS = {"/api/auth/password", "/api/auth/sessions/revoke", "/api/auth/delete"}
 
 
 def init_store(store: Store) -> tuple[int, int]:
@@ -158,12 +160,28 @@ def activate_user(user: dict) -> None:
         reset_caches()
 
 
-def deactivate_user() -> None:
+def deactivate_user(close: bool = False) -> None:
+    """close=True 时顺便关掉数据库连接（注销账号要删目录，Windows 下不关删不掉）。"""
     global CURRENT_UID
     with LOCK:
+        old = STORE.__dict__.get("_store")
         STORE.bind(None)
         CURRENT_UID = ""
         reset_caches()
+        if close and old is not None:
+            with STORE.__dict__["_lock"]:
+                old.conn.close()
+
+
+def purge_user_data(uid: str) -> bool:
+    """注销账号后删除本机 data/users/<uid>/；uid 不合法或目录不存在时不做事。"""
+    if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", uid or ""):
+        return False
+    target = (USERS_DIR / uid).resolve()
+    if target.parent != USERS_DIR.resolve() or not target.is_dir():
+        return False
+    shutil.rmtree(target, ignore_errors=True)
+    return not target.exists()
 
 
 def sync_auth(force: bool = False) -> None:
@@ -175,6 +193,34 @@ def sync_auth(force: bool = False) -> None:
         activate_user(AUTH.user)
     elif STORE.bound:
         deactivate_user()
+
+
+# 个人信息字段的长度上限；年龄单独按整数校验
+META_LIMITS = {"gender": 30, "major": 30, "needs": 200}
+
+
+def clean_meta(body: dict) -> dict:
+    """校验个人信息：只留请求里给了的字段，非法时抛 ValueError（中文提示）。"""
+    fields = {}
+    if "age" in body:
+        age = str(body.get("age") or "").strip()
+        if age:
+            if not age.isdigit() or not 6 <= int(age) <= 100:
+                raise ValueError("年龄需为 6–100 的整数")
+            age = str(int(age))
+        fields["age"] = age
+    names = {"gender": "性别", "major": "专业", "needs": "学习需求"}
+    for key, limit in META_LIMITS.items():
+        if key not in body:
+            continue
+        value = body.get(key)
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"{names[key]}格式不正确")
+        value = (value or "").strip()
+        if len(value) > limit:
+            raise ValueError(f"{names[key]}最多 {limit} 个字")
+        fields[key] = value
+    return fields
 
 
 def auth_status() -> dict:
@@ -462,6 +508,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json(auth_status())
             return
 
+        if path == "/api/auth/sessions":
+            self._auth_sessions()
+            return
+
         if path == "/api/profile":
             user = STORE.ensure_user()
             self._json({"profile": user.get("profile", ""),
@@ -713,7 +763,12 @@ class Handler(BaseHTTPRequestHandler):
 
         # ---- 用户画像字段
         if path == "/api/profile/meta":
-            meta = STORE.set_meta(body or {})
+            try:
+                fields = clean_meta(body or {})
+            except ValueError as exc:
+                self._error(str(exc), 400)
+                return
+            meta = STORE.set_meta(fields)
             self._json({"ok": True, "meta": meta}, 201)
             return
 
@@ -870,6 +925,15 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True})
             return
 
+        m = re.fullmatch(r"/api/materials/([\w-]+)/meta", path)
+        if m:
+            self._material_meta(m.group(1), body)
+            return
+
+        if path == "/api/materials/batch":
+            self._material_batch(body)
+            return
+
         # ---- 扩展：复习评分 / 上传导入 / 审核 / 重抓 / 变式题 / 费曼
         if path == "/api/review/grade":
             quality = (body.get("quality") or "good").strip()
@@ -942,8 +1006,20 @@ class Handler(BaseHTTPRequestHandler):
                                      str(body.get("new_password") or ""))
                 self._json({"ok": True})
                 return
+            if path == "/api/auth/sessions/revoke":
+                revoked = AUTH.revoke_sessions(str(body.get("session_id") or ""),
+                                               others=body.get("others") is True)
+                self._json({"ok": True, "revoked": revoked})
+                return
+            if path == "/api/auth/delete":
+                password = body.get("password") if isinstance(body.get("password"), str) else ""
+                uid = AUTH.delete_account(password)
+                deactivate_user(close=True)
+                purge_user_data(uid)
+                self._json(auth_status())
+                return
         except auth_client.AuthFailed as exc:
-            if path == "/api/auth/password" and exc.code in ("token_invalid", "account_disabled"):
+            if path in SESSION_PATHS and exc.code in ("token_invalid", "account_disabled"):
                 # 会话已被撤销或账号被禁用：清掉本机会话，前端据 auth_required 回登录页
                 AUTH.logout()
                 deactivate_user()
@@ -957,6 +1033,22 @@ class Handler(BaseHTTPRequestHandler):
                         code="auth_unavailable")
             return
         self._error("未知接口", 404)
+
+    def _auth_sessions(self) -> None:
+        if AUTH is None:
+            self._error("当前以 --no-auth 单用户模式运行，没有登录设备", 400, code="auth_disabled")
+            return
+        try:
+            self._json({"sessions": AUTH.sessions()})
+        except auth_client.AuthFailed as exc:
+            if exc.code in ("token_invalid", "account_disabled", "auth_required"):
+                AUTH.logout()
+                deactivate_user()
+                self._error(exc.message, 401, code="auth_required")
+                return
+            self._error(exc.message, exc.status, code=exc.code)
+        except auth_client.AuthUnavailable as exc:
+            self._error(f"认证服务不可达（{AUTH.base_url}）：{exc}", 503, code="auth_unavailable")
 
     # ------------------------------------------------------------ DELETE API
     def _api_delete(self, path: str, query: dict | None = None) -> None:
@@ -1261,6 +1353,63 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(data)
+
+    def _material_meta(self, material_id: str, body: dict) -> None:
+        """改资料标题 / 所属科目。科目只能选已有的，空串表示不归科目。"""
+        material = STORE.material(material_id)
+        if not material:
+            self._error("资料不存在", 404)
+            return
+        fields = {}
+        if "title" in body:
+            title = str(body.get("title") or "").strip()
+            if not title or len(title) > 80:
+                self._error("资料名需为 1–80 个字", 400)
+                return
+            if title != material["title"] and material["title"].startswith("核心 · ") \
+                    and material.get("source_url") == "内置示例资料（可删除）":
+                # 内置核心资料启动时按标题去重补导入，改了名下次启动会多出一份
+                self._error("内置核心资料不能改名（启动时按标题识别）", 403)
+                return
+            fields["title"] = title
+        if "subject" in body:
+            subject = str(body.get("subject") or "").strip()
+            if subject and subject not in {s["name"] for s in STORE.subjects()}:
+                self._error("科目不存在", 400)
+                return
+            fields["subject"] = subject
+        if not fields:
+            self._error("没有要修改的内容", 400)
+            return
+        STORE.update_material_meta(material_id, **fields)
+        self._json({"ok": True, "material": STORE.material(material_id)})
+
+    def _material_batch(self, body: dict) -> None:
+        """批量移动 / 删除资料；不存在的 id 跳过并计入 missing。"""
+        action = body.get("action")
+        ids = body.get("ids")
+        if action not in ("move", "delete"):
+            self._error("action 只能是 move / delete", 400)
+            return
+        if not isinstance(ids, list) or not ids or len(ids) > 200 \
+                or not all(isinstance(i, str) for i in ids):
+            self._error("请选择 1–200 份资料", 400)
+            return
+        folder_id = str(body.get("folder_id") or "")
+        if action == "move" and not (folder_id and STORE.folder(folder_id)):
+            self._error("目标文件夹不存在", 404)
+            return
+        done, missing = 0, 0
+        for material_id in dict.fromkeys(ids):
+            if not STORE.material(material_id):
+                missing += 1
+                continue
+            if action == "move":
+                STORE.move_material(material_id, folder_id)
+            else:
+                STORE.delete_material(material_id)
+            done += 1
+        self._json({"ok": True, "done": done, "missing": missing})
 
     # ------------------------------------------------------------ 业务：显示名 / 头像
     def _set_display_name(self, body: dict) -> None:

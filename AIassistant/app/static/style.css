@@ -404,6 +404,26 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 .material-card .mat-title { cursor: pointer; }
 .material-card .mat-title:hover { color: var(--brand); text-decoration: underline; text-underline-offset: 3px; }
+.material-tools {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px;
+}
+.material-tools input[type="search"], .material-tools select {
+  padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: #fff; font: inherit; font-size: 13px; color: var(--ink);
+}
+.material-tools input[type="search"] { flex: 1; min-width: 180px; }
+.mat-check-all { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+.mat-tip { margin: 0 0 10px; }
+.mat-head { display: flex; align-items: flex-start; gap: 8px; }
+.mat-head .mat-check { margin-top: 4px; flex: none; cursor: pointer; }
+.material-card[draggable="true"] { cursor: grab; }
+.material-card.selected { border-color: #b9d0fb; background: #f8fbff; }
+.material-card.dragging { opacity: .5; }
+.folder-pill.drop-over { border-color: var(--brand); background: var(--brand-soft); box-shadow: 0 0 0 2px #d3e2ff; }
+@media (max-width: 560px) {
+  .material-tools input[type="search"] { min-width: 100%; }
+  .mat-tip { display: none; }
+}
 .tag {
   display: inline-block; padding: 1px 7px; border-radius: 999px;
   background: #f2f5fa; color: var(--ink-2); margin-right: 6px; font-size: 11.5px;
@@ -624,6 +644,25 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   margin: 0 0 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--line);
 }
 .account-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+/* 密码框右侧的显示/隐藏按钮 */
+.field > .pw-wrap { position: relative; margin: 0; font-size: inherit; color: inherit; }
+.pw-wrap input { padding-right: 56px; }
+.pw-toggle {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  border: 0; background: transparent; color: var(--ink-3); cursor: pointer;
+  font: inherit; font-size: 12px; padding: 4px 8px; border-radius: 6px;
+}
+.pw-toggle:hover { color: var(--brand); background: var(--brand-soft); }
+.auth-remember { display: flex; align-items: center; gap: 6px; margin: -4px 0 14px; font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
+.sessions-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; max-height: 320px; overflow: auto; }
+.session-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe;
+}
+.session-row.current { border-color: #d3e2ff; background: var(--brand-soft); }
+.session-row .session-info { flex: 1; min-width: 0; }
+.session-row .session-info b { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-row .session-info span { font-size: 11.5px; color: var(--ink-3); }
 /* 窄屏侧栏底部整体收起，只留退出登录入口 */
 @media (max-width: 900px) {
   .sidebar .sidebar-foot.has-account { display: flex; justify-content: center; padding: 10px 0 0; }

@@ -324,21 +324,33 @@ async function loadMeta() {
   } catch (e) { /* 忽略 */ }
 }
 
+/* 与服务端 clean_meta 保持一致；返回空串表示通过 */
+function checkMeta(meta) {
+  if (meta.age && !(/^\d+$/.test(meta.age) && +meta.age >= 6 && +meta.age <= 100)) return '年龄需为 6–100 的整数';
+  const limits = [['gender', '性别', 30], ['major', '专业', 30], ['needs', '学习需求', 200]];
+  for (const [key, label, max] of limits) {
+    if (meta[key].length > max) return `${label}最多 ${max} 个字`;
+  }
+  return '';
+}
+
 async function saveMeta() {
+  const meta = {
+    age: $('#meta-age').value.trim(),
+    gender: $('#meta-gender').value.trim(),
+    major: $('#meta-major').value.trim(),
+    needs: $('#meta-needs').value.trim(),
+  };
+  // type=number 输入非数字时 value 为空串，靠 validity 区分"没填"和"填错"
+  const bad = $('#meta-age').validity.badInput ? '年龄需为 6–100 的整数' : checkMeta(meta);
+  $('#meta-msg').textContent = bad;
+  if (bad) return;
   const btn = $('#btn-save-meta');
   btn.disabled = true; btn.textContent = '保存中…';
   try {
-    await api('/api/profile/meta', {
-      method: 'POST',
-      body: JSON.stringify({
-        age: $('#meta-age').value.trim(),
-        gender: $('#meta-gender').value.trim(),
-        major: $('#meta-major').value.trim(),
-        needs: $('#meta-needs').value.trim(),
-      }),
-    });
+    await api('/api/profile/meta', { method: 'POST', body: JSON.stringify(meta) });
     toast('基本信息已保存，之后的讲解会参考它');
-  } catch (err) { toast(err.message, true); }
+  } catch (err) { $('#meta-msg').textContent = err.message; toast(err.message, true); }
   finally { btn.disabled = false; btn.textContent = '保存'; }
 }
 
@@ -407,17 +419,60 @@ async function showProfileMonth(pre, month) {
 }
 
 /* ---------------------------------------------------------------- 头像上传 */
+const AVATAR_MAX = 1024 * 1024;     // 与 store.AVATAR_MAX 一致
+const AVATAR_SIDE = 512;            // 头像只显示几十像素，压到 512 边长足够
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('图片无法读取，可能已损坏')); };
+    img.src = url;
+  });
+}
+
+/* 超过 1 MB 的图片在本地缩小重编码：先按 512 边长缩放，PNG 仍超限就转 JPEG 逐步降质量 */
+async function compressAvatar(file) {
+  const img = await loadImage(file);
+  const scale = Math.min(1, AVATAR_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+  const ctx = canvas.getContext('2d');
+  const toBlob = (type, q) => new Promise((r) => canvas.toBlob(r, type, q));
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  if (file.type === 'image/png') {
+    const png = await toBlob('image/png');
+    if (png && png.size <= AVATAR_MAX) return png;
+  }
+  // JPEG 没有透明通道，先铺白底，免得透明处变黑
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  for (const q of [0.9, 0.8, 0.7, 0.6, 0.5]) {
+    const jpg = await toBlob('image/jpeg', q);
+    if (jpg && jpg.size <= AVATAR_MAX) return jpg;
+  }
+  throw new Error('图片压缩后仍超过 1 MB，请换一张');
+}
+
 async function uploadAvatar(file) {
   if (!file) return;
   if (!/^image\/(png|jpeg)$/.test(file.type)) { toast('头像只支持 PNG 或 JPG 图片', true); return; }
-  if (file.size > 1024 * 1024) { toast('头像不能超过 1 MB', true); return; }
+  if (file.size > 20 * 1024 * 1024) { toast('图片超过 20 MB，请换一张小一点的', true); return; }
   try {
-    const dataUrl = await readFileBase64(file);
+    let blob = file;
+    if (file.size > AVATAR_MAX) {
+      toast('图片较大，正在压缩…');
+      blob = await compressAvatar(file);
+    }
+    const dataUrl = await readFileBase64(blob);
     const res = await api('/api/profile/avatar', {
       method: 'POST', body: JSON.stringify({ content: dataUrl.split(',')[1] || '' }),
     });
     renderIdentity(null, res.avatar);
-    toast('头像已更新');
+    toast(blob === file ? '头像已更新' : `头像已压缩到 ${(blob.size / 1024).toFixed(0)} KB 并更新`);
   } catch (err) { toast(err.message, true); }
 }
 
