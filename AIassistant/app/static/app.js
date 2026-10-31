@@ -693,17 +693,127 @@ $('#study-ask-form').addEventListener('submit', async (e) => {
 let FOLDERS = [];
 let CUR_FOLDER = null;
 let PICKED_FILE = null;
+let MATERIALS = [];            // 当前文件夹下的全部资料（搜索/筛选/排序在前端做）
+const SELECTED = new Set();    // 勾选的资料 id，换文件夹后只保留仍在列表里的
+const DRAG_TYPE = 'text/csla-materials';
 
 async function loadMaterials() {
   const q = state.folderId ? `?folder=${encodeURIComponent(state.folderId)}` : '';
   const data = await api('/api/materials' + q);
-  const materials = data.materials || [];
+  MATERIALS = data.materials || [];
   FOLDERS = data.folders || [];
   CUR_FOLDER = FOLDERS.find((f) => f.id === state.folderId) || null;
+  const ids = new Set(MATERIALS.map((m) => m.id));
+  [...SELECTED].forEach((id) => { if (!ids.has(id)) SELECTED.delete(id); });
   renderFolderBar();
   renderSharedWarning();
-  if (typeof renderPendingBar === 'function') renderPendingBar(materials);
-  renderMaterialList(materials);
+  renderSubjectFilter();
+  if (typeof renderPendingBar === 'function') renderPendingBar(MATERIALS);
+  applyMaterialFilters();
+}
+
+function renderSubjectFilter() {
+  const sel = $('#mat-subject');
+  const cur = sel.value;
+  const names = [...new Set(MATERIALS.map((m) => m.subject || ''))]
+    .sort((a, b) => (a === '') - (b === '') || a.localeCompare(b, 'zh'));
+  sel.innerHTML = '<option value="">全部科目</option>' + names.map((n) =>
+    `<option value="${n ? esc(n) : '-'}">${n ? esc(n) : '未分类'}</option>`).join('');
+  sel.value = [...sel.options].some((o) => o.value === cur) ? cur : '';
+}
+
+function filteredMaterials() {
+  const kw = $('#mat-search').value.trim().toLowerCase();
+  const subject = $('#mat-subject').value;
+  const sort = $('#mat-sort').value;
+  const list = MATERIALS.filter((m) => {
+    if (subject && (m.subject || '-') !== subject) return false;
+    if (!kw) return true;
+    return `${m.title} ${m.source_url || ''} ${m.subject || ''}`.toLowerCase().includes(kw);
+  });
+  const by = {
+    new: (a, b) => (b.created_at || '').localeCompare(a.created_at || ''),
+    old: (a, b) => (a.created_at || '').localeCompare(b.created_at || ''),
+    title: (a, b) => a.title.localeCompare(b.title, 'zh'),
+    size: (a, b) => (b.bytes || 0) - (a.bytes || 0),
+  }[sort];
+  return by ? list.sort(by) : list;
+}
+
+function applyMaterialFilters() {
+  renderMaterialList(filteredMaterials());
+  updateBatchBar();
+}
+
+function updateBatchBar() {
+  const shown = filteredMaterials();
+  const n = SELECTED.size;
+  $('#mat-selected').textContent = n ? `已选 ${n} 份` : '';
+  $('#mat-batch-move').disabled = !n;
+  $('#mat-batch-del').disabled = !n;
+  const all = $('#mat-check-all');
+  all.checked = shown.length > 0 && shown.every((m) => SELECTED.has(m.id));
+  all.indeterminate = !all.checked && shown.some((m) => SELECTED.has(m.id));
+}
+
+['#mat-search', '#mat-subject', '#mat-sort'].forEach((sel) =>
+  $(sel).addEventListener(sel === '#mat-search' ? 'input' : 'change', applyMaterialFilters));
+
+$('#mat-check-all').addEventListener('change', (e) => {
+  filteredMaterials().forEach((m) => (e.target.checked ? SELECTED.add(m.id) : SELECTED.delete(m.id)));
+  applyMaterialFilters();
+});
+
+$('#mat-batch-move').addEventListener('click', () => {
+  if (SELECTED.size) openMoveMaterial(null, [...SELECTED]);
+});
+
+$('#mat-batch-del').addEventListener('click', async () => {
+  const picked = MATERIALS.filter((m) => SELECTED.has(m.id));
+  if (!picked.length) return;
+  const shared = picked.filter((m) => m.folder_shared).length;
+  const warn = shared ? `\n其中 ${shared} 份位于共识资料文件夹，删除会影响所有科目。` : '';
+  if (!confirm(`删除选中的 ${picked.length} 份资料及其索引？此操作不可恢复。${warn}`)) return;
+  try {
+    const res = await api('/api/materials/batch', {
+      method: 'POST', body: JSON.stringify({ action: 'delete', ids: picked.map((m) => m.id) }),
+    });
+    SELECTED.clear();
+    loadMaterials(); toast(`已删除 ${res.done} 份资料`);
+    const st = await api('/api/state'); renderStats(st.stats);
+  } catch (err) { toast(err.message, true); }
+});
+
+async function moveMaterials(ids, folderId) {
+  const res = await api('/api/materials/batch', {
+    method: 'POST', body: JSON.stringify({ action: 'move', ids, folder_id: folderId }),
+  });
+  ids.forEach((id) => SELECTED.delete(id));
+  loadMaterials();
+  toast(`已把 ${res.done} 份资料移动到「${(FOLDERS.find((f) => f.id === folderId) || {}).name || '目标文件夹'}」`);
+}
+
+/* 拖拽：拖已勾选的卡片时带上全部勾选项，否则只拖这一张 */
+function bindFolderDrop(el, folder) {
+  el.addEventListener('dragover', (ev) => {
+    if (!ev.dataTransfer.types.includes(DRAG_TYPE)) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'move';
+    el.classList.add('drop-over');
+  });
+  el.addEventListener('dragleave', () => el.classList.remove('drop-over'));
+  el.addEventListener('drop', async (ev) => {
+    el.classList.remove('drop-over');
+    const raw = ev.dataTransfer.getData(DRAG_TYPE);
+    if (!raw) return;
+    ev.preventDefault();
+    const ids = JSON.parse(raw).filter((id) => {
+      const m = MATERIALS.find((x) => x.id === id);
+      return m && m.folder_id !== folder.id;
+    });
+    if (!ids.length) { toast('已经在这个文件夹里了'); return; }
+    try { await moveMaterials(ids, folder.id); } catch (err) { toast(err.message, true); }
+  });
 }
 
 function renderSharedWarning() {
@@ -752,6 +862,7 @@ function renderFolderBar() {
       state.folderId = f.id;
       loadMaterials();
     });
+    bindFolderDrop(wrap, f);
     bar.appendChild(wrap);
   });
 }
@@ -765,15 +876,20 @@ async function renameFolder(folder) {
   } catch (err) { toast(err.message, true); }
 }
 
-function openMoveMaterial(m) {
-  $('#move-title').textContent = m.title;
-  $('#move-from').textContent = m.folder_name || '根目录';
+/* m 为单份资料；批量移动时 m 为 null，ids 为勾选的资料 */
+function openMoveMaterial(m, ids) {
+  const box = $('#modal-move');
+  const fromId = m ? (m.folder_id || '') : '';
+  $('#move-title').textContent = m ? m.title : `已选 ${ids.length} 份资料`;
+  $('#move-from').textContent = m ? (m.folder_name || '根目录')
+    : (CUR_FOLDER ? CUR_FOLDER.name : '多个文件夹');
   // 不提供"根目录"：根目录里的资料下次启动会被 reorganize 自动归回科目文件夹
   $('#move-target').innerHTML = FOLDERS.map((f) =>
-    `<option value="${f.id}"${f.id === (m.folder_id || '') ? ' selected' : ''}>${f.is_shared ? '核心 · ' : ''}${esc(f.name)}</option>`).join('');
+    `<option value="${f.id}"${f.id === fromId ? ' selected' : ''}>${f.is_shared ? '核心 · ' : ''}${esc(f.name)}</option>`).join('');
   $('#move-msg').textContent = '';
-  $('#modal-move').dataset.materialId = m.id;
-  $('#modal-move').dataset.fromId = m.folder_id || '';
+  box.dataset.materialId = m ? m.id : '';
+  box.dataset.batch = m ? '' : JSON.stringify(ids);
+  box.dataset.fromId = fromId;
   openModal('#modal-move');
 }
 
@@ -781,6 +897,18 @@ $('#move-cancel').addEventListener('click', () => closeModal('#modal-move'));
 $('#move-ok').addEventListener('click', async () => {
   const box = $('#modal-move');
   const target = $('#move-target').value;
+  if (box.dataset.batch) {
+    const ids = JSON.parse(box.dataset.batch).filter((id) => {
+      const m = MATERIALS.find((x) => x.id === id);
+      return m && m.folder_id !== target;
+    });
+    if (!ids.length) { $('#move-msg').textContent = '选中的资料已经都在这个文件夹里了'; return; }
+    try {
+      await moveMaterials(ids, target);
+      closeModal('#modal-move');
+    } catch (err) { $('#move-msg').textContent = err.message; }
+    return;
+  }
   if (target === box.dataset.fromId) { $('#move-msg').textContent = '已经在这个文件夹里了'; return; }
   try {
     await api(`/api/materials/${box.dataset.materialId}/move`, { method: 'POST', body: JSON.stringify({ folder_id: target }) });
@@ -803,16 +931,24 @@ function renderMaterialList(materials) {
   const list = $('#material-list');
   list.innerHTML = '';
   if (!materials.length) {
-    list.innerHTML = `<div class="empty"><div class="empty-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#folder"></use></svg></div><h3>这个文件夹还是空的</h3>
-      <p>点右上角「导入资料」粘贴课件文本或选择文件</p></div>`;
+    list.innerHTML = MATERIALS.length
+      ? `<div class="empty"><div class="empty-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#search"></use></svg></div><h3>没有符合条件的资料</h3>
+          <p>换个关键词，或把科目筛选改回「全部科目」</p></div>`
+      : `<div class="empty"><div class="empty-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#folder"></use></svg></div><h3>这个文件夹还是空的</h3>
+          <p>点右上角「导入资料」粘贴课件文本或选择文件</p></div>`;
     return;
   }
   materials.forEach((m) => {
     const el = document.createElement('div');
-    el.className = 'card material-card';
+    el.className = 'card material-card' + (SELECTED.has(m.id) ? ' selected' : '');
+    el.draggable = true;
+    el.dataset.id = m.id;
     const kb = (m.bytes / 1024).toFixed(1);
     el.innerHTML = `
-      <h4 class="mat-title" title="点击打开源文件">${esc(m.title)}</h4>
+      <div class="mat-head">
+        <input type="checkbox" class="mat-check" title="选择"${SELECTED.has(m.id) ? ' checked' : ''} />
+        <h4 class="mat-title" title="点击打开源文件">${esc(m.title)}</h4>
+      </div>
       <div class="meta">
         ${m.folder_name ? `<span class="tag">${m.folder_shared ? '核心 · ' : ''}${esc(m.folder_name)}</span>` : '<span class="tag">根目录</span>'}
         <span class="tag">${esc(m.subject || '未分类')}</span>
@@ -825,10 +961,24 @@ function renderMaterialList(materials) {
       <div class="card-actions">
         <button class="btn primary small" data-act="open">打开源文件</button>
         <button class="btn small" data-act="preview">查看内容</button>
+        <button class="btn small" data-act="edit">编辑</button>
         <button class="btn small" data-act="move">移动到…</button>
         <button class="btn danger small" data-act="del">删除</button>
       </div>`;
+    el.querySelector('.mat-check').addEventListener('change', (ev) => {
+      if (ev.target.checked) SELECTED.add(m.id); else SELECTED.delete(m.id);
+      el.classList.toggle('selected', ev.target.checked);
+      updateBatchBar();
+    });
+    el.addEventListener('dragstart', (ev) => {
+      const ids = SELECTED.has(m.id) ? [...SELECTED] : [m.id];
+      ev.dataTransfer.setData(DRAG_TYPE, JSON.stringify(ids));
+      ev.dataTransfer.effectAllowed = 'move';
+      el.classList.add('dragging');
+    });
+    el.addEventListener('dragend', () => el.classList.remove('dragging'));
     el.querySelector('.mat-title').addEventListener('click', () => window.open(`/api/materials/${m.id}/raw`, '_blank'));
+    el.querySelector('[data-act="edit"]').addEventListener('click', () => openMaterialEdit(m));
     el.querySelector('[data-act="move"]').addEventListener('click', () => openMoveMaterial(m));
     el.querySelector('[data-act="open"]').addEventListener('click', () => window.open(`/api/materials/${m.id}/raw`, '_blank'));
     el.querySelector('[data-act="copy"]').addEventListener('click', async () => {
@@ -854,6 +1004,41 @@ function renderMaterialList(materials) {
     list.appendChild(el);
   });
 }
+
+/* 编辑资料：改名 / 改所属科目 */
+async function openMaterialEdit(m) {
+  const box = $('#modal-mat-edit');
+  box.dataset.materialId = m.id;
+  $('#medit-title').value = m.title;
+  $('#medit-msg').textContent = '';
+  try {
+    const { subjects } = await api('/api/subjects');
+    $('#medit-subject').innerHTML = '<option value="">不归属任何科目</option>' +
+      subjects.map((s) => `<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('');
+    $('#medit-subject').value = subjects.some((s) => s.name === m.subject) ? m.subject : '';
+  } catch (err) { toast(err.message, true); return; }
+  box.dataset.title = m.title;
+  box.dataset.subject = $('#medit-subject').value;
+  openModal('#modal-mat-edit');
+  setTimeout(() => $('#medit-title').select(), 50);
+}
+
+$('#medit-cancel').addEventListener('click', () => closeModal('#modal-mat-edit'));
+$('#medit-ok').addEventListener('click', async () => {
+  const box = $('#modal-mat-edit');
+  const title = $('#medit-title').value.trim();
+  const subject = $('#medit-subject').value;
+  if (!title) { $('#medit-msg').textContent = '资料名不能为空'; return; }
+  const body = {};
+  if (title !== box.dataset.title) body.title = title;
+  if (subject !== box.dataset.subject) body.subject = subject;
+  if (!Object.keys(body).length) { closeModal('#modal-mat-edit'); return; }
+  try {
+    await api(`/api/materials/${box.dataset.materialId}/meta`, { method: 'POST', body: JSON.stringify(body) });
+    closeModal('#modal-mat-edit');
+    loadMaterials(); toast('资料信息已更新');
+  } catch (err) { $('#medit-msg').textContent = err.message; }
+});
 
 $('#btn-import').addEventListener('click', async () => {
   const { subjects } = await api('/api/subjects');

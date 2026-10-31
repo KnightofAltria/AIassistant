@@ -71,10 +71,16 @@ CREATE TABLE IF NOT EXISTS sessions (
     revoked INTEGER NOT NULL DEFAULT 0,
     user_agent TEXT DEFAULT '',
     ip TEXT DEFAULT '',
+    device TEXT DEFAULT '',
+    login_at TEXT DEFAULT '',
+    last_seen TEXT DEFAULT '',
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 """
+# 老库补列：device 是客户端自报的设备名；login_at 是这台设备最初登录的时间，
+# 刷新轮换时跟着新会话走，所以设备列表里看到的是"何时登录"而不是"何时刷新"
+SESSION_COLUMNS = ("device", "login_at", "last_seen")
 
 
 def now_text() -> str:
@@ -190,6 +196,10 @@ class AuthStore:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(SCHEMA)
+        have = {row["name"] for row in self.conn.execute("PRAGMA table_info(sessions)")}
+        for name in SESSION_COLUMNS:
+            if name not in have:
+                self.conn.execute(f"ALTER TABLE sessions ADD COLUMN {name} TEXT DEFAULT ''")
         self.conn.commit()
         self.lock = threading.Lock()
         self.limiter = RateLimiter()
@@ -203,17 +213,19 @@ class AuthStore:
         return self.conn.execute("SELECT * FROM users WHERE username_key=?",
                                  (username.lower(),)).fetchone()
 
-    def _new_session(self, user_id: str, user_agent: str = "", ip: str = "") -> dict:
+    def _new_session(self, user_id: str, user_agent: str = "", ip: str = "",
+                     device: str = "", login_at: str = "") -> dict:
         access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-        t = int(time.time())
+        t, ts = int(time.time()), now_text()
         tokens = {"access_token": access, "access_expires_at": t + ACCESS_TTL,
                   "refresh_token": refresh, "refresh_expires_at": t + REFRESH_TTL}
         self.conn.execute(
             "INSERT INTO sessions(id,user_id,access_hash,refresh_hash,access_expires,"
-            "refresh_expires,created_at,user_agent,ip) VALUES(?,?,?,?,?,?,?,?,?)",
+            "refresh_expires,created_at,user_agent,ip,device,login_at,last_seen) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
             (str(uuid.uuid4()), user_id, token_hash(access), token_hash(refresh),
-             tokens["access_expires_at"], tokens["refresh_expires_at"], now_text(),
-             user_agent[:200], ip[:64]))
+             tokens["access_expires_at"], tokens["refresh_expires_at"], ts,
+             user_agent[:200], ip[:64], device[:60], login_at or ts, ts))
         return tokens
 
     def _revoke_user_sessions(self, user_id: str, keep_session: str = "") -> None:
@@ -260,8 +272,9 @@ class AuthStore:
         if row["status"] != "active":
             raise AuthError("account_disabled", "该账号已被禁用，请联系管理员", 403)
         self.limiter.clear(user_key)
+        device = body.get("device") if isinstance(body.get("device"), str) else ""
         with self.lock:
-            tokens = self._new_session(row["id"], user_agent, ip)
+            tokens = self._new_session(row["id"], user_agent, ip, device.strip())
             self.conn.execute("UPDATE users SET last_login_at=? WHERE id=?",
                               (now_text(), row["id"]))
             self.conn.commit()
@@ -283,7 +296,10 @@ class AuthStore:
         return sess, user
 
     def me(self, access: str) -> dict:
-        _, user = self.session_for_access(access)
+        sess, user = self.session_for_access(access)
+        with self.lock:
+            self.conn.execute("UPDATE sessions SET last_seen=? WHERE id=?", (now_text(), sess["id"]))
+            self.conn.commit()
         return {"user": self.public_user(user)}
 
     def refresh(self, body: dict, ip: str = "", user_agent: str = "") -> dict:
@@ -299,9 +315,10 @@ class AuthStore:
                                      (sess["user_id"],)).fetchone()
             if not user or user["status"] != "active":
                 raise AuthError("account_disabled", "该账号已被禁用，请联系管理员", 403)
-            # 轮换：旧会话作废，签发新的一对
+            # 轮换：旧会话作废，签发新的一对；设备名和首次登录时间沿用
             self.conn.execute("UPDATE sessions SET revoked=1 WHERE id=?", (sess["id"],))
-            tokens = self._new_session(user["id"], user_agent, ip)
+            tokens = self._new_session(user["id"], user_agent, ip, sess["device"] or "",
+                                       sess["login_at"] or sess["created_at"])
             self.conn.commit()
         return {"user": self.public_user(user), "tokens": tokens}
 
@@ -339,6 +356,60 @@ class AuthStore:
             self.conn.commit()
             row = self.conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
         return {"user": self.public_user(row)}
+
+    # ------------------------------------------------------------ 设备 / 注销
+    def list_sessions(self, access: str) -> dict:
+        """当前账号仍有效的登录（每台设备一条），current 标出发起请求的这台。"""
+        sess, user = self.session_for_access(access)
+        rows = self.conn.execute(
+            "SELECT * FROM sessions WHERE user_id=? AND revoked=0 AND refresh_expires>=? "
+            "ORDER BY id=? DESC, last_seen DESC",
+            (user["id"], int(time.time()), sess["id"])).fetchall()
+        return {"sessions": [{
+            "id": r["id"], "device": r["device"] or "未命名设备", "ip": r["ip"] or "",
+            "login_at": r["login_at"] or r["created_at"],
+            "last_seen": r["last_seen"] or r["created_at"],
+            "current": r["id"] == sess["id"]} for r in rows]}
+
+    def revoke_sessions(self, access: str, body: dict) -> dict:
+        """body.session_id 退出指定设备；body.others=true 退出除本机以外的全部设备。"""
+        sess, user = self.session_for_access(access)
+        with self.lock:
+            if body.get("others") is True:
+                cur = self.conn.execute(
+                    "UPDATE sessions SET revoked=1 WHERE user_id=? AND id<>? AND revoked=0",
+                    (user["id"], sess["id"]))
+            else:
+                sid = body.get("session_id")
+                if not isinstance(sid, str) or not sid:
+                    raise AuthError("invalid_input", "缺少 session_id", 400)
+                if sid == sess["id"]:
+                    raise AuthError("invalid_input", "要退出本机请直接点“退出登录”", 400)
+                cur = self.conn.execute(
+                    "UPDATE sessions SET revoked=1 WHERE user_id=? AND id=? AND revoked=0",
+                    (user["id"], sid))
+                if not cur.rowcount:
+                    raise AuthError("not_found", "该设备已经下线", 404)
+            self.conn.commit()
+        return {"ok": True, "revoked": cur.rowcount}
+
+    def delete_account(self, access: str, body: dict) -> dict:
+        """注销账号：校验密码后删除账号与全部会话。用户名随之释放，可被重新注册。"""
+        _, user = self.session_for_access(access)
+        # 与登录共用失败计数：拿到别人的会话也不能借这里无限试密码
+        key = f"login-user:{user['username_key']}"
+        if self.limiter.blocked(key, LOGIN_USER_LIMIT, LOGIN_WINDOW):
+            raise AuthError("rate_limited", "密码错误次数过多，请 15 分钟后再试", 429)
+        password = body.get("password")
+        if not isinstance(password, str) or not verify_password(password, user["password_hash"]):
+            self.limiter.add(key)
+            raise AuthError("invalid_credentials", "密码错误", 401)
+        with self.lock:
+            self.conn.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
+            self.conn.execute("DELETE FROM users WHERE id=?", (user["id"],))
+            self.conn.commit()
+        self.limiter.clear(key)
+        return {"ok": True, "user_id": user["id"]}
 
     # ------------------------------------------------------------ 管理
     def list_users(self) -> list[dict]:
@@ -443,6 +514,12 @@ def make_handler(store: AuthStore, verbose: bool = False):
                     self._json(store.change_password(self._bearer(), self._body()))
                 elif method == "POST" and path == "/auth/profile":
                     self._json(store.update_profile(self._bearer(), self._body()))
+                elif method == "GET" and path == "/auth/sessions":
+                    self._json(store.list_sessions(self._bearer()))
+                elif method == "POST" and path == "/auth/sessions/revoke":
+                    self._json(store.revoke_sessions(self._bearer(), self._body()))
+                elif method == "POST" and path == "/auth/delete":
+                    self._json(store.delete_account(self._bearer(), self._body()))
                 else:
                     raise AuthError("not_found", "接口不存在", 404)
             except AuthError as exc:

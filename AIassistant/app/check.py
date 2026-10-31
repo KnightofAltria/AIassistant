@@ -239,6 +239,12 @@ def check_page_markers(base: str) -> None:
         "移动资料弹窗": 'id="modal-move"',
         "头像上传": 'id="avatar-file"',
         "修改显示名": 'id="btn-edit-name"',
+        "资料工具条": 'id="material-tools"',
+        "编辑资料弹窗": 'id="modal-mat-edit"',
+        "登录设备弹窗": 'id="modal-sessions"',
+        "注销账号弹窗": 'id="modal-delete-account"',
+        "记住用户名": 'id="auth-remember"',
+        "个人信息校验提示": 'id="meta-msg"',
     }
     missing = [k for k, v in markers.items() if v not in html]
     check("首页关键元素", not missing, "齐全" if not missing else f"缺少：{missing}")

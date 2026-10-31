@@ -13,6 +13,7 @@ import json
 import os
 import socket
 import ssl
+import sys
 import threading
 import time
 import urllib.error
@@ -181,7 +182,8 @@ class AuthClient:
                           {"username": username, "password": password, "nickname": nickname})
 
     def login(self, username: str, password: str) -> dict:
-        data = self._call("POST", "/auth/login", {"username": username, "password": password})
+        data = self._call("POST", "/auth/login", {"username": username, "password": password,
+                                                  "device": device_name()})
         with self.lock:
             self.session = {"user": data["user"], "tokens": data["tokens"],
                             "last_verified": time.time()}
@@ -224,3 +226,37 @@ class AuthClient:
             self.session["user"] = data["user"]
             self._save()
             return data["user"]
+
+    def _access(self) -> str:
+        """当前可用的 access token；快过期就先刷新。调用方需持有 self.lock。"""
+        if not self.session:
+            raise AuthFailed("auth_required", "请先登录", 401)
+        if self.session["tokens"].get("access_expires_at", 0) <= time.time() + 30:
+            self._refresh()
+            self._save()
+        return self.session["tokens"]["access_token"]
+
+    def sessions(self) -> list[dict]:
+        with self.lock:
+            return self._call("GET", "/auth/sessions", token=self._access())["sessions"]
+
+    def revoke_sessions(self, session_id: str = "", others: bool = False) -> int:
+        body = {"others": True} if others else {"session_id": session_id}
+        with self.lock:
+            return int(self._call("POST", "/auth/sessions/revoke", body,
+                                  token=self._access()).get("revoked") or 0)
+
+    def delete_account(self, password: str) -> str:
+        """认证服务删除成功后清掉本机会话，返回被删账号的 ID。"""
+        with self.lock:
+            data = self._call("POST", "/auth/delete", {"password": password},
+                              token=self._access())
+            self._clear()
+            return str(data.get("user_id") or "")
+
+
+def device_name() -> str:
+    """设备列表里显示的名字：主机名 + 系统，例如 "DESKTOP-01 · Windows"。"""
+    host = socket.gethostname().split(".")[0] or "本机"
+    system = {"nt": "Windows", "posix": "macOS" if sys.platform == "darwin" else "Linux"}
+    return f"{host} · {system.get(os.name, os.name)}"[:60]

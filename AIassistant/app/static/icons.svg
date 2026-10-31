@@ -20,5 +20,6 @@
 <symbol id="tree" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><circle cx="12" cy="19" r="2"/><path d="M12 7v10M5 17v-4h14v4"/></symbol>
 <symbol id="pause" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 8v8m4-8v8"/></symbol>
 <symbol id="leaf" viewBox="0 0 24 24"><path d="M5 20c0-9 5-14 15-15-1 10-6 15-15 15ZM5 20l9-9"/></symbol>
+<symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></symbol>
 <symbol id="menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
 </defs></svg>

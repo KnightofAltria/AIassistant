@@ -185,6 +185,72 @@ class AuthServerTest(AuthTestBase):
         self.assertEqual((status, data["error"]["code"]), (400, "invalid_input"))
         self.assertEqual(call(self.base, "POST", "/auth/profile", {"nickname": "a"})[0], 401)
 
+    def test_sessions_list_and_revoke(self):
+        self.register("nina_14")
+        first = call(self.base, "POST", "/auth/login",
+                     {"username": "nina_14", "password": PASSWORD, "device": "PC-A · Windows"})[1]
+        second = call(self.base, "POST", "/auth/login",
+                      {"username": "nina_14", "password": PASSWORD, "device": "MAC-B · macOS"})[1]
+        third = self.login("nina_14")[1]
+        a1, a2, a3 = (d["tokens"]["access_token"] for d in (first, second, third))
+        status, data = call(self.base, "GET", "/auth/sessions", token=a1)
+        self.assertEqual(status, 200)
+        rows = data["sessions"]
+        self.assertEqual(len(rows), 3)
+        self.assertTrue(rows[0]["current"] and rows[0]["device"] == "PC-A · Windows")
+        self.assertIn("未命名设备", [r["device"] for r in rows])
+        self.assertNotIn("access_hash", rows[0])
+
+        # 不能用"下线"踢自己；踢不存在的设备 404
+        self.assertEqual(call(self.base, "POST", "/auth/sessions/revoke",
+                              {"session_id": rows[0]["id"]}, token=a1)[0], 400)
+        self.assertEqual(call(self.base, "POST", "/auth/sessions/revoke",
+                              {"session_id": "nope"}, token=a1)[0], 404)
+        mac = next(r for r in rows if r["device"] == "MAC-B · macOS")
+        status, data = call(self.base, "POST", "/auth/sessions/revoke", {"session_id": mac["id"]}, token=a1)
+        self.assertEqual((status, data["revoked"]), (200, 1))
+        self.assertEqual(call(self.base, "GET", "/auth/me", token=a2)[0], 401)
+
+        # 刷新轮换后设备名与登录时间不变
+        status, rotated = call(self.base, "POST", "/auth/refresh",
+                               {"refresh_token": first["tokens"]["refresh_token"]})
+        self.assertEqual(status, 200)
+        a1 = rotated["tokens"]["access_token"]
+        cur = call(self.base, "GET", "/auth/sessions", token=a1)[1]["sessions"][0]
+        self.assertEqual((cur["device"], cur["login_at"]), ("PC-A · Windows", rows[0]["login_at"]))
+
+        status, data = call(self.base, "POST", "/auth/sessions/revoke", {"others": True}, token=a1)
+        self.assertEqual((status, data["revoked"]), (200, 1))
+        self.assertEqual(call(self.base, "GET", "/auth/me", token=a3)[0], 401)
+        self.assertEqual(len(call(self.base, "GET", "/auth/sessions", token=a1)[1]["sessions"]), 1)
+        self.assertEqual(call(self.base, "GET", "/auth/sessions")[0], 401)
+
+    def test_delete_account(self):
+        self.register("oscar_15")
+        access = self.login("oscar_15")[1]["tokens"]["access_token"]
+        other = self.login("oscar_15")[1]["tokens"]["access_token"]
+        status, data = call(self.base, "POST", "/auth/delete", {"password": "wrong123"}, token=access)
+        self.assertEqual((status, data["error"]["code"]), (401, "invalid_credentials"))
+        self.assertEqual(call(self.base, "GET", "/auth/me", token=access)[0], 200)   # 密码错不影响登录
+        status, data = call(self.base, "POST", "/auth/delete", {"password": PASSWORD}, token=access)
+        self.assertEqual(status, 200)
+        self.assertTrue(data["user_id"])
+        for token in (access, other):
+            self.assertEqual(call(self.base, "GET", "/auth/me", token=token)[0], 401)
+        self.assertEqual(self.login("oscar_15")[0], 401)
+        self.assertEqual(self.store.conn.execute(
+            "SELECT COUNT(*) FROM sessions WHERE user_id=?", (data["user_id"],)).fetchone()[0], 0)
+        self.assertEqual(self.register("oscar_15")[0], 201)                        # 用户名已释放
+
+    def test_delete_account_rate_limited(self):
+        self.register("paul_16")
+        access = self.login("paul_16")[1]["tokens"]["access_token"]
+        for _ in range(auth_server.LOGIN_USER_LIMIT):
+            call(self.base, "POST", "/auth/delete", {"password": "wrong123"}, token=access)
+        status, _ = call(self.base, "POST", "/auth/delete", {"password": PASSWORD}, token=access)
+        self.assertEqual(status, 429)
+        self.assertEqual(call(self.base, "GET", "/auth/me", token=access)[0], 200)
+
 
 class AuthClientTest(AuthTestBase):
     def client(self, name: str = "session.json") -> auth_client.AuthClient:
@@ -231,6 +297,26 @@ class AuthClientTest(AuthTestBase):
         c.login("lily_13", PASSWORD)
         self.assertEqual(c.update_nickname("莉莉")["nickname"], "莉莉")
         self.assertEqual(self.client("s5.json").user["nickname"], "莉莉")   # 写回了 session.json
+
+    def test_client_sessions_and_delete(self):
+        self.register("quinn_17")
+        c = self.client("s6.json")
+        c.login("quinn_17", PASSWORD)
+        other = self.client("s7.json")
+        other.login("quinn_17", PASSWORD)
+        rows = c.sessions()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["device"], auth_client.device_name())
+        self.assertEqual(c.revoke_sessions(others=True), 1)
+        other.verify(force=True)
+        self.assertFalse(other.logged_in)
+        with self.assertRaises(auth_client.AuthFailed):
+            c.delete_account("wrong123")
+        self.assertTrue(c.logged_in)
+        uid = c.delete_account(PASSWORD)
+        self.assertTrue(uid)
+        self.assertFalse(c.logged_in)
+        self.assertFalse((self.tmp / "s6.json").exists())
 
     def test_offline_grace(self):
         self.register("kate_11")
@@ -434,6 +520,67 @@ class LocalApiTest(TempDataTest):
                               {"folder_id": "nope"})[0], 404)
         self.assertEqual(call(self.base, "POST", "/api/materials/nope/move",
                               {"folder_id": folder["id"]})[0], 404)
+
+    def test_meta_validation(self):
+        path = "/api/profile/meta"
+        for bad in ({"age": "abc"}, {"age": "5"}, {"age": "101"}, {"age": "2.5"},
+                    {"major": "x" * 31}, {"gender": "x" * 31}, {"needs": "x" * 201}, {"major": 3}):
+            self.assertEqual(call(self.base, "POST", path, bad)[0], 400, bad)
+        self.assertEqual(call(self.base, "POST", path, {"age": " 021 ", "major": " 计算机 "})[0], 201)
+        user = self.server.STORE.ensure_user()
+        self.assertEqual((user["age"], user["major"]), ("21", "计算机"))
+        self.assertEqual(call(self.base, "POST", path, {"age": "", "major": ""})[0], 201)  # 允许清空
+        self.assertEqual(self.server.STORE.ensure_user()["age"], "")
+
+    def test_material_meta(self):
+        s = self.server
+        subject = s.STORE.subjects()[0]["name"]
+        mat = s.STORE.add_material("原标题", "edit me " * 80, ext=".md")
+        path = f"/api/materials/{mat['id']}/meta"
+        status, data = call(self.base, "POST", path, {"title": " 新标题 ", "subject": subject})
+        self.assertEqual(status, 200)
+        self.assertEqual((data["material"]["title"], data["material"]["subject"]), ("新标题", subject))
+        self.assertEqual(call(self.base, "POST", path, {"subject": ""})[0], 200)       # 取消科目
+        self.assertEqual(s.STORE.material(mat["id"])["subject"], "")
+        self.assertEqual(call(self.base, "POST", path, {"subject": "不存在的科目"})[0], 400)
+        self.assertEqual(call(self.base, "POST", path, {"title": " "})[0], 400)
+        self.assertEqual(call(self.base, "POST", path, {"title": "x" * 81})[0], 400)
+        self.assertEqual(call(self.base, "POST", path, {})[0], 400)
+        self.assertEqual(call(self.base, "POST", "/api/materials/nope/meta", {"title": "a"})[0], 404)
+
+        core = s.STORE.add_material("核心 · 测试", "core " * 80, source_url="内置示例资料（可删除）")
+        core_path = f"/api/materials/{core['id']}/meta"
+        self.assertEqual(call(self.base, "POST", core_path, {"title": "改掉"})[0], 403)
+        self.assertEqual(call(self.base, "POST", core_path, {"subject": subject})[0], 200)  # 科目可改
+
+    def test_material_batch(self):
+        s = self.server
+        folder = s.STORE.add_folder("批量目标")
+        ids = [s.STORE.add_material(f"批量{i}", f"batch {i} " * 80)["id"] for i in range(3)]
+        path = "/api/materials/batch"
+        status, data = call(self.base, "POST", path,
+                            {"action": "move", "ids": ids + ["nope", ids[0]], "folder_id": folder["id"]})
+        self.assertEqual((status, data["done"], data["missing"]), (200, 3, 1))
+        self.assertTrue(all(s.STORE.material(i)["folder_id"] == folder["id"] for i in ids))
+        for bad in ({"action": "copy", "ids": ids}, {"action": "delete", "ids": []},
+                    {"action": "delete", "ids": "abc"}, {"action": "delete", "ids": [1]},
+                    {"action": "delete", "ids": ["x"] * 201}):
+            self.assertEqual(call(self.base, "POST", path, bad)[0], 400, bad)
+        self.assertEqual(call(self.base, "POST", path,
+                              {"action": "move", "ids": ids, "folder_id": "nope"})[0], 404)
+        status, data = call(self.base, "POST", path, {"action": "delete", "ids": ids[:2]})
+        self.assertEqual((status, data["done"]), (200, 2))
+        self.assertIsNone(s.STORE.material(ids[0]))
+        self.assertTrue(s.STORE.material(ids[2]))
+
+    def test_purge_user_data(self):
+        s = self.server
+        for bad in ("", "../users", "a/b", "not-here"):
+            self.assertFalse(s.purge_user_data(bad), bad)
+        self.assertTrue(s.USERS_DIR.is_dir())
+        s.deactivate_user(close=True)
+        self.assertTrue(s.purge_user_data("uid-local"))
+        self.assertFalse((s.USERS_DIR / "uid-local").exists())
 
     def test_concurrent_requests(self):
         """页面加载时浏览器会并发发请求；共用一条 sqlite 连接时曾卡成 database is locked。"""
