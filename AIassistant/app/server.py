@@ -196,7 +196,7 @@ def sync_auth(force: bool = False) -> None:
 
 
 # 个人信息字段的长度上限；年龄单独按整数校验
-META_LIMITS = {"gender": 30, "major": 30, "needs": 200}
+META_LIMITS = {"gender": 30, "major": 30, "needs": 200, "bio": 200}
 
 
 def clean_meta(body: dict) -> dict:
@@ -209,7 +209,7 @@ def clean_meta(body: dict) -> dict:
                 raise ValueError("年龄需为 6–100 的整数")
             age = str(int(age))
         fields["age"] = age
-    names = {"gender": "性别", "major": "专业", "needs": "学习需求"}
+    names = {"gender": "性别", "major": "专业", "needs": "学习需求", "bio": "个人简介"}
     for key, limit in META_LIMITS.items():
         if key not in body:
             continue
@@ -1998,8 +1998,9 @@ def main() -> int:
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if args.no_auth:
-        STORE.bind(Store())
-        samples, moved = init_store(STORE)
+        local_store = Store()
+        samples, moved = init_store(local_store)
+        STORE.bind(local_store)
         if moved:
             print(f"  已把 {moved} 份资料归入对应文件夹")
         if samples:

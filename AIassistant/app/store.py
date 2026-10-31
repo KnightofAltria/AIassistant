@@ -209,7 +209,7 @@ class Store:
             if name not in cols:
                 self.conn.execute(f"ALTER TABLE folders ADD COLUMN {name} {ddl}")
         user_cols = {row["name"] for row in self.conn.execute("PRAGMA table_info(users)")}
-        for name in ("age", "gender", "major", "needs"):
+        for name in ("age", "gender", "major", "needs", "bio"):
             if name not in user_cols:
                 self.conn.execute(f"ALTER TABLE users ADD COLUMN {name} TEXT DEFAULT ''")
         for table in ("subjects", "chapters"):
@@ -270,7 +270,7 @@ class Store:
         self.conn.commit()
         return dict(self.conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone())
 
-    META_FIELDS = ("age", "gender", "major", "needs")
+    META_FIELDS = ("age", "gender", "major", "needs", "bio")
 
     def get_meta(self) -> dict:
         user = self.ensure_user()

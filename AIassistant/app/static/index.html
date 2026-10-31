@@ -11,7 +11,7 @@
 <!-- ============ 登录 / 注册 ============ -->
 <div id="auth" class="gate hidden">
   <div class="gate-card">
-    <div class="gate-logo">CS</div>
+    <div class="gate-logo"><svg class="brand-mark" aria-hidden="true"><use href="/icons.svg#logo"></use></svg></div>
     <h1>计算机课程学习助手</h1>
     <p class="gate-sub">登录后，资料、对话和档案按账号分开保存在本机</p>
     <div class="auth-tabs">
@@ -43,7 +43,7 @@
 <!-- ============ 首次进入：填写 API Key ============ -->
 <div id="gate" class="gate hidden">
   <div class="gate-card">
-    <div class="gate-logo">CS</div>
+    <div class="gate-logo"><svg class="brand-mark" aria-hidden="true"><use href="/icons.svg#logo"></use></svg></div>
     <h1>计算机课程学习助手</h1>
     <p class="gate-sub">本地运行 · 资料不出本机 · 模型走 DeepSeek API</p>
     <label class="field">
@@ -66,8 +66,8 @@
 <!-- ============ 欢迎主界面（粒子动画） ============ -->
 <div id="landing" class="landing">
   <canvas id="particles"></canvas>
-  <div class="landing-inner">
-    <div class="landing-logo">CS</div>
+  <div class="landing-inner"><div class="landing-streaks" aria-hidden="true"><i></i><i></i><i></i><i></i></div><span class="eyebrow">YOUR SPACE TO THINK & LEARN</span>
+    <div class="landing-logo"><svg class="brand-mark" aria-hidden="true"><use href="/icons.svg#logo"></use></svg></div>
     <h1>计算机课程学习助手</h1>
     <p class="landing-sub">组成原理 · 计算机网络 · 操作系统 · 数据结构</p>
     <button id="btn-start" class="btn-start">开始学习</button>
@@ -79,33 +79,34 @@
 <div id="app" class="app hidden">
   <aside id="sidebar" class="sidebar">
     <div class="brand">
-      <div class="brand-logo">CS</div>
+      <div class="brand-logo"><svg class="brand-mark" aria-hidden="true"><use href="/icons.svg#logo"></use></svg></div>
       <div class="brand-text">
         <strong>课程学习助手</strong>
         <span id="brand-sub">本地版</span>
       </div>
     </div>
 
-    <div class="profile-card" id="profile-card" title="点击修改显示名">
+    <div class="profile-card" id="profile-card" role="button" tabindex="0" aria-label="打开个人信息">
       <div class="avatar" id="avatar">学</div>
       <div class="profile-meta">
         <div class="profile-name" id="profile-name">本机用户</div>
-        <div class="profile-desc" id="profile-desc">点击修改显示名</div>
+        <div class="profile-desc" id="profile-desc">写一句话介绍自己</div>
       </div>
     </div>
 
     <nav class="nav">
-      <button class="nav-item" data-view="profile"><i>👤</i><span>个人信息</span></button>
-      <button class="nav-item active" data-view="chat"><i>💬</i><span>AI 聊天</span></button>
-      <button class="nav-item" data-view="dashboard"><i>📊</i><span>学习看板</span></button>
-      <button class="nav-item" data-view="summary"><i>📄</i><span>近期总结</span></button>
-      <button class="nav-item" data-view="study"><i>📚</i><span>科目学习</span></button>
-      <button class="nav-item" data-view="materials"><i>🗂️</i><span>资料管理</span></button>
+      <button class="nav-item" data-view="profile" aria-label="个人信息"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#person"></use></svg></i><span>个人信息</span></button>
+      <button class="nav-item active" data-view="chat" aria-label="AI 聊天"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg></i><span>AI 聊天</span></button>
+      <button class="nav-item" data-view="dashboard" aria-label="学习看板"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#dashboard"></use></svg></i><span>学习看板</span></button>
+      <button class="nav-item" data-view="summary" aria-label="近期总结"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#document"></use></svg></i><span>近期总结</span></button>
+      <button class="nav-item" data-view="study" aria-label="科目学习"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#book"></use></svg></i><span>科目学习</span></button>
+      <button class="nav-item" data-view="materials" aria-label="资料管理"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#folder"></use></svg></i><span>资料管理</span></button>
+      <button class="nav-item" data-view="preferences" aria-label="设置"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#settings"></use></svg></i><span>设置</span></button>
     </nav>
 
     <div class="sidebar-foot">
       <div class="mini-stats" id="mini-stats"></div>
-      <button id="btn-settings" class="link-btn">API 设置</button>
+      <button id="btn-settings" data-tip="管理模型连接和 API Key" class="link-btn">API 设置</button>
       <span class="dot">·</span>
       <button id="btn-collapse" class="link-btn">收起侧栏</button>
       <div id="account-bar" class="account-bar hidden">
@@ -119,21 +120,23 @@
     </div>
   </aside>
 
-  <button id="btn-expand" class="expand-btn hidden" title="展开侧栏">☰</button>
+  <button id="btn-expand" class="expand-btn hidden" title="展开侧栏"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#menu"></use></svg></button>
 
   <main class="main">
     <!-- ---------------- 主界面（今天学点什么） ---------------- -->
     <section id="view-home" class="view">
       <canvas id="home-particles" class="home-canvas"></canvas>
       <div class="home-hero">
+        <span class="eyebrow home-kicker"><svg class="brand-mark" aria-hidden="true"><use href="/icons.svg#logo"></use></svg> LEARNING SPACE <span> / </span> 你的学习空间</span>
         <h1 class="home-title">今天学点什么？</h1>
         <p class="muted" id="home-sub">四个科目、27 份资料已就绪</p>
         <div class="home-actions">
-          <button class="home-card" data-goto="profile"><span class="hc-icon">👤</span><b>个人信息</b><small>学习者档案，按月归档</small></button>
-          <button class="home-card" data-goto="chat"><span class="hc-icon">💬</span><b>AI 聊天</b><small>问课程问题，答案带出处</small></button>
-          <button class="home-card" data-goto="summary"><span class="hc-icon">📄</span><b>近期总结</b><small>对话总结与易错提示本</small></button>
-          <button class="home-card" data-goto="study"><span class="hc-icon">📚</span><b>科目学习</b><small>看讲解、做练习、拿小结</small></button>
-          <button class="home-card" data-goto="materials"><span class="hc-icon">🗂️</span><b>资料管理</b><small>导入、分类、AI 整理</small></button>
+          <button class="home-card" data-goto="profile"><span class="hc-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#person"></use></svg></span><b>个人信息</b><small>记录你的学习与成长</small></button>
+          <button class="home-card" data-goto="chat"><span class="hc-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg></span><b>AI 聊天</b><small>围绕课程资料交流</small></button>
+          <button class="home-card" data-goto="dashboard"><span class="hc-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#dashboard"></use></svg></span><b>学习看板</b><small>回顾进度与复习安排</small></button>
+          <button class="home-card" data-goto="summary"><span class="hc-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#document"></use></svg></span><b>近期总结</b><small>对话总结与易错提示本</small></button>
+          <button class="home-card" data-goto="study"><span class="hc-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#book"></use></svg></span><b>科目学习</b><small>按章节探索与练习</small></button>
+          <button class="home-card" data-goto="materials"><span class="hc-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#folder"></use></svg></span><b>资料管理</b><small>让资料井然有序</small></button>
         </div>
       </div>
     </section>
@@ -146,28 +149,26 @@
           <p class="muted">学习者档案按月一份，保存在当前账号的本地数据目录里</p>
         </div>
         <div class="head-actions">
-          <button id="btn-edit-name" class="btn">修改显示名</button>
-          <button id="btn-edit-avatar" class="btn">上传头像</button>
-          <button id="btn-reset-avatar" class="btn hidden">恢复默认头像</button>
+          <button id="btn-edit-name" data-tip="修改学习助手内显示的名字" class="btn">修改显示名</button>
+          <button id="btn-edit-avatar" data-tip="从本机选择 PNG 或 JPG 图片作为头像" class="btn">上传头像</button>
+          <button id="btn-reset-avatar" data-tip="移除当前图片并恢复默认头像" class="btn hidden">恢复默认头像</button>
           <input id="avatar-file" type="file" accept="image/png,image/jpeg" hidden />
-          <button id="btn-gen-profile-2" class="btn primary">生成本月档案</button>
+          <button id="btn-gen-profile-2" data-tip="根据学习记录生成本月档案" class="btn primary">生成本月档案</button>
         </div>
       </header>
       <div class="profile-hero">
-        <div class="avatar large" id="avatar-big">学</div>
+        <div class="avatar large avatar-drop" id="avatar-big" title="点击或拖入 PNG / JPG 头像" role="button" tabindex="0" aria-label="点击或拖入头像">学</div>
         <div>
           <h3 id="profile-name-big">本机用户</h3>
-          <p class="muted small" id="profile-summary-line">还没有档案</p>
+          <p class="muted small" id="profile-summary-line">记录你的学习与成长</p><p class="avatar-hint">点击或拖入图片更换头像</p>
         </div>
       </div>
       <div class="panel">
         <div class="panel-head">
           <h3>基本信息</h3>
-          <button id="btn-save-meta" class="btn primary">保存</button>
+          <button id="btn-save-meta" data-tip="保存基本信息和个人简介" class="btn primary">保存</button>
         </div>
-        <p class="muted small" style="margin:0 0 10px">
-          这四项会作为背景信息提供给模型，用来调整讲解的深浅和举例方式；不填也能用。
-        </p>
+
         <div class="panel-body meta-grid">
           <label class="field"><span>年龄</span>
             <input id="meta-age" type="number" min="6" max="100" step="1" inputmode="numeric" placeholder="例如 21" /></label>
@@ -177,6 +178,7 @@
             <input id="meta-major" maxlength="30" placeholder="例如 计算机科学与技术" /></label>
           <label class="field"><span>需求</span>
             <input id="meta-needs" maxlength="200" placeholder="例如 期末冲刺 / 打牢基础 / 项目实践" /></label>
+          <label class="field bio-field"><span>个人简介</span><textarea id="meta-bio" maxlength="200" rows="3" placeholder="写一句话介绍自己，记录你的学习目标或兴趣"></textarea></label>
         </div>
         <p id="meta-msg" class="small err-text"></p>
       </div>
@@ -185,6 +187,14 @@
         <div class="panel-head"><h3>学习者档案（按月）</h3></div>
         <div id="profile-panel-2" class="panel-body"></div>
       </div>
+    </section>
+
+    <section id="view-preferences" class="view">
+      <header class="view-head"><div><span class="eyebrow">MAKE IT YOURS</span><h2>设置</h2><p class="muted">调整适合你的学习体验</p></div></header>
+      <div class="preferences-grid"><div class="panel preference-panel"><div class="panel-head"><h3>界面偏好</h3></div>
+        <label class="preference-row"><span><b>功能提示</b><small>悬停或键盘聚焦时显示功能介绍</small></span><input type="checkbox" id="pref-tooltips" checked /></label>
+        <label class="preference-row"><span><b>动态效果</b><small>显示背景线条与文字流动效果</small></span><input type="checkbox" id="pref-motion" checked /></label>
+      </div><div class="panel preference-panel"><div class="panel-head"><h3>模型连接</h3></div><p class="muted">管理模型和 API Key</p><button id="pref-api" data-tip="管理模型连接和 API Key" class="btn">打开 API 设置</button></div></div>
     </section>
 
     <!-- ---------------- AI 聊天 ---------------- -->
@@ -211,7 +221,7 @@
         <div class="chat-main">
           <div id="messages" class="messages">
             <div class="empty" id="chat-empty">
-              <div class="empty-icon">💬</div>
+              <div class="empty-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg></div>
               <h3>开始提问吧</h3>
               <p>比如「TCP 为什么需要三次握手」<br/>先在「资料管理」导入课件，回答就会带出处</p>
             </div>
@@ -482,7 +492,7 @@
   <div class="modal-card narrow">
     <h3>添加科目</h3>
     <p class="banner warn small" style="margin-bottom:14px">
-      ⏳ 新增科目需要一点时间：程序会自动生成章节与例题，并把资料整理到该科目的文件夹里。
+      <svg class="line-icon" aria-hidden="true"><use href="/icons.svg#calendar"></use></svg> 新增科目需要一点时间：程序会自动生成章节与例题，并把资料整理到该科目的文件夹里。
       你也可以先粘贴几段视频链接，它们会被存进该科目的资料夹，方便复习时跳转。
     </p>
     <label class="field"><span>科目名称</span>
@@ -612,6 +622,7 @@
   </div>
 </div>
 
+<script src="/ui.js"></script>
 <script src="/app.js"></script>
 <script src="/auth.js"></script>
 <script src="/extras.js"></script>

@@ -115,7 +115,7 @@ function renderForecast(forecast) {
   const days = forecast.days || [];
   const total = days.reduce((n, d) => n + (d.count || 0), 0);
   if (!total && !forecast.overdue) {
-    box.innerHTML = `<div class="forecast-empty"><i>🗓️</i>
+    box.innerHTML = `<div class="forecast-empty"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#calendar"></use></svg></i>
       未来 7 天没有到期复习，做几道题就会自动排期</div>`;
     return;
   }
@@ -370,15 +370,15 @@ function renderKpi(d) {
   const overall = (d.mastery && d.mastery.overall) || {};
   const usage = d.usage || {};
   const items = [
-    { icon: '🔥', label: '连续学习', value: `${(d.streak && d.streak.days) || 0} 天`,
+    { icon: '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#spark"></use></svg>', label: '连续学习', value: `${(d.streak && d.streak.days) || 0} 天`,
       hint: `累计 ${(d.streak && d.streak.total_days) || 0} 天有记录` },
-    { icon: '🔁', label: '待复习', value: `${d.due || 0} 条`,
+    { icon: '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#refresh"></use></svg>', label: '待复习', value: `${d.due || 0} 条`,
       hint: d.due ? '现在就该过一遍' : '队列已清空' },
-    { icon: '🎯', label: '总体正确率', value: pct(overall.rate),
+    { icon: '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#target"></use></svg>', label: '总体正确率', value: pct(overall.rate),
       hint: `${overall.correct || 0}/${overall.attempts || 0} 题` },
-    { icon: '⚡', label: '近 7 天调用', value: `${usage.calls || 0} 次`,
+    { icon: '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#spark"></use></svg>', label: '近 7 天调用', value: `${usage.calls || 0} 次`,
       hint: `均首字 ${usage.avg_first_ms || 0} ms` },
-    { icon: '🗂️', label: '资料状态', value: `${d.pending || 0} 待审`,
+    { icon: '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#folder"></use></svg>', label: '资料状态', value: `${d.pending || 0} 待审`,
       hint: d.stale ? `${d.stale} 份来源可能过期` : '来源均为最新' },
   ];
   $('#dash-kpi').innerHTML = items.map((it) => `
@@ -397,7 +397,7 @@ function renderRecommend(list) {
   list.forEach((item) => {
     const el = document.createElement('div');
     el.className = 'recommend-item';
-    const icon = { review: '🔁', weak: '⚠️', new: '🌱', idle: '☕' }[item.type] || '•';
+    const icon = { review: '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#refresh"></use></svg>', weak: '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#alert"></use></svg>', new: '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#leaf"></use></svg>', idle: '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#leaf"></use></svg>' }[item.type] || '•';
     el.innerHTML = `<div class="rec-icon">${icon}</div>
       <div class="rec-body"><b>${esc(item.title)}</b>
       <span class="muted small">${esc(item.detail || '')}</span></div>`;
@@ -427,7 +427,7 @@ function renderReviews(list, due) {
   if (badge) { badge.textContent = due ? `${due} 条到期` : ''; badge.className = 'badge' + (due ? ' warn' : ''); }
   const box = $('#review-box');
   if (!list.length) {
-    box.innerHTML = `<div class="empty-state"><i>✅</i><b>今天没有到期的复习</b>
+    box.innerHTML = `<div class="empty-state"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg></i><b>今天没有到期的复习</b>
       <span>做错的题会自动排进来，间隔按 1 / 3 / 7 / 15 天递增</span></div>`;
     return;
   }
@@ -472,7 +472,7 @@ function renderMastery(mastery) {
   const chapters = (mastery.chapters || []).filter((c) => c.attempts > 0 || c.status === '薄弱');
   const shown = chapters.length ? chapters : (mastery.chapters || []).slice(0, 8);
   if (!shown.length) {
-    box.innerHTML = `<div class="empty-state"><i>📚</i><b>还没有练习记录</b>
+    box.innerHTML = `<div class="empty-state"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#book"></use></svg></i><b>还没有练习记录</b>
       <span>去「科目学习」做几道题，这里会按章节显示掌握度</span></div>`;
     return;
   }
@@ -490,7 +490,7 @@ function renderMastery(mastery) {
 function renderUsage(usage) {
   const box = $('#usage-box');
   if (!usage.calls) {
-    box.innerHTML = `<div class="empty-state"><i>📈</i><b>还没有模型调用</b>
+    box.innerHTML = `<div class="empty-state"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#chart"></use></svg></i><b>还没有模型调用</b>
       <span>在「AI 聊天」问一个问题，这里会记录耗时与 token 估算</span></div>`;
     return;
   }
@@ -670,7 +670,7 @@ function renderPendingBar(data) {
   const parts = [];
   if (materials.length) parts.push(`<b>${materials.length} 份资料待审核</b>（审核通过前不参与检索）`);
   if (stale.length) parts.push(`<b>${stale.length} 份来源可能过期</b>（超过 30 天未重新抓取）`);
-  bar.innerHTML = '📋 ' + parts.join('　·　');
+  bar.innerHTML = '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#document"></use></svg> ' + parts.join('　·　');
   if (materials.length) {
     bar.innerHTML += '<div class="pending-list"></div>';
     const list = bar.querySelector('.pending-list');

@@ -319,6 +319,8 @@ async function loadMeta() {
       $('#meta-gender').value = meta.gender || '';
       $('#meta-major').value = meta.major || '';
       $('#meta-needs').value = meta.needs || '';
+      $('#meta-bio').value = meta.bio || '';
+      $('#profile-desc').textContent = meta.bio || '写一句话介绍自己';
     }
     renderIdentity(user || null, avatar || '');
   } catch (e) { /* 忽略 */ }
@@ -327,7 +329,7 @@ async function loadMeta() {
 /* 与服务端 clean_meta 保持一致；返回空串表示通过 */
 function checkMeta(meta) {
   if (meta.age && !(/^\d+$/.test(meta.age) && +meta.age >= 6 && +meta.age <= 100)) return '年龄需为 6–100 的整数';
-  const limits = [['gender', '性别', 30], ['major', '专业', 30], ['needs', '学习需求', 200]];
+  const limits = [['gender', '性别', 30], ['major', '专业', 30], ['needs', '学习需求', 200], ['bio', '个人简介', 200]];
   for (const [key, label, max] of limits) {
     if (meta[key].length > max) return `${label}最多 ${max} 个字`;
   }
@@ -340,6 +342,7 @@ async function saveMeta() {
     gender: $('#meta-gender').value.trim(),
     major: $('#meta-major').value.trim(),
     needs: $('#meta-needs').value.trim(),
+    bio: $('#meta-bio').value.trim(),
   };
   // type=number 输入非数字时 value 为空串，靠 validity 区分"没填"和"填错"
   const bad = $('#meta-age').validity.badInput ? '年龄需为 6–100 的整数' : checkMeta(meta);
@@ -349,7 +352,8 @@ async function saveMeta() {
   btn.disabled = true; btn.textContent = '保存中…';
   try {
     await api('/api/profile/meta', { method: 'POST', body: JSON.stringify(meta) });
-    toast('基本信息已保存，之后的讲解会参考它');
+    $('#profile-desc').textContent = meta.bio || '写一句话介绍自己';
+    toast('个人信息已保存');
   } catch (err) { $('#meta-msg').textContent = err.message; toast(err.message, true); }
   finally { btn.disabled = false; btn.textContent = '保存'; }
 }
@@ -494,7 +498,7 @@ async function viewConversationSummary() {
     await new Promise((r) => setTimeout(r, 150));
     const box = $('#summary-list');
     if (!summaries.length) {
-      box.innerHTML = '<div class="empty"><div class="empty-icon">📄</div>'
+      box.innerHTML = '<div class="empty"><div class="empty-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#document"></use></svg></div>'
         + '<h3>这个对话还没有总结</h3><p>点聊天页右上角「生成近期总结」</p></div>';
       return;
     }
@@ -566,6 +570,14 @@ document.addEventListener('click', (e) => {
 $('#btn-view-summary').addEventListener('click', viewConversationSummary);
 injectBackBars();          // 9509ae8 改启动流程时把这句漏掉了，返回按钮一直没出现
 $('#btn-edit-avatar').addEventListener('click', () => $('#avatar-file').click());
+
+const avatarDrop = $('#avatar-big');
+avatarDrop.addEventListener('click', () => $('#avatar-file').click());
+avatarDrop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#avatar-file').click(); } });
+['dragenter', 'dragover'].forEach((event) => avatarDrop.addEventListener(event, (e) => { e.preventDefault(); avatarDrop.classList.add('dragging'); }));
+['dragleave', 'drop'].forEach((event) => avatarDrop.addEventListener(event, (e) => { e.preventDefault(); avatarDrop.classList.remove('dragging'); }));
+avatarDrop.addEventListener('drop', (e) => uploadAvatar(e.dataTransfer.files[0]));
+
 $('#avatar-file').addEventListener('change', (e) => {
   uploadAvatar(e.target.files[0]);
   e.target.value = '';                 // 允许再次选同一张图

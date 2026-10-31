@@ -146,11 +146,8 @@ function renderStats(stats) {
 }
 
 async function loadProfile() {
-  const { profile } = await api('/api/profile');
-  if (profile) {
-    $('#profile-desc').textContent = profile.replace(/[#*`>-]/g, '').split('\n').filter(Boolean)[0] || '已生成画像';
-    $('#profile-desc').title = profile;
-  }
+  const { meta } = await api('/api/profile');
+  $('#profile-desc').textContent = (meta && meta.bio) || '写一句话介绍自己';
 }
 
 /* ---------------------------------------------------------------- 门禁 */
@@ -225,7 +222,8 @@ async function editDisplayName() {
   } catch (err) { toast(err.message, true); }
 }
 
-$('#profile-card').addEventListener('click', editDisplayName);
+$('#profile-card').addEventListener('click', () => switchView('profile'));
+$('#profile-card').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchView('profile'); } });
 
 /* ---------------------------------------------------------------- 设置 */
 function openModal(sel) { $(sel).classList.remove('hidden'); }
@@ -299,7 +297,7 @@ async function delConversation(id) {
 $('#btn-new-chat').addEventListener('click', () => {
   state.conversationId = '';
   $('#messages').innerHTML =
-    `<div class="empty" id="chat-empty"><div class="empty-icon">💬</div><h3>开始提问吧</h3>
+    `<div class="empty" id="chat-empty"><div class="empty-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg></div><h3>开始提问吧</h3>
      <p>比如「TCP 为什么需要三次握手」<br/>先在「资料管理」导入课件，回答就会带出处</p></div>`;
   loadConversations();
 });
@@ -441,7 +439,7 @@ async function loadSummaries() {
   const box = $('#summary-list');
   box.innerHTML = '';
   if (!summaries.length) {
-    box.innerHTML = '<div class="empty"><div class="empty-icon">📄</div><h3>还没有总结</h3><p>在「AI 聊天」里点「生成近期总结」</p></div>';
+    box.innerHTML = '<div class="empty"><div class="empty-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#document"></use></svg></div><h3>还没有总结</h3><p>在「AI 聊天」里点「生成近期总结」</p></div>';
     return;
   }
   summaries.forEach((s) => {
@@ -468,7 +466,7 @@ async function loadSummaries() {
 }
 
 /* ---------------------------------------------------------------- 科目学习 */
-const SUBJECT_EMOJI = { co: '🖥️', cn: '🌐', os: '⚙️', ds: '🌳' };
+const SUBJECT_EMOJI = { co: '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#computer"></use></svg>', cn: '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#globe"></use></svg>', os: '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#settings"></use></svg>', ds: '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#tree"></use></svg>' };
 
 async function loadSubjects() {
   const { subjects } = await api('/api/subjects');
@@ -480,7 +478,7 @@ async function loadSubjects() {
     const badge = s.is_builtin
       ? '<span class="badge builtin">内置</span>'
       : '<span class="badge custom">自定义</span>';
-    el.innerHTML = `<div class="subject-emoji">${SUBJECT_EMOJI[s.slug] || '📘'}</div>
+    el.innerHTML = `<div class="subject-emoji">${SUBJECT_EMOJI[s.slug] || '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#book"></use></svg>'}</div>
       <h3>${esc(s.name)} ${badge}</h3><p>${s.chapters.length} 个章节</p>
       <div class="card-actions"><button class="btn small" data-act="enter">进入</button>${
         s.is_builtin ? '' : '<button class="btn danger small" data-act="del">删除科目</button>'}</div>`;
@@ -822,7 +820,7 @@ function renderSharedWarning() {
   const bar = $('#shared-warning');
   if (CUR_FOLDER && CUR_FOLDER.is_shared) {
     bar.className = 'banner warn';
-    bar.innerHTML = `🔒 <b>核心资料 core</b>：本机维护的计算机核心知识，会被所有科目的提问检索到。
+    bar.innerHTML = `<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#lock"></use></svg> <b>核心资料 core</b>：本机维护的计算机核心知识，会被所有科目的提问检索到。
       不推荐直接修改或删除；确实要改也可以，改动会影响全部科目的回答。`;
   } else {
     bar.className = 'banner hidden';
@@ -846,7 +844,7 @@ function renderFolderBar() {
     wrap.className = 'folder-pill' + (state.folderId === f.id ? ' active' : '') +
       (f.is_shared ? ' shared' : '');
     wrap.title = f.is_shared ? '共识资料（不推荐修改）' : f.name;
-    wrap.innerHTML = `${f.is_shared ? '🔒' : '📁'} <span class="pill-name">${esc(f.name)}</span>
+    wrap.innerHTML = `${f.is_shared ? '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#lock"></use></svg>' : '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#folder"></use></svg>'} <span class="pill-name">${esc(f.name)}</span>
       <i class="pill-count">${f.count || 0}</i>
       ${f.renamable ? '<b class="pill-edit" title="重命名">✎</b>' : ''}
       <b class="pill-del" title="删除文件夹">✕</b>`;
@@ -887,7 +885,7 @@ function openMoveMaterial(m, ids) {
     : (CUR_FOLDER ? CUR_FOLDER.name : '多个文件夹');
   // 不提供"根目录"：根目录里的资料下次启动会被 reorganize 自动归回科目文件夹
   $('#move-target').innerHTML = FOLDERS.map((f) =>
-    `<option value="${f.id}"${f.id === fromId ? ' selected' : ''}>${f.is_shared ? '🔒 ' : ''}${esc(f.name)}</option>`).join('');
+    `<option value="${f.id}"${f.id === fromId ? ' selected' : ''}>${f.is_shared ? '核心 · ' : ''}${esc(f.name)}</option>`).join('');
   $('#move-msg').textContent = '';
   box.dataset.materialId = m ? m.id : '';
   box.dataset.batch = m ? '' : JSON.stringify(ids);
@@ -934,9 +932,9 @@ function renderMaterialList(materials) {
   list.innerHTML = '';
   if (!materials.length) {
     list.innerHTML = MATERIALS.length
-      ? `<div class="empty"><div class="empty-icon">🔍</div><h3>没有符合条件的资料</h3>
+      ? `<div class="empty"><div class="empty-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#search"></use></svg></div><h3>没有符合条件的资料</h3>
           <p>换个关键词，或把科目筛选改回「全部科目」</p></div>`
-      : `<div class="empty"><div class="empty-icon">🗂️</div><h3>这个文件夹还是空的</h3>
+      : `<div class="empty"><div class="empty-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#folder"></use></svg></div><h3>这个文件夹还是空的</h3>
           <p>点右上角「导入资料」粘贴课件文本或选择文件</p></div>`;
     return;
   }
@@ -952,7 +950,7 @@ function renderMaterialList(materials) {
         <h4 class="mat-title" title="点击打开源文件">${esc(m.title)}</h4>
       </div>
       <div class="meta">
-        ${m.folder_name ? `<span class="tag">${m.folder_shared ? '🔒 ' : '📁 '}${esc(m.folder_name)}</span>` : '<span class="tag">根目录</span>'}
+        ${m.folder_name ? `<span class="tag">${m.folder_shared ? '核心 · ' : ''}${esc(m.folder_name)}</span>` : '<span class="tag">根目录</span>'}
         <span class="tag">${esc(m.subject || '未分类')}</span>
         <span>${kb} KB</span>
         <span>${esc(m.created_at)}</span>
@@ -1049,7 +1047,7 @@ $('#btn-import').addEventListener('click', async () => {
   const data = await api('/api/materials');
   FOLDERS = data.folders || [];
   $('#imp-folder').innerHTML = '<option value="">根目录</option>' +
-    FOLDERS.map((f) => `<option value="${f.id}"${f.id === state.folderId ? ' selected' : ''}>${f.is_shared ? '🔒 ' : ''}${esc(f.name)}</option>`).join('');
+    FOLDERS.map((f) => `<option value="${f.id}"${f.id === state.folderId ? ' selected' : ''}>${f.is_shared ? '核心 · ' : ''}${esc(f.name)}</option>`).join('');
   $('#imp-title').value = ''; $('#imp-text').value = ''; $('#imp-msg').textContent = '';
   PICKED_FILE = null; $('#imp-file').value = ''; $('#imp-review').checked = false;
   openModal('#modal-import');
