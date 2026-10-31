@@ -226,9 +226,20 @@ class Store:
         mat_cols = {row["name"] for row in self.conn.execute("PRAGMA table_info(materials)")}
         for name, ddl in (("hash", "TEXT DEFAULT ''"),
                           ("status", "TEXT DEFAULT 'approved'"),
-                          ("fetched_at", "TEXT DEFAULT ''")):
+                          ("fetched_at", "TEXT DEFAULT ''"),
+                          ("original", "TEXT DEFAULT ''"),
+                          ("ord", "INTEGER DEFAULT 0")):
             if name not in mat_cols:
                 self.conn.execute(f"ALTER TABLE materials ADD COLUMN {name} {ddl}")
+        # 老资料：导入时与文本同名放的 .docx 原文件，登记到 original 列
+        for row in self.conn.execute(
+                "SELECT id, path FROM materials WHERE (original IS NULL OR original='') "
+                "AND path != ''").fetchall():
+            p = Path(row["path"])
+            legacy = p.with_suffix(ORIGINAL_EXT)
+            if p.suffix.lower() != ORIGINAL_EXT and legacy.is_file():
+                self.conn.execute("UPDATE materials SET original=? WHERE id=?",
+                                  (str(legacy), row["id"]))
         # 老资料补 hash：用于"重抓后内容是否真的变了"的判断
         for row in self.conn.execute(
                 "SELECT id, path, hash FROM materials WHERE (hash IS NULL OR hash='')").fetchall():
@@ -311,34 +322,61 @@ class Store:
     # ---------------------------------------------------------------- 资料
     def add_material(self, title: str, text: str, subject: str = "", folder_id: str = "",
                      source_url: str = "", ext: str = ".md",
-                     status: str = "approved", original: bytes = b"") -> dict:
-        """original：上传的 .docx 原文件，和抽出的文本同名放在一起，阅读页按它渲染排版。"""
+                     status: str = "approved", original: bytes = b"",
+                     original_ext: str = ORIGINAL_EXT) -> dict:
+        """original：上传的原文件（.docx / .pdf / .txt …），和抽出的文本放在一起。
+
+        阅读页按 .docx 原文件渲染排版；"打开源文件"打开的就是它。
+        """
         mid = new_id()
         self.material_dir.mkdir(parents=True, exist_ok=True)
         safe = "".join(ch for ch in title if ch not in '\\/:*?"<>|').strip() or mid
         path = self.material_dir / f"{mid[:8]}_{safe}{ext}"
         path.write_text(text, encoding="utf-8")
+        original_path = ""
         if original:
-            path.with_suffix(ORIGINAL_EXT).write_bytes(original)
+            original_ext = original_ext.lower() if re.fullmatch(r"\.\w{1,10}", original_ext or "") \
+                else ".bin"
+            target = path.with_name(f"{path.stem}.原文件{original_ext}")
+            target.write_bytes(original)
+            original_path = str(target)
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
         ts = now()
         self.conn.execute(
             "INSERT INTO materials(id,title,subject,folder_id,source_url,path,bytes,created_at,"
-            "hash,status,fetched_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            "hash,status,fetched_at,original,ord) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (mid, title, subject, folder_id, source_url, str(path),
-             path.stat().st_size, ts, digest, status, ts if source_url else ""))
+             path.stat().st_size, ts, digest, status, ts if source_url else "",
+             original_path, self._top_ord(folder_id)))
         self.conn.commit()
         self.bump()
         return dict(self.conn.execute("SELECT * FROM materials WHERE id=?", (mid,)).fetchone())
 
+    def _top_ord(self, folder_id: str) -> int:
+        """新资料排在所在文件夹的最前面（手动排序的序号比现有最小值再小 1）。"""
+        row = self.conn.execute(
+            "SELECT MIN(ord) FROM materials WHERE folder_id=?", (folder_id,)).fetchone()
+        return int(row[0]) - 1 if row and row[0] is not None else 0
+
     def list_materials(self, folder_id: str | None = None) -> list[dict]:
+        """按手动排序（ord 小的在前）列出；没排过序的 ord 都是 0，退回按导入时间倒序。"""
         if folder_id is None:
-            rows = self.conn.execute("SELECT * FROM materials ORDER BY created_at DESC").fetchall()
+            rows = self.conn.execute(
+                "SELECT * FROM materials ORDER BY ord, created_at DESC").fetchall()
         else:
             rows = self.conn.execute(
-                "SELECT * FROM materials WHERE folder_id=? ORDER BY created_at DESC",
+                "SELECT * FROM materials WHERE folder_id=? ORDER BY ord, created_at DESC",
                 (folder_id,)).fetchall()
         return [dict(r) for r in rows]
+
+    def reorder_materials(self, ids: list[str]) -> int:
+        """按给定顺序重写 ord；返回实际更新的条数，不存在的 id 跳过。"""
+        count = 0
+        for i, material_id in enumerate(dict.fromkeys(ids)):
+            cur = self.conn.execute("UPDATE materials SET ord=? WHERE id=?", (i, material_id))
+            count += cur.rowcount
+        self.conn.commit()
+        return count
 
     def get_material_text(self, material_id: str) -> str:
         row = self.conn.execute("SELECT path FROM materials WHERE id=?", (material_id,)).fetchone()
@@ -347,12 +385,23 @@ class Store:
         return Path(row["path"]).read_text(encoding="utf-8", errors="replace")
 
     def material_original(self, material_id: str) -> Path | None:
-        """导入时保存的 .docx 原文件；没有（老资料、粘贴的文本）时返回 None。"""
-        row = self.conn.execute("SELECT path FROM materials WHERE id=?", (material_id,)).fetchone()
-        if not row or not row["path"] or Path(row["path"]).suffix.lower() == ORIGINAL_EXT:
+        """导入时保存的原文件；没有（老资料、粘贴的文本、抓取的网页）时返回 None。"""
+        row = self.conn.execute("SELECT original FROM materials WHERE id=?",
+                                (material_id,)).fetchone()
+        if not row or not row["original"]:
             return None
-        p = Path(row["path"]).with_suffix(ORIGINAL_EXT)
+        p = Path(row["original"])
         return p if p.is_file() else None
+
+    def material_source(self, material_id: str) -> Path | None:
+        """"打开源文件"打开的文件：有上传原件就是原件，否则是本地保存的文本文件。"""
+        original = self.material_original(material_id)
+        if original:
+            return original
+        row = self.conn.execute("SELECT path FROM materials WHERE id=?", (material_id,)).fetchone()
+        if row and row["path"] and Path(row["path"]).is_file():
+            return Path(row["path"])
+        return None
 
     def delete_material(self, material_id: str) -> None:
         original = self.material_original(material_id)
@@ -467,7 +516,12 @@ class Store:
         return {"mode": mode, "moved": int(moved)}
 
     def move_material(self, material_id: str, folder_id: str) -> None:
-        self.conn.execute("UPDATE materials SET folder_id=? WHERE id=?", (folder_id, material_id))
+        row = self.conn.execute("SELECT folder_id FROM materials WHERE id=?",
+                                (material_id,)).fetchone()
+        if row and row["folder_id"] == folder_id:
+            return                         # 原地"移动"不打乱手动排好的顺序
+        self.conn.execute("UPDATE materials SET folder_id=?, ord=? WHERE id=?",
+                          (folder_id, self._top_ord(folder_id), material_id))
         self.conn.commit()
 
     def material(self, material_id: str) -> dict | None:
@@ -475,7 +529,10 @@ class Store:
         return dict(row) if row else None
 
     def assign_orphan_materials(self) -> int:
-        """把落在根目录的资料，按科目归入对应文件夹；没有科目的归入共识资料。"""
+        """把落在根目录的资料，按科目归入对应文件夹。
+
+        没有科目的留在根目录：核心资料对学生只读，自己导入的东西不能被搬进去后改不了。
+        """
         folders = {f["slug"]: f for f in self.list_folders() if f.get("slug")}
         subjects = {s["slug"]: s["name"] for s in self.subjects()}
         count = 0
@@ -485,8 +542,6 @@ class Store:
                 if m.get("subject") == name:
                     target = folders.get(slug)
                     break
-            if target is None and folders.get("shared"):
-                target = folders["shared"]
             if target:
                 self.conn.execute("UPDATE materials SET folder_id=? WHERE id=?",
                                   (target["id"], m["id"]))
@@ -1040,6 +1095,52 @@ class Store:
             "SELECT * FROM materials WHERE source_url != '' AND (fetched_at='' OR fetched_at < ?)",
             (cutoff,)).fetchall()
         return [dict(r) for r in rows]
+
+    # ---------------------------------------------------------------- 本人记录清除（FR-12）
+    # 只清"本人学习记录"；资料、文件夹、科目章节、题库、API Key 等都不动
+    RECORD_KINDS = {
+        "conversations": "对话记录（含全部消息）",
+        "summaries": "近期总结",
+        "attempts": "练习作答记录",
+        "mistakes": "易错提示本",
+        "reviews": "复习队列",
+        "profiles": "学习档案（按月 .md 文件）",
+        "activity": "学习打卡与调用统计",
+    }
+
+    def record_counts(self) -> dict:
+        def one(sql: str) -> int:
+            return int(self.conn.execute(sql).fetchone()[0])
+        return {
+            "conversations": one("SELECT COUNT(*) FROM conversations"),
+            "summaries": one("SELECT COUNT(*) FROM summaries"),
+            "attempts": one("SELECT COUNT(*) FROM attempts"),
+            "mistakes": one("SELECT COUNT(*) FROM mistakes"),
+            "reviews": one("SELECT COUNT(*) FROM reviews"),
+            "profiles": len(list(self.profile_dir.glob("*.md"))),
+            "activity": one("SELECT COUNT(*) FROM activity") + one("SELECT COUNT(*) FROM usage_log"),
+        }
+
+    def clear_records(self, kinds: list[str]) -> dict:
+        """按类别清除本人记录，返回各类实际清掉的条数。未知类别抛 ValueError。"""
+        unknown = [k for k in kinds if k not in self.RECORD_KINDS]
+        if unknown or not kinds:
+            raise ValueError("清除范围不正确")
+        before = self.record_counts()
+        tables = {"conversations": ("messages", "conversations"), "summaries": ("summaries",),
+                  "attempts": ("attempts",), "mistakes": ("mistakes",), "reviews": ("reviews",),
+                  "activity": ("activity", "usage_log")}
+        for kind in dict.fromkeys(kinds):
+            if kind == "profiles":
+                for path in self.profile_dir.glob("*.md"):
+                    path.unlink()
+                user = self.ensure_user()
+                self.conn.execute("UPDATE users SET profile='' WHERE id=?", (user["id"],))
+                continue
+            for table in tables[kind]:
+                self.conn.execute(f"DELETE FROM {table}")
+        self.conn.commit()
+        return {k: before[k] for k in dict.fromkeys(kinds)}
 
     # ---------------------------------------------------------------- 统计
     def stats(self) -> dict:

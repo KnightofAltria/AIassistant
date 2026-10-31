@@ -636,6 +636,236 @@ class LocalApiTest(TempDataTest):
         self.assertEqual(self.raw("GET", f"/api/materials/{mat['id']}/original")[0], 404)
         self.assertEqual(call(self.base, "GET", "/api/materials/nope")[0], 404)
 
+    def upload(self, filename: str, data: bytes, **extra):
+        import base64
+        return call(self.base, "POST", "/api/materials/import",
+                    dict({"filename": filename, "content": base64.b64encode(data).decode()}, **extra))
+
+    def test_pdf_import(self):
+        pdf = make_pdf(["Process scheduling basics", "TCP three way handshake"])
+        status, data = self.upload("操作系统讲义.pdf", pdf)
+        self.assertEqual((status, data["pages"]), (201, 2))
+        mid = data["material"]["id"]
+        status, detail = call(self.base, "GET", f"/api/materials/{mid}")
+        self.assertEqual((detail["format"], detail["source_type"], detail["has_original"]),
+                         ("pdf", "pdf", True))
+        self.assertIn("TCP three way handshake", detail["content"])     # 抽出的文字进索引
+        self.assertTrue(any(c["material_id"] == mid for c in self.server.STORE.all_chunks()))
+        status, headers, body = self.raw("GET", f"/api/materials/{mid}/source")
+        self.assertEqual((status, body, headers["Content-Type"]), (200, pdf, "application/pdf"))
+        self.assertIn("inline", headers["Content-Disposition"])
+        status, headers, _ = self.raw("GET", f"/api/materials/{mid}/source?download=1")
+        self.assertIn("attachment", headers["Content-Disposition"])
+
+        before = len(self.server.STORE.list_materials())
+        for name, bad in (("扫描件.pdf", make_pdf([""])), ("加密.pdf", make_pdf(["x"], encrypt=True)),
+                          ("假的.pdf", b"not a pdf at all"), ("老文档.doc", b"\xd0\xcf\x11\xe0"),
+                          ("图片.png", b"\x89PNG")):
+            status, data = self.upload(name, bad)
+            self.assertEqual(status, 400, name)
+            self.assertTrue(data["error"]["message"], name)
+        self.assertEqual(len(self.server.STORE.list_materials()), before)   # 失败不发布（FR-02）
+
+    def test_source_for_text_material(self):
+        status, data = self.upload("笔记.md", "# 标题\n\n正文".encode("utf-8"))
+        self.assertEqual(status, 201)
+        mid = data["material"]["id"]
+        status, headers, body = self.raw("GET", f"/api/materials/{mid}/source")
+        self.assertEqual((status, body.decode("utf-8")), (200, "# 标题\n\n正文"))
+        self.assertEqual(call(self.base, "GET", f"/api/materials/{mid}")[1]["can_open_local"], True)
+        mat = self.server.STORE.add_material("粘贴的文本", "pasted " * 50, ext=".md")
+        self.assertEqual(self.raw("GET", f"/api/materials/{mat['id']}/source")[0], 200)
+        self.assertEqual(self.raw("GET", "/api/materials/nope/source")[0], 404)
+        # 前端读文本文件时 text 与 content 一起发：正文用 text，原件照样保留
+        csv = "课程,学分\n操作系统,4\n".encode("utf-8")
+        status, data = self.upload("课表.csv", csv, text="课程,学分\n操作系统,4\n")
+        self.assertEqual(status, 201)
+        mid = data["material"]["id"]
+        self.assertEqual(self.raw("GET", f"/api/materials/{mid}/source")[2], csv)
+        self.assertEqual(call(self.base, "GET", f"/api/materials/{mid}")[1]["has_original"], True)
+
+    def test_reorder(self):
+        s = self.server
+        folder = s.STORE.add_folder("排序测试")
+        ids = [s.STORE.add_material(f"排序{i}", f"order {i} " * 50, folder_id=folder["id"])["id"]
+               for i in range(3)]
+        new = [ids[2], ids[0], ids[1]]
+        self.assertEqual(call(self.base, "POST", "/api/materials/reorder", {"ids": new})[0], 200)
+        _, data = call(self.base, "GET", f"/api/materials?folder={folder['id']}")
+        self.assertEqual([m["id"] for m in data["materials"]], new)
+        other = s.STORE.add_material("别处", "x " * 50)
+        for bad, code in (({"ids": []}, 400), ({"ids": "a"}, 400), ({"ids": [ids[0], "nope"]}, 404),
+                          ({"ids": [ids[0], other["id"]]}, 400)):
+            self.assertEqual(call(self.base, "POST", "/api/materials/reorder", bad)[0], code, bad)
+
+    def test_clear_records(self):
+        s = self.server
+        conv = s.STORE.create_conversation("要清掉的对话")
+        s.STORE.add_message(conv["id"], "user", "hi")
+        s.STORE.save_profile("# 档案", "2026-10")
+        mat = s.STORE.add_material("保留的资料", "keep " * 50)
+        _, data = call(self.base, "GET", "/api/records")
+        counts = {k["key"]: k["count"] for k in data["kinds"]}
+        self.assertEqual((counts["conversations"], counts["profiles"]), (1, 1))
+        path = "/api/records/clear"
+        self.assertEqual(call(self.base, "POST", path, {"kinds": ["conversations"]})[0], 400)
+        self.assertEqual(call(self.base, "POST", path, {"kinds": ["materials"], "confirm": "确认清除"})[0], 400)
+        self.assertEqual(s.STORE.record_counts()["conversations"], 1)       # 没确认就不动
+        status, data = call(self.base, "POST", path,
+                            {"kinds": ["conversations", "profiles"], "confirm": "确认清除"})
+        self.assertEqual((status, data["cleared"]["conversations"]), (200, 1))
+        counts = s.STORE.record_counts()
+        self.assertEqual((counts["conversations"], counts["profiles"]), (0, 0))
+        self.assertTrue(s.STORE.material(mat["id"]))                         # 资料不受影响
+        self.assertTrue(s.STORE.questions(s.STORE.subjects()[0]["chapters"][0]["id"]) is not None)
+
+
+def make_pdf(pages: list[str], encrypt: bool = False) -> bytes:
+    """手工拼一份最小 PDF：每页一行 Helvetica 文字；空字符串表示没有文字层的页。"""
+    objs = ["<< /Type /Catalog /Pages 2 0 R >>", "",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    kids = []
+    for text in pages:
+        stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET" if text else "0 0 m"
+        objs.append(f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream")
+        objs.append(f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+                    f"/Resources << /Font << /F1 3 0 R >> >> /Contents {len(objs)} 0 R >>")
+        kids.append(len(objs))
+    objs[1] = f"<< /Type /Pages /Kids [{' '.join(f'{k} 0 R' for k in kids)}] /Count {len(kids)} >>"
+    out, offsets = b"%PDF-1.4\n", []
+    for i, obj in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += f"{i} 0 obj\n{obj}\nendobj\n".encode()
+    xref = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode()
+    out += b"".join(f"{o:010d} 00000 n \n".encode() for o in offsets)
+    extra = " /Encrypt << /Filter /Standard >>" if encrypt else ""
+    out += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R{extra} >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    return out
+
+
+class RoleTest(TempDataTest):
+    """管理员角色：认证服务真起一个，本机服务按登录账号的角色鉴权。"""
+
+    def setUp(self):
+        super().setUp()
+        s = self.server
+        self.auth_tmp = Path(tempfile.mkdtemp(prefix="csla-role-test-"))
+        self.auth_store = auth_server.AuthStore(self.auth_tmp / "auth.db")
+        self.auth_httpd = auth_server.build_server(self.auth_store, "127.0.0.1", 0)
+        auth_base = f"http://127.0.0.1:{self.auth_httpd.server_address[1]}"
+        threading.Thread(target=self.auth_httpd.serve_forever, daemon=True).start()
+        for name in ("teacher", "student1", "student2"):
+            call(auth_base, "POST", "/auth/register", {"username": name, "password": PASSWORD})
+        self.auth_store.set_role("teacher", "admin")
+        self.saved_auth = s.AUTH
+        s.AUTH = auth_client.AuthClient(auth_base, self.auth_tmp / "session.json")
+        self.httpd = s.QuietHTTPServer(("127.0.0.1", 0), s.Handler)
+        self.httpd.flags = []
+        self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.auth_httpd.shutdown()
+        self.auth_httpd.server_close()
+        self.auth_store.conn.close()
+        self.server.AUTH = self.saved_auth
+        shutil.rmtree(self.auth_tmp, ignore_errors=True)
+        super().tearDown()
+
+    def login(self, name: str) -> dict:
+        status, data = call(self.base, "POST", "/api/auth/login", {"username": name, "password": PASSWORD})
+        self.assertEqual(status, 200)
+        return data
+
+    def core(self):
+        _, data = call(self.base, "GET", "/api/materials")
+        folder = next(f for f in data["folders"] if f["is_shared"])
+        mat = next(m for m in data["materials"] if m["folder_shared"])
+        return data, folder, mat
+
+    def test_student_cannot_touch_core(self):
+        st = self.login("student1")
+        self.assertEqual((st["user"]["role"], st["is_admin"]), ("student", False))
+        data, folder, mat = self.core()
+        self.assertFalse(data["is_admin"])
+        self.assertFalse(folder["editable"])
+        mine = self.server.STORE.add_folder("我的")
+        own = self.server.STORE.add_material("自己的", "own " * 50, folder_id=mine["id"])
+        for method, path, body in (
+                ("POST", f"/api/materials/{mat['id']}/move", {"folder_id": mine["id"]}),
+                ("POST", f"/api/materials/{own['id']}/move", {"folder_id": folder["id"]}),
+                ("POST", f"/api/materials/{mat['id']}/meta", {"subject": ""}),
+                ("POST", f"/api/materials/{mat['id']}/status", {"status": "rejected"}),
+                ("POST", "/api/materials/batch", {"action": "delete", "ids": [mat["id"]]}),
+                ("POST", "/api/materials/reorder", {"ids": [mat["id"]]}),
+                ("POST", "/api/materials/import", {"filename": "a.md", "text": "abc",
+                                                   "folder_id": folder["id"]}),
+                ("POST", "/api/folders", {"name": "新核心", "is_shared": True}),
+                ("DELETE", f"/api/materials/{mat['id']}", None),
+                ("DELETE", f"/api/folders/{folder['id']}", None),
+                ("GET", "/api/admin/users", None),
+                ("POST", "/api/admin/users", {"action": "disable", "username": "student2"})):
+            req = urllib.request.Request(self.base + path, method=method,
+                                         data=json.dumps(body).encode() if body is not None else None)
+            try:
+                urllib.request.urlopen(req, timeout=5)
+                code = 200
+            except urllib.error.HTTPError as exc:
+                code = exc.code
+            self.assertEqual(code, 403, path)
+        self.assertTrue(self.server.STORE.material(mat["id"]))
+        # 自己的资料照常能管
+        self.assertEqual(call(self.base, "POST", f"/api/materials/{own['id']}/meta", {"title": "改名"})[0], 200)
+        # AI 工具同样受限
+        import tools
+        ctx = tools.ToolContext(store=self.server.STORE, is_admin=False)
+        self.assertFalse(tools.t_move_material(ctx, title=mat["title"], folder="我的")["ok"])
+        self.assertFalse(tools.t_delete_material(ctx, title=mat["title"], confirm=True)["ok"])
+        self.assertTrue(self.server.STORE.material(mat["id"]))
+
+    def test_admin_manages_accounts_and_core(self):
+        st = self.login("teacher")
+        self.assertTrue(st["is_admin"])
+        data, folder, mat = self.core()
+        self.assertTrue(folder["editable"])
+        self.assertEqual(call(self.base, "POST", "/api/materials/reorder", {"ids": [mat["id"]]})[0], 200)
+        status, data = call(self.base, "GET", "/api/admin/users")
+        self.assertEqual(status, 200)
+        roles = {u["username"]: u["role"] for u in data["users"]}
+        self.assertEqual(roles, {"teacher": "admin", "student1": "student", "student2": "student"})
+        self.assertFalse(any("messages" in u or "password_hash" in u for u in data["users"]))
+        path = "/api/admin/users"
+        status, data = call(self.base, "POST", path, {"action": "disable", "username": "student2"})
+        self.assertEqual((status, data["user"]["status"]), (200, "disabled"))
+        self.assertEqual(call(self.base, "POST", path, {"action": "disable", "username": "teacher"})[0], 400)
+        self.assertEqual(call(self.base, "POST", path, {"action": "drop", "username": "student2"})[0], 400)
+        self.assertEqual(call(self.base, "POST", path, {"action": "enable", "username": "nobody"})[0], 404)
+        self.assertEqual(call(self.base, "POST", path, {"action": "reset_password", "username": "student2",
+                                                        "password": "short"})[0], 400)
+        self.assertEqual(call(self.base, "POST", path, {"action": "reset_password", "username": "student2",
+                                                        "password": "newpass123"})[0], 200)
+        self.assertEqual(call(self.base, "POST", path, {"action": "enable", "username": "student2"})[0], 200)
+        call(self.base, "POST", "/api/auth/logout", {})
+        status, _ = call(self.base, "POST", "/api/auth/login", {"username": "student2", "password": "newpass123"})
+        self.assertEqual(status, 200)
+
+    def test_clear_records_only_own(self):
+        self.login("student1")
+        self.server.STORE.create_conversation("学生1的对话")
+        call(self.base, "POST", "/api/auth/logout", {})
+        self.login("student2")
+        self.server.STORE.create_conversation("学生2的对话")
+        status, _ = call(self.base, "POST", "/api/records/clear",
+                         {"kinds": ["conversations"], "confirm": "确认清除"})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.server.STORE.record_counts()["conversations"], 0)
+        call(self.base, "POST", "/api/auth/logout", {})
+        self.login("student1")
+        self.assertEqual(self.server.STORE.record_counts()["conversations"], 1)   # 别人的不动
+
 
 class DocxHtmlTest(unittest.TestCase):
     """docx → HTML：标题样式、有序/无序列表、粗斜体、链接只放行 http(s)、合并单元格。"""

@@ -828,12 +828,18 @@ let PICKED_FILE = null;
 let MATERIALS = [];            // 当前文件夹下的全部资料（搜索/筛选/排序在前端做）
 const SELECTED = new Set();    // 勾选的资料 id，换文件夹后只保留仍在列表里的
 const DRAG_TYPE = 'text/csla-materials';
+let IS_ADMIN = false;          // 核心资料只有管理员能改；学生端隐藏相应按钮（后端同样会拦）
+
+/* 当前账号能不能改这份资料 / 这个文件夹 */
+const canEditMaterial = (m) => IS_ADMIN || !m.folder_shared;
+const canEditFolder = (f) => f.editable !== false;
 
 async function loadMaterials() {
   const q = state.folderId ? `?folder=${encodeURIComponent(state.folderId)}` : '';
   const data = await api('/api/materials' + q);
   MATERIALS = data.materials || [];
   FOLDERS = data.folders || [];
+  IS_ADMIN = !!data.is_admin;
   CUR_FOLDER = FOLDERS.find((f) => f.id === state.folderId) || null;
   const ids = new Set(MATERIALS.map((m) => m.id));
   [...SELECTED].forEach((id) => { if (!ids.has(id)) SELECTED.delete(id); });
@@ -863,6 +869,7 @@ function filteredMaterials() {
     if (!kw) return true;
     return `${m.title} ${m.source_url || ''} ${m.subject || ''}`.toLowerCase().includes(kw);
   });
+  // manual：保持服务端返回的顺序（按手动排好的 ord）
   const by = {
     new: (a, b) => (b.created_at || '').localeCompare(a.created_at || ''),
     old: (a, b) => (a.created_at || '').localeCompare(b.created_at || ''),
@@ -875,6 +882,93 @@ function filteredMaterials() {
 function applyMaterialFilters() {
   renderMaterialList(filteredMaterials());
   updateBatchBar();
+}
+
+/* 手动排序只在「某一个文件夹 + 手动排序」下可用：「全部资料」里混着多个文件夹，没有统一的顺序 */
+function reorderBlocked() {
+  if ($('#mat-sort').value !== 'manual') return '先把排序切换为「手动排序」再拖动调整顺序';
+  if (!state.folderId) return '先在上方选中一个文件夹，再拖动调整顺序';
+  if (CUR_FOLDER && !canEditFolder(CUR_FOLDER)) return '核心资料的顺序只有管理员可以调整';
+  return '';
+}
+
+/* 把 ids 这一组挪到 target 前面（after=true 时挪到后面），然后整份顺序交给后端保存 */
+async function reorderMaterials(ids, targetId, after) {
+  const moving = MATERIALS.filter((m) => ids.includes(m.id));
+  const rest = MATERIALS.filter((m) => !ids.includes(m.id));
+  let at = rest.findIndex((m) => m.id === targetId);
+  if (at < 0 || !moving.length) return;
+  if (after) at += 1;
+  const order = [...rest.slice(0, at), ...moving, ...rest.slice(at)];
+  if (order.every((m, i) => m.id === MATERIALS[i].id)) return;
+  const prev = MATERIALS;
+  MATERIALS = order;                 // 先在界面上排好，失败再退回
+  applyMaterialFilters();
+  try {
+    await api('/api/materials/reorder', { method: 'POST', body: JSON.stringify({ ids: order.map((m) => m.id) }) });
+    toast('顺序已保存');
+  } catch (err) {
+    MATERIALS = prev;
+    applyMaterialFilters();
+    toast(err.message, true);
+  }
+}
+
+/* 拖到另一张卡片上：落点在卡片前半部分就排到它前面，后半部分排到后面 */
+function bindCardDrop(el, m) {
+  const after = (ev) => {
+    const r = el.getBoundingClientRect();
+    // 网格是多列时按横向判断，单列（窄屏）时按纵向判断
+    const multiCol = el.parentElement && getComputedStyle(el.parentElement).gridTemplateColumns.split(' ').length > 1;
+    return multiCol ? ev.clientX > r.left + r.width / 2 : ev.clientY > r.top + r.height / 2;
+  };
+  el.addEventListener('dragover', (ev) => {
+    if (!ev.dataTransfer.types.includes(DRAG_TYPE) || el.classList.contains('dragging')) return;
+    if (reorderBlocked()) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'move';
+    const a = after(ev);
+    el.classList.toggle('drop-before', !a);
+    el.classList.toggle('drop-after', a);
+  });
+  el.addEventListener('dragleave', () => el.classList.remove('drop-before', 'drop-after'));
+  el.addEventListener('drop', (ev) => {
+    el.classList.remove('drop-before', 'drop-after');
+    const raw = ev.dataTransfer.getData(DRAG_TYPE);
+    if (!raw) return;
+    ev.preventDefault();
+    const ids = JSON.parse(raw).filter((id) => id !== m.id && MATERIALS.some((x) => x.id === id));
+    if (ids.length) reorderMaterials(ids, m.id, after(ev));
+  });
+}
+
+/* 手机上没有拖拽：手动排序时卡片上给「上移 / 下移」（按当前看得到的相邻卡片交换） */
+function nudgeMaterial(m, step) {
+  const shown = filteredMaterials();
+  const i = shown.findIndex((x) => x.id === m.id);
+  const j = i + step;
+  if (i < 0 || j < 0 || j >= shown.length) return;
+  reorderMaterials([m.id], shown[j].id, step > 0);
+}
+
+/* 源文件：PDF / 文本在浏览器新标签页打开；Word 浏览器打不开，本机访问时直接用 Word 打开，其它设备下载 */
+const IS_LOCAL_PAGE = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
+
+function openSourceInBrowser(id) {
+  window.open(`/api/materials/${encodeURIComponent(id)}/source`, '_blank', 'noopener');
+}
+
+function openSourceFile(m) {
+  const ext = ((m.original || m.path || '').match(/\.(\w+)$/) || ['', ''])[1].toLowerCase();
+  if (ext === 'docx' && IS_LOCAL_PAGE) openSourceLocally(m.id);
+  else openSourceInBrowser(m.id);
+}
+
+async function openSourceLocally(id) {
+  try {
+    const res = await api(`/api/materials/${encodeURIComponent(id)}/open`, { method: 'POST', body: '{}' });
+    toast(`已用电脑上的默认程序打开 ${res.name}`);
+  } catch (err) { toast(err.message, true); }
 }
 
 function updateBatchBar() {
@@ -897,14 +991,19 @@ $('#mat-check-all').addEventListener('change', (e) => {
 });
 
 $('#mat-batch-move').addEventListener('click', () => {
-  if (SELECTED.size) openMoveMaterial(null, [...SELECTED]);
+  if (!SELECTED.size) return;
+  const locked = MATERIALS.filter((m) => SELECTED.has(m.id) && !canEditMaterial(m)).length;
+  if (locked) { toast(`选中的资料里有 ${locked} 份是核心资料，只有管理员可以移动`, true); return; }
+  openMoveMaterial(null, [...SELECTED]);
 });
 
 $('#mat-batch-del').addEventListener('click', async () => {
   const picked = MATERIALS.filter((m) => SELECTED.has(m.id));
   if (!picked.length) return;
+  const locked = picked.filter((m) => !canEditMaterial(m)).length;
+  if (locked) { toast(`选中的资料里有 ${locked} 份是核心资料，只有管理员可以删除`, true); return; }
   const shared = picked.filter((m) => m.folder_shared).length;
-  const warn = shared ? `\n其中 ${shared} 份位于共识资料文件夹，删除会影响所有科目。` : '';
+  const warn = shared ? `\n其中 ${shared} 份位于核心资料文件夹，删除会影响所有科目。` : '';
   if (!confirm(`删除选中的 ${picked.length} 份资料及其索引？此操作不可恢复。${warn}`)) return;
   try {
     const res = await api('/api/materials/batch', {
@@ -939,6 +1038,7 @@ function bindFolderDrop(el, folder) {
     const raw = ev.dataTransfer.getData(DRAG_TYPE);
     if (!raw) return;
     ev.preventDefault();
+    if (!canEditFolder(folder)) { toast('核心资料只有管理员可以修改', true); return; }
     const ids = JSON.parse(raw).filter((id) => {
       const m = MATERIALS.find((x) => x.id === id);
       return m && m.folder_id !== folder.id;
@@ -952,8 +1052,11 @@ function renderSharedWarning() {
   const bar = $('#shared-warning');
   if (CUR_FOLDER && CUR_FOLDER.is_shared) {
     bar.className = 'banner warn';
-    bar.innerHTML = `🔒 <b>核心资料 core</b>：本机维护的计算机核心知识，会被所有科目的提问检索到。
-      不推荐直接修改或删除；确实要改也可以，改动会影响全部科目的回答。`;
+    bar.innerHTML = IS_ADMIN
+      ? `🔒 <b>核心资料 core</b>：计算机核心知识，会被所有科目的提问检索到。
+        你是管理员，可以修改；改动会影响全部科目的回答，请谨慎。`
+      : `🔒 <b>核心资料 core</b>：计算机核心知识，会被所有科目的提问检索到。
+        核心资料只读，只有管理员可以导入、修改、移动或删除；你可以阅读和打开源文件。`;
   } else {
     bar.className = 'banner hidden';
     bar.innerHTML = '';
@@ -975,11 +1078,12 @@ function renderFolderBar() {
     const wrap = document.createElement('div');
     wrap.className = 'folder-pill' + (state.folderId === f.id ? ' active' : '') +
       (f.is_shared ? ' shared' : '');
-    wrap.title = f.is_shared ? '共识资料（不推荐修改）' : f.name;
+    wrap.title = f.is_shared ? (canEditFolder(f) ? '核心资料（改动影响所有科目）' : '核心资料（只读，管理员可修改）') : f.name;
+    const editable = canEditFolder(f);
     wrap.innerHTML = `${f.is_shared ? '🔒' : '📁'} <span class="pill-name">${esc(f.name)}</span>
       <i class="pill-count">${f.count || 0}</i>
-      ${f.renamable ? '<b class="pill-edit" title="重命名">✎</b>' : ''}
-      <b class="pill-del" title="删除文件夹">✕</b>`;
+      ${f.renamable && editable ? '<b class="pill-edit" title="重命名">✎</b>' : ''}
+      ${editable ? '<b class="pill-del" title="删除文件夹">✕</b>' : ''}`;
     wrap.addEventListener('click', (ev) => {
       if (ev.target.classList.contains('pill-del')) {
         ev.stopPropagation();
@@ -1016,7 +1120,8 @@ function openMoveMaterial(m, ids) {
   $('#move-from').textContent = m ? (m.folder_name || '根目录')
     : (CUR_FOLDER ? CUR_FOLDER.name : '多个文件夹');
   // 不提供"根目录"：根目录里的资料下次启动会被 reorganize 自动归回科目文件夹
-  $('#move-target').innerHTML = FOLDERS.map((f) =>
+  // 学生看不到核心资料文件夹（只有管理员能往里放）
+  $('#move-target').innerHTML = FOLDERS.filter(canEditFolder).map((f) =>
     `<option value="${f.id}"${f.id === fromId ? ' selected' : ''}>${f.is_shared ? '🔒 ' : ''}${esc(f.name)}</option>`).join('');
   $('#move-msg').textContent = '';
   box.dataset.materialId = m ? m.id : '';
@@ -1054,7 +1159,7 @@ function openFolderDelete(folder) {
   $('#fdel-name').textContent = folder.name;
   $('#fdel-count').textContent = folder.count || 0;
   $('#fdel-shared').innerHTML = folder.is_shared
-    ? '注意：这是<b>共识资料</b>文件夹，建议先用「只删文件夹」把资料保留下来。' : '';
+    ? '注意：这是<b>核心资料</b>文件夹，建议先用「只删文件夹」把资料保留下来。' : '';
   $('#modal-folder-del').dataset.folderId = folder.id;
   openModal('#modal-folder-del');
 }
@@ -1070,31 +1175,42 @@ function renderMaterialList(materials) {
           <p>点右上角「导入资料」粘贴课件文本或选择文件</p></div>`;
     return;
   }
-  materials.forEach((m) => {
+  const manual = !reorderBlocked();
+  const shownIds = materials.map((x) => x.id);
+  materials.forEach((m, idx) => {
     const el = document.createElement('div');
+    const editable = canEditMaterial(m);
     el.className = 'card material-card' + (SELECTED.has(m.id) ? ' selected' : '');
-    el.draggable = true;
+    // 核心资料对学生不可拖（拖去别的文件夹 / 调顺序都会被拒）
+    el.draggable = editable;
     el.dataset.id = m.id;
     const kb = (m.bytes / 1024).toFixed(1);
+    const ext = ((m.original || m.path || '').match(/\.(\w+)$/) || ['', ''])[1].toLowerCase();
+    const fmt = { pdf: 'PDF', docx: 'Word', md: 'Markdown', markdown: 'Markdown', txt: 'TXT', csv: 'CSV', json: 'JSON' }[ext];
     el.innerHTML = `
       <div class="mat-head">
         <input type="checkbox" class="mat-check" title="选择"${SELECTED.has(m.id) ? ' checked' : ''} />
         <h4 class="mat-title" title="点击阅读">${esc(m.title)}</h4>
+        ${manual && shownIds.length > 1 ? `<span class="mat-order">
+          <button class="mini-btn" data-act="up" title="上移"${idx === 0 ? ' disabled' : ''}>↑</button>
+          <button class="mini-btn" data-act="down" title="下移"${idx === shownIds.length - 1 ? ' disabled' : ''}>↓</button></span>` : ''}
       </div>
       <div class="meta">
         ${m.folder_name ? `<span class="tag">${m.folder_shared ? '🔒 ' : '📁 '}${esc(m.folder_name)}</span>` : '<span class="tag">根目录</span>'}
         <span class="tag">${esc(m.subject || '未分类')}</span>
+        ${fmt ? `<span class="tag fmt-tag">${fmt}</span>` : ''}
         <span>${kb} KB</span>
         <span>${esc(m.created_at)}</span>
       </div>
       ${m.source_url ? `<div class="meta">来源：${esc(m.source_url)}</div>` : ''}
-      <div class="path-line" title="${esc(m.path || '')}">${esc(m.path || '（无源文件路径）')}
+      <div class="path-line" title="${esc(m.original || m.path || '')}">${esc(m.original || m.path || '（无源文件路径）')}
         <button class="mini-btn" data-act="copy">复制路径</button></div>
       <div class="card-actions">
         <button class="btn primary small" data-act="open">阅读</button>
-        <button class="btn small" data-act="edit">编辑</button>
+        <button class="btn small" data-act="source" title="${ext === 'docx' ? (IS_LOCAL_PAGE ? '用电脑上的 Word 打开' : 'Word 文件浏览器打不开，会下载到本地') : '在浏览器新标签页打开源文件'}">打开源文件</button>
+        ${editable ? `<button class="btn small" data-act="edit">编辑</button>
         <button class="btn small" data-act="move">移动到…</button>
-        <button class="btn danger small" data-act="del">删除</button>
+        <button class="btn danger small" data-act="del">删除</button>` : '<span class="muted small locked-tip">🔒 只读</span>'}
       </div>`;
     el.querySelector('.mat-check').addEventListener('change', (ev) => {
       if (ev.target.checked) SELECTED.add(m.id); else SELECTED.delete(m.id);
@@ -1108,21 +1224,32 @@ function renderMaterialList(materials) {
       el.classList.add('dragging');
     });
     el.addEventListener('dragend', () => el.classList.remove('dragging'));
+    bindCardDrop(el, m);
     el.querySelector('.mat-title').addEventListener('click', () => openMaterial(m.id));
-    el.querySelector('[data-act="edit"]').addEventListener('click', () => openMaterialEdit(m));
-    el.querySelector('[data-act="move"]').addEventListener('click', () => openMoveMaterial(m));
     el.querySelector('[data-act="open"]').addEventListener('click', () => openMaterial(m.id));
+    el.querySelector('[data-act="source"]').addEventListener('click', () => openSourceFile(m));
     el.querySelector('[data-act="copy"]').addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(m.path || ''); toast('路径已复制'); }
+      try { await navigator.clipboard.writeText(m.original || m.path || ''); toast('路径已复制'); }
       catch (e) { toast('复制失败，可手动选中路径', true); }
     });
-    el.querySelector('[data-act="del"]').addEventListener('click', async () => {
-      if (m.folder_shared && !confirm(`「${m.title}」位于共识资料文件夹，删除会影响所有科目。仍要删除吗？`)) return;
-      if (!m.folder_shared && !confirm(`删除资料「${m.title}」及其索引？`)) return;
-      await api(`/api/materials/${m.id}`, { method: 'DELETE' });
-      loadMaterials(); toast('已删除资料');
-      const st = await api('/api/state'); renderStats(st.stats);
-    });
+    const up = el.querySelector('[data-act="up"]');
+    if (up) {
+      up.addEventListener('click', () => nudgeMaterial(m, -1));
+      el.querySelector('[data-act="down"]').addEventListener('click', () => nudgeMaterial(m, 1));
+    }
+    if (editable) {
+      el.querySelector('[data-act="edit"]').addEventListener('click', () => openMaterialEdit(m));
+      el.querySelector('[data-act="move"]').addEventListener('click', () => openMoveMaterial(m));
+      el.querySelector('[data-act="del"]').addEventListener('click', async () => {
+        if (m.folder_shared && !confirm(`「${m.title}」位于核心资料文件夹，删除会影响所有科目。仍要删除吗？`)) return;
+        if (!m.folder_shared && !confirm(`删除资料「${m.title}」及其索引？`)) return;
+        try {
+          await api(`/api/materials/${m.id}`, { method: 'DELETE' });
+          loadMaterials(); toast('已删除资料');
+          const st = await api('/api/state'); renderStats(st.stats);
+        } catch (err) { toast(err.message, true); }
+      });
+    }
     list.appendChild(el);
   });
 }
@@ -1164,56 +1291,84 @@ $('#medit-ok').addEventListener('click', async () => {
 
 $('#btn-import').addEventListener('click', async () => {
   const { subjects } = await api('/api/subjects');
-  $('#imp-subject').innerHTML = '<option value="">不指定（归入共识资料）</option>' +
+  $('#imp-subject').innerHTML = '<option value="">不指定</option>' +
     subjects.map((s) => `<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('');
   const data = await api('/api/materials');
   FOLDERS = data.folders || [];
+  IS_ADMIN = !!data.is_admin;
+  // 学生不能往核心资料里导入
+  const targets = FOLDERS.filter(canEditFolder);
+  const cur = targets.some((f) => f.id === state.folderId) ? state.folderId : '';
   $('#imp-folder').innerHTML = '<option value="">根目录</option>' +
-    FOLDERS.map((f) => `<option value="${f.id}"${f.id === state.folderId ? ' selected' : ''}>${f.is_shared ? '🔒 ' : ''}${esc(f.name)}</option>`).join('');
+    targets.map((f) => `<option value="${f.id}"${f.id === cur ? ' selected' : ''}>${f.is_shared ? '🔒 ' : ''}${esc(f.name)}</option>`).join('');
   $('#imp-title').value = ''; $('#imp-text').value = ''; $('#imp-msg').textContent = '';
+  $('#imp-text').disabled = false;
   PICKED_FILE = null; $('#imp-file').value = ''; $('#imp-review').checked = false;
   openModal('#modal-import');
 });
 $('#imp-cancel').addEventListener('click', () => closeModal('#modal-import'));
 $('#imp-pick').addEventListener('click', () => $('#imp-file').click());
+
+const IMPORT_MAX_MB = 20;
+// 这几类由服务端解析：浏览器只读二进制，按 base64 上传，原文件一并保存
+const isBinaryImport = (name) => /\.(docx|pdf)$/i.test(name || '');
+
 $('#imp-file').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
-  PICKED_FILE = file;
-  if (file.size > 5 * 1024 * 1024) { $('#imp-msg').textContent = '文件超过 5 MB，建议拆分后再导入'; return; }
-  if (!$('#imp-title').value) $('#imp-title').value = file.name.replace(/\.[^.]+$/, '');
-  if (/\.docx$/i.test(file.name)) {
-    $('#imp-text').value = '';
-    $('#imp-msg').textContent = '已选择 .docx，导入时会在服务端解析正文（保留段落结构）';
+  PICKED_FILE = null;
+  const msg = $('#imp-msg');
+  $('#imp-text').disabled = false;
+  if (!/\.(pdf|docx|txt|md|markdown|csv|json)$/i.test(file.name)) {
+    msg.textContent = /\.doc$/i.test(file.name)
+      ? '老式 .doc 无法直接解析，请先在 Word 里另存为 .docx'
+      : '只支持 .pdf / .docx / .txt / .md / .csv / .json 文件';
+    e.target.value = '';
     return;
   }
-  if (/\.doc$/i.test(file.name)) {
-    $('#imp-msg').textContent = '老式 .doc 无法直接解析，请先另存为 .docx';
+  if (file.size > IMPORT_MAX_MB * 1024 * 1024) {
+    msg.textContent = `文件 ${(file.size / 1048576).toFixed(1)} MB，超过 ${IMPORT_MAX_MB} MB 上限，请拆分后再导入`;
+    e.target.value = '';
+    return;
+  }
+  PICKED_FILE = file;
+  if (!$('#imp-title').value) $('#imp-title').value = file.name.replace(/\.[^.]+$/, '');
+  if (isBinaryImport(file.name)) {
+    const pdf = /\.pdf$/i.test(file.name);
+    $('#imp-text').value = '';
+    $('#imp-text').disabled = true;
+    msg.textContent = `已选择 ${file.name}（${(file.size / 1024).toFixed(0)} KB）。`
+      + (pdf ? '导入时在本机提取每页文字；扫描版（图片）PDF 没有文字层，会提示无法导入。'
+        : '导入时在服务端解析正文（保留标题、列表、表格）。') + '原文件会一并保存，可随时打开。';
     return;
   }
   const text = await file.text();
   $('#imp-text').value = text;
-  $('#imp-msg').textContent = '';
+  msg.textContent = '';
 });
 $('#imp-save').addEventListener('click', async () => {
   const title = $('#imp-title').value.trim();
   const text = $('#imp-text').value;
-  const isDocx = PICKED_FILE && /\.docx$/i.test(PICKED_FILE.name);
-  if (!isDocx && (!title || !text.trim())) { $('#imp-msg').textContent = '标题和内容都不能为空'; return; }
-  $('#imp-msg').textContent = '导入中…';
+  const binary = PICKED_FILE && isBinaryImport(PICKED_FILE.name);
+  if (!binary && (!title || !text.trim())) { $('#imp-msg').textContent = '标题和内容都不能为空'; return; }
+  $('#imp-msg').textContent = binary && /\.pdf$/i.test(PICKED_FILE.name) ? '正在提取 PDF 文字…' : '导入中…';
   const folderId = $('#imp-folder').value;
+  const btn = $('#imp-save');
+  btn.disabled = true;
   try {
     const payload = {
       title, subject: $('#imp-subject').value, folder_id: folderId,
       filename: PICKED_FILE ? PICKED_FILE.name : '',
       review: $('#imp-review').checked,
     };
-    if (isDocx) payload.content = await readFileBase64(PICKED_FILE);
-    else payload.text = text;
+    // 选了文本类文件：内容框里的文字（可能被改过）作为正文，原文件仍一并上传保存
+    if (PICKED_FILE) payload.content = await readFileBase64(PICKED_FILE);
+    if (!binary) payload.text = text;
     const res = await api('/api/materials/import', {
       method: 'POST', body: JSON.stringify(payload),
     });
-    toast(`已导入，切分为 ${res.chunks} 段${res.status === 'pending' ? '（待审核）' : ''}`);
+    const pages = res.pages ? `共 ${res.pages} 页，` : '';
+    toast(`已导入，${pages}切分为 ${res.chunks} 段${res.status === 'pending' ? '（待审核）' : ''}`);
     closeModal('#modal-import');
     PICKED_FILE = null;
     $('#imp-file').value = '';
@@ -1221,6 +1376,7 @@ $('#imp-save').addEventListener('click', async () => {
     loadMaterials();
     const st = await api('/api/state'); renderStats(st.stats);
   } catch (err) { $('#imp-msg').textContent = err.message; }
+  finally { btn.disabled = false; }
 });
 
 $('#btn-new-folder').addEventListener('click', async () => {
@@ -1267,7 +1423,7 @@ async function loadReader() {
   $('#reader-title').textContent = '资料阅读';
   $('#reader-meta').textContent = '';
   $('#reader-note').classList.add('hidden');
-  $('#reader-download').classList.add('hidden');
+  ['#reader-download', '#reader-source', '#reader-open-local'].forEach((s) => $(s).classList.add('hidden'));
   body.className = 'doc-body';
   if (!id) { body.innerHTML = '<p class="muted">没有指定资料，请从资料管理里点「阅读」。</p>'; return; }
   body.innerHTML = '<p class="muted">加载中…</p>';
@@ -1276,17 +1432,30 @@ async function loadReader() {
     if (state.readerId !== id) return;        // 加载期间又换了资料
     READER.data = d;
     const m = d.material;
-    const label = { docx: 'Word 文档', markdown: 'Markdown', text: '纯文本' }[d.format] || '';
+    const label = { docx: 'Word 文档', pdf: 'PDF', markdown: 'Markdown', text: '纯文本' }[d.format] || '';
     $('#reader-title').textContent = m.title;
     $('#reader-meta').textContent = [label, m.subject || '未分类', `${(m.bytes / 1024).toFixed(1)} KB`,
       m.created_at, m.source_url ? `来源：${m.source_url}` : ''].filter(Boolean).join(' · ');
     $('#reader-raw').href = `/api/materials/${encodeURIComponent(id)}/raw`;
-    const dl = $('#reader-download');
-    dl.classList.toggle('hidden', !d.has_original);
-    if (d.has_original) dl.href = `/api/materials/${encodeURIComponent(id)}/original`;
+    const src = `/api/materials/${encodeURIComponent(id)}/source`;
+    const type = (d.source_type || '').toUpperCase();
+    if (d.source_type) {
+      // Word 浏览器打不开：本机用 Word 打开 + 下载；PDF / 文本在浏览器新标签页打开
+      const viewable = d.source_type !== 'docx';
+      $('#reader-source').classList.toggle('hidden', !viewable);
+      $('#reader-source').href = src;
+      $('#reader-source').textContent = `在浏览器中打开源文件（${type}）`;
+      $('#reader-open-local').classList.toggle('hidden', !d.can_open_local);
+      $('#reader-open-local').textContent = d.source_type === 'docx' ? '用 Word 打开源文件' : '用电脑上的程序打开';
+      const dl = $('#reader-download');
+      dl.classList.remove('hidden');
+      dl.href = `${src}?download=1`;
+      dl.setAttribute('download', d.source_name || '');
+      dl.textContent = `下载源文件（${type}）`;
+    }
     const notes = [];
     if (d.truncated) notes.push('内容较长，只显示了前 20 万字，完整内容请下载查看。');
-    if (d.has_original && !d.html) notes.push('Word 原文件解析失败，下面显示的是抽取出的文字。');
+    if (d.format === 'docx' && !d.html) notes.push('Word 原文件解析失败，下面显示的是抽取出的文字。');
     if (!d.exists) notes.push('源文件已丢失（可能被手动删除）。');
     $('#reader-note').textContent = notes.join(' ');
     $('#reader-note').classList.toggle('hidden', !notes.length);
@@ -1296,14 +1465,26 @@ async function loadReader() {
   }
 }
 
+$('#reader-open-local').addEventListener('click', () => {
+  if (state.readerId) openSourceLocally(state.readerId);
+});
+
 function renderReader() {
   const d = READER.data;
   const body = $('#reader-body');
-  $$('#reader-mode .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.mode === READER.mode));
+  // PDF：「排版」直接嵌浏览器自带的 PDF 阅读器看原版，「原文」看提取出的文字
+  const pdf = d && d.format === 'pdf' && d.has_original;
+  $$('#reader-mode .seg-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.mode === READER.mode);
+    b.textContent = b.dataset.mode === 'render' ? (pdf ? '原版 PDF' : '排版') : (pdf ? '提取的文字' : '原文');
+  });
   if (!d) return;
   const source = READER.mode === 'source' || d.format === 'text';
-  body.className = 'doc-body' + (source ? ' source' : '');
-  if (source) body.textContent = d.content || '';
+  body.className = 'doc-body' + (source ? ' source' : '') + (pdf && !source ? ' pdf' : '');
+  if (pdf && !source) {
+    body.innerHTML = `<iframe class="pdf-frame" title="${esc(d.material.title)}"
+      src="/api/materials/${encodeURIComponent(d.material.id)}/source"></iframe>`;
+  } else if (source) body.textContent = d.content || '';
   else if (d.format === 'docx' && d.html) body.innerHTML = d.html;
   else body.innerHTML = md(d.content || '') || '<p class="muted">（空）</p>';
 }

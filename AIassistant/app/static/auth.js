@@ -49,10 +49,15 @@ function renderAccount(auth) {
   const bar = $('#account-bar');
   const hasAccount = !!(auth && auth.enabled && auth.user);
   bar.parentElement.classList.toggle('has-account', hasAccount);
+  // 账号管理入口：登录了且是管理员才显示（--no-auth 单机模式没有账号可管）
+  $('#admin-row').classList.toggle('hidden', !(hasAccount && auth.is_admin));
   if (!hasAccount) { bar.classList.add('hidden'); return; }
   accountUser = auth.user;
   bar.classList.remove('hidden');
-  $('#account-name').textContent = `账号：${auth.user.username}`;
+  const admin = auth.user.role === 'admin';
+  $('#account-name').innerHTML = `账号：${esc(auth.user.username)}`
+    + (admin ? ' <span class="role-tag admin" title="可修改核心资料、管理账号">管理员</span>' : '');
+  $('#account-name').title = `${auth.user.username}（${admin ? '管理员' : '学生'}）`;
   const off = $('#auth-offline');
   off.classList.toggle('hidden', !auth.offline);
   if (auth.offline) off.textContent = `认证服务不可达（${auth.auth_server}），离线使用中；恢复联网后会自动重新校验。`;
@@ -205,3 +210,130 @@ $('#del-ok').addEventListener('click', async () => {
   } catch (err) { msg.textContent = err.message; }
   finally { btn.disabled = false; }
 });
+
+/* ---------------------------------------------------------------- 清除本人记录（FR-12 / UI-08） */
+/* 先列出影响范围（每类现有条数），勾选 + 输入"确认清除"才放行；后端会再校验一次确认语 */
+const CLEAR_WORD = '确认清除';
+
+async function openClearRecords() {
+  $('#clr-user').textContent = accountUser ? accountUser.username : '本机用户';
+  $('#clr-confirm').value = '';
+  $('#clr-msg').textContent = '';
+  const box = $('#clr-kinds');
+  box.innerHTML = '<span class="muted small">加载中…</span>';
+  openModal('#modal-clear-records');
+  try {
+    const { kinds } = await api('/api/records');
+    box.innerHTML = kinds.map((k) => `<label class="clr-kind${k.count ? '' : ' zero'}">
+        <input type="checkbox" value="${esc(k.key)}"${k.count ? '' : ' disabled'} />
+        <span>${esc(k.label)}</span><b>${k.count}</b></label>`).join('');
+    box.querySelectorAll('input').forEach((i) => i.addEventListener('change', updateClearButton));
+  } catch (err) { box.innerHTML = ''; $('#clr-msg').textContent = err.message; }
+  updateClearButton();
+}
+
+function updateClearButton() {
+  const picked = $$('#clr-kinds input:checked').length;
+  $('#clr-ok').disabled = !picked || $('#clr-confirm').value.trim() !== CLEAR_WORD;
+  $('#clr-ok').textContent = picked ? `清除选中的 ${picked} 类记录` : '清除选中的记录';
+}
+
+$('#btn-clear-records').addEventListener('click', openClearRecords);
+$('#clr-confirm').addEventListener('input', updateClearButton);
+$('#clr-cancel').addEventListener('click', () => closeModal('#modal-clear-records'));
+$('#clr-ok').addEventListener('click', async () => {
+  const picked = $$('#clr-kinds input:checked');
+  const kinds = picked.map((i) => i.value);
+  const names = picked.map((i) => i.parentElement.querySelector('span').textContent);
+  if (!kinds.length || $('#clr-confirm').value.trim() !== CLEAR_WORD) return;
+  if (!confirm(`最后确认：清除「${names.join('、')}」？清除后无法恢复。`)) return;
+  const btn = $('#clr-ok');
+  btn.disabled = true;
+  try {
+    const { cleared } = await api('/api/records/clear', {
+      method: 'POST', body: JSON.stringify({ kinds, confirm: CLEAR_WORD }),
+    });
+    const total = Object.values(cleared || {}).reduce((a, b) => a + b, 0);
+    closeModal('#modal-clear-records');
+    toast(`已清除 ${total} 条记录`);
+    // 对话、总结、档案、统计都可能变了：清掉聊天区（等于点一次「新对话」）再刷新统计和档案
+    if (kinds.includes('conversations')) $('#btn-new-chat').click();
+    const st = await api('/api/state');
+    renderStats(st.stats);
+    loadProfile();
+  } catch (err) { $('#clr-msg').textContent = err.message; updateClearButton(); }
+});
+
+/* ---------------------------------------------------------------- 账号管理（仅管理员） */
+let ADMIN_USERS = [];
+
+async function loadAdminUsers() {
+  const list = $('#admin-users-list');
+  $('#admin-msg').textContent = '';
+  list.innerHTML = '<span class="muted small">加载中…</span>';
+  try {
+    ({ users: ADMIN_USERS } = await api('/api/admin/users'));
+    renderAdminUsers();
+  } catch (err) { list.innerHTML = ''; $('#admin-msg').textContent = err.message; }
+}
+
+function renderAdminUsers() {
+  const list = $('#admin-users-list');
+  const kw = $('#admin-search').value.trim().toLowerCase();
+  const me = accountUser ? accountUser.id : '';
+  const rows = ADMIN_USERS.filter((u) => !kw || `${u.username} ${u.nickname}`.toLowerCase().includes(kw));
+  list.innerHTML = rows.length ? '' : '<span class="muted small">没有匹配的账号</span>';
+  rows.forEach((u) => {
+    const self = u.id === me;
+    const disabled = u.status !== 'active';
+    const row = document.createElement('div');
+    row.className = 'session-row admin-row' + (self ? ' current' : '') + (disabled ? ' disabled' : '');
+    row.innerHTML = `<div class="session-info">
+        <b>${esc(u.username)}${u.nickname ? `（${esc(u.nickname)}）` : ''}${self ? ' · 我' : ''}
+          <span class="role-tag ${u.role === 'admin' ? 'admin' : ''}">${u.role === 'admin' ? '管理员' : '学生'}</span>
+          ${disabled ? '<span class="role-tag off">已禁用</span>' : ''}</b>
+        <span>注册于 ${esc(u.created_at || '—')} · 最近登录 ${esc(u.last_login_at || '从未登录')}</span>
+      </div>
+      <div class="admin-acts">
+        <button class="btn small" data-act="reset">重置密码</button>
+        ${self ? '' : `<button class="btn small ${disabled ? '' : 'danger'}" data-act="toggle">${disabled ? '启用' : '禁用'}</button>`}
+      </div>`;
+    row.querySelector('[data-act="reset"]').addEventListener('click', () => adminResetPassword(u));
+    const toggle = row.querySelector('[data-act="toggle"]');
+    if (toggle) toggle.addEventListener('click', () => adminToggle(u));
+    list.appendChild(row);
+  });
+}
+
+async function adminAction(body, okText) {
+  try {
+    const { user } = await api('/api/admin/users', { method: 'POST', body: JSON.stringify(body) });
+    ADMIN_USERS = ADMIN_USERS.map((u) => (u.id === user.id ? user : u));
+    renderAdminUsers();
+    toast(okText);
+  } catch (err) { $('#admin-msg').textContent = err.message; }
+}
+
+function adminToggle(u) {
+  const disable = u.status === 'active';
+  if (disable && !confirm(`禁用账号「${u.username}」？它在所有设备上的登录会立即失效，之后无法登录。本机数据会保留。`)) return;
+  adminAction({ action: disable ? 'disable' : 'enable', username: u.username },
+    disable ? `已禁用 ${u.username}` : `已启用 ${u.username}`);
+}
+
+function adminResetPassword(u) {
+  const pw = prompt(`为「${u.username}」设置新密码（8–64 位，含字母和数字）。\n重置后该账号所有设备需要用新密码重新登录。`);
+  if (pw == null) return;
+  const bad = checkPassword(pw, '新密码');
+  if (bad) { $('#admin-msg').textContent = bad; return; }
+  adminAction({ action: 'reset_password', username: u.username, password: pw },
+    `已重置 ${u.username} 的密码，请把新密码当面告诉本人`);
+}
+
+$('#btn-admin-users').addEventListener('click', () => {
+  $('#admin-search').value = '';
+  openModal('#modal-admin-users');
+  loadAdminUsers();
+});
+$('#admin-search').addEventListener('input', renderAdminUsers);
+$('#admin-close').addEventListener('click', () => closeModal('#modal-admin-users'));

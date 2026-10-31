@@ -34,6 +34,20 @@ class ToolContext:
     store: object
     retriever_factory: object = None      # 可选：() -> Retriever
     max_chars: int = 6000
+    is_admin: bool = True                 # 非管理员不能改核心资料（与网页接口同一规则）
+
+
+CORE_READONLY = "核心资料只有管理员可以修改，这一步我不能替你做"
+
+
+def _core_locked(ctx: ToolContext, *folders) -> bool:
+    if ctx.is_admin:
+        return False
+    return any(f and f.get("is_shared") for f in folders)
+
+
+def _folder_of(store, material: dict) -> dict | None:
+    return store.folder(material.get("folder_id") or "") if material.get("folder_id") else None
 
 
 # ---------------------------------------------------------------- 安全：URL 抓取
@@ -145,6 +159,8 @@ def t_move_material(ctx: ToolContext, title: str, folder: str, **_) -> dict:
     target = _find_folder(ctx.store, folder)
     if not target:
         return {"ok": False, "summary": f"没有找到文件夹「{folder}」"}
+    if _core_locked(ctx, target, _folder_of(ctx.store, material)):
+        return {"ok": False, "summary": CORE_READONLY}
     ctx.store.move_material(material["id"], target["id"])
     return {"ok": True, "summary": f"已把「{material['title']}」移动到「{target['name']}」"}
 
@@ -164,6 +180,8 @@ def t_classify_materials(ctx: ToolContext, **_) -> dict:
 def t_create_folder(ctx: ToolContext, name: str, shared: bool = False, **_) -> dict:
     if ctx.store.folder_by_name(name):
         return {"ok": False, "summary": f"已存在同名文件夹「{name}」"}
+    if shared and not ctx.is_admin:
+        return {"ok": False, "summary": "只有管理员可以新建核心资料文件夹"}
     folder = ctx.store.add_folder(name, is_shared=shared)
     return {"ok": True, "summary": f"已创建文件夹「{name}」", "data": folder}
 
@@ -172,6 +190,8 @@ def t_delete_material(ctx: ToolContext, title: str, confirm: bool = False, **_) 
     material = _find_material(ctx.store, title)
     if not material:
         return {"ok": False, "summary": f"没有找到标题匹配「{title}」的资料"}
+    if _core_locked(ctx, _folder_of(ctx.store, material)):
+        return {"ok": False, "summary": CORE_READONLY}
     if not confirm:
         return {"ok": False, "need_confirm": True,
                 "summary": f"即将删除资料「{material['title']}」，请确认后我再执行"
@@ -193,6 +213,8 @@ def t_import_url(ctx: ToolContext, url: str, subject: str = "", folder: str = ""
     target = _find_folder(ctx.store, folder) if folder else None
     if target is None and subject:
         target = _find_folder(ctx.store, subject)
+    if _core_locked(ctx, target):
+        return {"ok": False, "summary": CORE_READONLY}
     body = f"# {title}\n\n来源：{url}\n\n{text}\n"
     material = ctx.store.add_material(
         title=title, text=body, subject=subject,

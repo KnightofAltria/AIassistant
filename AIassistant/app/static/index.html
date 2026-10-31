@@ -185,6 +185,22 @@
         <div class="panel-head"><h3>学习者档案（按月）</h3></div>
         <div id="profile-panel-2" class="panel-body"></div>
       </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>账号与数据</h3></div>
+        <div class="panel-body data-actions">
+          <div class="data-row">
+            <div><b>清除本人学习记录</b>
+              <p class="muted small">只清当前账号自己的对话、总结、练习、档案等记录；导入的资料、题库和其他账号不受影响。</p></div>
+            <button id="btn-clear-records" class="btn danger">清除记录…</button>
+          </div>
+          <div class="data-row hidden" id="admin-row">
+            <div><b>账号管理 <span class="role-tag admin">管理员</span></b>
+              <p class="muted small">查看所有账号，禁用 / 启用账号，为忘记密码的同学重置密码。</p></div>
+            <button id="btn-admin-users" class="btn">打开账号管理</button>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- ---------------- AI 聊天 ---------------- -->
@@ -378,6 +394,7 @@
         <input id="mat-search" type="search" placeholder="搜索资料名 / 来源" />
         <select id="mat-subject" title="按科目筛选"><option value="">全部科目</option></select>
         <select id="mat-sort" title="排序">
+          <option value="manual">手动排序</option>
           <option value="new">最新导入</option>
           <option value="old">最早导入</option>
           <option value="title">按名称</option>
@@ -388,7 +405,7 @@
         <button id="mat-batch-move" class="btn small" disabled>批量移动</button>
         <button id="mat-batch-del" class="btn danger small" disabled>批量删除</button>
       </div>
-      <p class="muted small mat-tip">提示：可以把资料卡片拖到上方的文件夹里完成移动。</p>
+      <p class="muted small mat-tip" id="mat-tip">提示：把卡片拖到上方的文件夹里完成移动；选中某个文件夹、排序为「手动排序」时，把卡片拖到另一张卡片上可调整顺序。</p>
       <div id="material-list" class="card-list"></div>
     </section>
 
@@ -404,7 +421,9 @@
             <button class="seg-btn active" data-mode="render">排版</button>
             <button class="seg-btn" data-mode="source">原文</button>
           </div>
-          <a id="reader-download" class="btn hidden" download>下载 Word 原文件</a>
+          <a id="reader-source" class="btn primary hidden" target="_blank" rel="noopener">在浏览器中打开源文件</a>
+          <button id="reader-open-local" class="btn hidden">用电脑上的程序打开</button>
+          <a id="reader-download" class="btn hidden" download>下载源文件</a>
           <a id="reader-raw" class="btn" download>下载文本</a>
         </div>
       </header>
@@ -423,12 +442,12 @@
       <select id="imp-subject"><option value="">不指定</option></select>
     </label>
     <label class="field"><span>文件夹</span><select id="imp-folder"><option value="">根目录</option></select></label>
-    <label class="field"><span>内容</span><textarea id="imp-text" rows="10" placeholder="粘贴文本，或点下方选择文件（.txt / .md / .csv / .json / .docx）"></textarea></label>
+    <label class="field"><span>内容</span><textarea id="imp-text" rows="10" placeholder="粘贴文本，或点下方选择文件（.pdf / .docx / .txt / .md / .csv / .json，最大 20 MB）"></textarea></label>
     <label class="field checkbox-field"><span>
       <input type="checkbox" id="imp-review" /> 先存为「待审核」，不立刻进入检索
     </span></label>
     <div class="modal-actions">
-      <input type="file" id="imp-file" accept=".txt,.md,.markdown,.csv,.json,.docx" hidden />
+      <input type="file" id="imp-file" accept=".pdf,.docx,.txt,.md,.markdown,.csv,.json" hidden />
       <button id="imp-pick" class="btn">选择文件</button>
       <span class="spacer"></span>
       <button id="imp-cancel" class="btn">取消</button>
@@ -565,6 +584,40 @@
       <span class="spacer"></span>
       <button id="sessions-close" class="btn">关闭</button>
       <button id="sessions-revoke-others" class="btn primary">退出其他所有设备</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 清除本人记录弹窗（FR-12 / UI-08） ============ -->
+<div id="modal-clear-records" class="modal hidden">
+  <div class="modal-card narrow">
+    <h3>清除本人学习记录</h3>
+    <p class="banner warn small">清除后<b>无法恢复</b>。只影响当前账号 <b id="clr-user"></b> 在本机的记录，
+      导入的资料、题库、科目章节和其他账号都不受影响。</p>
+    <p class="muted small">勾选要清除的内容（括号里是现有条数）：</p>
+    <div id="clr-kinds" class="clr-kinds"></div>
+    <label class="field"><span>输入 <b>确认清除</b> 四个字以继续</span>
+      <input id="clr-confirm" autocomplete="off" spellcheck="false" maxlength="10" /></label>
+    <p id="clr-msg" class="small err-text"></p>
+    <div class="modal-actions">
+      <button id="clr-cancel" class="btn">取消</button>
+      <button id="clr-ok" class="btn danger">清除选中的记录</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 账号管理弹窗（仅管理员） ============ -->
+<div id="modal-admin-users" class="modal hidden">
+  <div class="modal-card">
+    <h3>账号管理</h3>
+    <p class="muted small">禁用后该账号所有设备立即下线、无法登录；重置密码后该账号需用新密码重新登录。
+      设置管理员只能在认证服务器上用命令行 <code>grant-admin</code>。</p>
+    <input id="admin-search" type="search" placeholder="按用户名 / 昵称筛选" class="admin-search" />
+    <div id="admin-users-list" class="sessions-list admin-list"></div>
+    <p id="admin-msg" class="small err-text"></p>
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button id="admin-close" class="btn">关闭</button>
     </div>
   </div>
 </div>

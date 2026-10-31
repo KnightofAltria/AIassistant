@@ -254,6 +254,18 @@ class AuthClient:
             self._clear()
             return str(data.get("user_id") or "")
 
+    # 管理员：认证服务会再校验一次角色，这里只是转发
+    def admin_users(self) -> list[dict]:
+        with self.lock:
+            return self._call("GET", "/auth/admin/users", token=self._access())["users"]
+
+    def admin_action(self, action: str, username: str, password: str = "") -> dict:
+        body = {"action": action, "username": username}
+        if password:
+            body["password"] = password
+        with self.lock:
+            return self._call("POST", "/auth/admin/users", body, token=self._access())["user"]
+
 
 def device_name() -> str:
     """设备列表里显示的名字：主机名 + 系统，例如 "DESKTOP-01 · Windows"。"""

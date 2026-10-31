@@ -20,9 +20,11 @@ import binascii
 import hashlib
 import json
 import mimetypes
+import os
 import re
 import shutil
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -35,6 +37,7 @@ from pathlib import Path
 import auth_client
 import deepseek
 import extras
+import pdftext
 import prompts
 import rag
 import seed
@@ -88,6 +91,18 @@ class CurrentStore:
 
 STORE = CurrentStore()
 LOCK = threading.Lock()
+
+# 资料导入：允许的文件类型与单个文件上限（前端 index.html 的 accept 与之保持一致）
+IMPORT_TYPES = (".pdf", ".docx", ".md", ".markdown", ".txt", ".csv", ".json")
+IMPORT_MAX = 20 * 1024 * 1024
+# 阅读页按原文件类型决定怎么显示
+READER_FORMATS = {".md": "markdown", ".markdown": "markdown", ".pdf": "pdf",
+                  ".txt": "text", ".csv": "text", ".json": "text"}
+SOURCE_TYPES = {".pdf": "application/pdf", ".md": "text/markdown; charset=utf-8",
+                ".markdown": "text/markdown; charset=utf-8", ".txt": "text/plain; charset=utf-8",
+                ".csv": "text/csv; charset=utf-8", ".json": "application/json; charset=utf-8",
+                ".docx": "application/vnd.openxmlformats-officedocument"
+                         ".wordprocessingml.document"}
 
 # ---------------------------------------------------------------- 登录与按账号隔离
 # 规格见 文档/登录注册方案/登录注册与本地部署流程.md 第 6 节
@@ -226,8 +241,40 @@ def clean_meta(body: dict) -> dict:
 def auth_status() -> dict:
     if AUTH is None:
         return {"enabled": False, "logged_in": True, "user": None, "offline": False,
-                "auth_server": "", "notice": ""}
-    return AUTH.status()
+                "auth_server": "", "notice": "", "is_admin": True}
+    return dict(AUTH.status(), is_admin=is_admin())
+
+
+def is_admin() -> bool:
+    """管理员角色由认证服务决定（只能在服务器上用命令行 grant-admin 授予）。
+    --no-auth 单用户调试模式下本机用户就是管理员。"""
+    if AUTH is None:
+        return True
+    return ((AUTH.user or {}).get("role") or "student") == "admin"
+
+
+# 核心资料（is_shared 文件夹）是全体学生共用的标准资料，只有管理员能改
+CORE_READONLY = "核心资料只有管理员可以修改"
+
+
+def is_core_folder(folder_id: str) -> bool:
+    folder = STORE.folder(folder_id) if folder_id else None
+    return bool(folder and folder.get("is_shared"))
+
+
+def is_core_material(material_id: str) -> bool:
+    material = STORE.material(material_id)
+    return bool(material and is_core_folder(material.get("folder_id") or ""))
+
+
+def open_with_system(path: Path) -> None:
+    """用操作系统的默认程序打开文件（Windows 为主，macOS / Linux 开发时也能用）。"""
+    if sys.platform.startswith("win"):
+        os.startfile(str(path))                        # noqa: S606 只打开本账号目录下的资料
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(path)])
+    else:
+        subprocess.Popen(["xdg-open", str(path)])
 
 
 # ---------------------------------------------------------------- 浏览器心跳 / 自动退出
@@ -410,6 +457,16 @@ class Handler(BaseHTTPRequestHandler):
         self._error("请先登录", 401, code="auth_required")
         return True
 
+    def _core_denied(self, folder_ids=(), material_ids=()) -> bool:
+        """非管理员要改核心资料时回 403，返回 True 表示已拦截。"""
+        if is_admin():
+            return False
+        if any(is_core_folder(f) for f in folder_ids if f) \
+                or any(is_core_material(m) for m in material_ids if m):
+            self._error(CORE_READONLY, 403, code="forbidden")
+            return True
+        return False
+
     def do_GET(self) -> None:      # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
         path, query = parsed.path, urllib.parse.parse_qs(parsed.query)
@@ -512,6 +569,10 @@ class Handler(BaseHTTPRequestHandler):
             self._auth_sessions()
             return
 
+        if path == "/api/admin/users":
+            self._admin_users()
+            return
+
         if path == "/api/profile":
             user = STORE.ensure_user()
             self._json({"profile": user.get("profile", ""),
@@ -590,7 +651,22 @@ class Handler(BaseHTTPRequestHandler):
 
         m = re.fullmatch(r"/api/materials/([\w-]+)/original", path)
         if m:
-            self._serve_original(m.group(1))
+            # 只给上传时保留的原文件；粘贴 / 抓取的资料没有原文件（见 /source）
+            if not STORE.material_original(m.group(1)):
+                self._error("这份资料没有保存原文件", 404)
+                return
+            self._serve_source(m.group(1), download=True)
+            return
+
+        m = re.fullmatch(r"/api/materials/([\w-]+)/source", path)
+        if m:
+            self._serve_source(m.group(1), download=query.get("download", [""])[0] == "1")
+            return
+
+        if path == "/api/records":
+            counts = STORE.record_counts()
+            self._json({"kinds": [{"key": k, "label": label, "count": counts[k]}
+                                  for k, label in STORE.RECORD_KINDS.items()]})
             return
 
         m = re.fullmatch(r"/api/materials/([\w-]+)", path)
@@ -607,11 +683,13 @@ class Handler(BaseHTTPRequestHandler):
                 # 内置文件夹、科目同名文件夹不允许改名（见 /api/folders/<id>/rename）
                 f["renamable"] = not f.get("slug") and f["name"] not in subject_names
             fmap = {f["id"]: f for f in folders}
+            for f in folders:
+                f["editable"] = is_admin() or not f.get("is_shared")
             for mat in materials:
                 f = fmap.get(mat.get("folder_id", ""), {})
                 mat["folder_name"] = f.get("name", "")
                 mat["folder_shared"] = bool(f.get("is_shared"))
-            self._json({"materials": materials, "folders": folders})
+            self._json({"materials": materials, "folders": folders, "is_admin": is_admin()})
             return
 
         if path == "/api/rag/search":
@@ -871,6 +949,8 @@ class Handler(BaseHTTPRequestHandler):
             if not title or not text.strip():
                 self._error("标题与内容都不能为空", 400)
                 return
+            if self._core_denied(folder_ids=[body.get("folder_id", "")]):
+                return
             material = STORE.add_material(
                 title=title, text=text, subject=body.get("subject", ""),
                 folder_id=body.get("folder_id", ""), source_url=body.get("source_url", ""))
@@ -886,6 +966,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if STORE.folder_by_name(name):
                 self._error("同名文件夹已存在", 409)
+                return
+            if body.get("is_shared") and not is_admin():
+                self._error("只有管理员可以新建核心资料文件夹", 403, code="forbidden")
                 return
             folder = STORE.add_folder(name, is_shared=bool(body.get("is_shared")))
             self._json({"folder": folder}, 201)
@@ -926,6 +1009,8 @@ class Handler(BaseHTTPRequestHandler):
             if folder_id and not STORE.folder(folder_id):
                 self._error("目标文件夹不存在", 404)
                 return
+            if self._core_denied(folder_ids=[folder_id], material_ids=[m.group(1)]):
+                return
             STORE.move_material(m.group(1), folder_id)
             self._json({"ok": True})
             return
@@ -937,6 +1022,37 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/materials/batch":
             self._material_batch(body)
+            return
+
+        if path == "/api/materials/reorder":
+            ids = body.get("ids")
+            if not isinstance(ids, list) or not ids or len(ids) > 1000 \
+                    or not all(isinstance(i, str) for i in ids):
+                self._error("排序列表不正确", 400)
+                return
+            folders = {(STORE.material(i) or {}).get("folder_id") for i in ids}
+            if None in folders:
+                self._error("排序列表里有不存在的资料", 404)
+                return
+            if len(folders) != 1:
+                self._error("只能在同一个文件夹内调整顺序", 400)
+                return
+            if self._core_denied(folder_ids=list(folders)):
+                return
+            self._json({"ok": True, "updated": STORE.reorder_materials(ids)})
+            return
+
+        m = re.fullmatch(r"/api/materials/([\w-]+)/open", path)
+        if m:
+            self._open_source(m.group(1))
+            return
+
+        if path == "/api/records/clear":
+            self._clear_records(body)
+            return
+
+        if path == "/api/admin/users":
+            self._admin_users(body)
             return
 
         # ---- 扩展：复习评分 / 上传导入 / 审核 / 重抓 / 变式题 / 费曼
@@ -959,6 +1075,10 @@ class Handler(BaseHTTPRequestHandler):
 
         m = re.fullmatch(r"/api/materials/([\w-]+)/status", path)
         if m:
+            # 核心资料的审核属于"管理公共资料"，只给管理员（G-2 §31）；
+            # 自己上传的私人资料仍由本人决定是否进入检索
+            if self._core_denied(material_ids=[m.group(1)]):
+                return
             item = STORE.set_material_status(m.group(1), body.get("status") or "approved")
             if not item:
                 self._error("资料不存在", 404)
@@ -968,6 +1088,8 @@ class Handler(BaseHTTPRequestHandler):
 
         m = re.fullmatch(r"/api/materials/([\w-]+)/refresh", path)
         if m:
+            if self._core_denied(material_ids=[m.group(1)]):
+                return
             self._refresh_material(m.group(1))
             return
 
@@ -1055,6 +1177,33 @@ class Handler(BaseHTTPRequestHandler):
         except auth_client.AuthUnavailable as exc:
             self._error(f"认证服务不可达（{AUTH.base_url}）：{exc}", 503, code="auth_unavailable")
 
+    def _admin_users(self, body: dict | None = None) -> None:
+        """账号管理（仅管理员）：GET 列出账号，POST 禁用 / 启用 / 重置密码。
+        认证服务那边会再校验一次角色，这里先挡一道，学生连请求都发不出去。"""
+        if AUTH is None:
+            self._error("当前以 --no-auth 单用户模式运行，没有账号可管理", 400, code="auth_disabled")
+            return
+        if not is_admin():
+            self._error("需要管理员权限", 403, code="forbidden")
+            return
+        try:
+            if body is None:
+                self._json({"users": AUTH.admin_users()})
+                return
+            password = body.get("password") if isinstance(body.get("password"), str) else ""
+            user = AUTH.admin_action(str(body.get("action") or ""),
+                                     str(body.get("username") or ""), password)
+            self._json({"ok": True, "user": user})
+        except auth_client.AuthFailed as exc:
+            if exc.code in ("token_invalid", "account_disabled", "auth_required"):
+                AUTH.logout()
+                deactivate_user()
+                self._error(exc.message, 401, code="auth_required")
+                return
+            self._error(exc.message, exc.status, code=exc.code)
+        except auth_client.AuthUnavailable as exc:
+            self._error(f"认证服务不可达（{AUTH.base_url}）：{exc}", 503, code="auth_unavailable")
+
     # ------------------------------------------------------------ DELETE API
     def _api_delete(self, path: str, query: dict | None = None) -> None:
         query = query or {}
@@ -1088,6 +1237,8 @@ class Handler(BaseHTTPRequestHandler):
 
         m = re.fullmatch(r"/api/folders/([\w-]+)", path)
         if m:
+            if self._core_denied(folder_ids=[m.group(1)]):
+                return
             mode = query.get("mode", ["move"])[0]
             mode = "purge" if mode == "purge" else "move"
             result = STORE.delete_folder(m.group(1), mode)
@@ -1102,6 +1253,9 @@ class Handler(BaseHTTPRequestHandler):
         ):
             m = re.fullmatch(pattern, path)
             if m:
+                if pattern.startswith("/api/materials/") \
+                        and self._core_denied(material_ids=[m.group(1)]):
+                    return
                 action(m.group(1))
                 self._json({"ok": True})
                 return
@@ -1327,33 +1481,95 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------ 业务：资料文件
     def _material_detail(self, material_id: str) -> None:
-        """阅读页数据。format：docx（html 是服务端按原文件渲染好的）/ markdown / text。"""
-        materials = [m for m in STORE.list_materials() if m["id"] == material_id]
-        if not materials:
+        """阅读页数据。format：docx（html 是服务端按原文件渲染好的）/ pdf / markdown / text。"""
+        item = STORE.material(material_id)
+        if not item:
             self._error("资料不存在", 404)
             return
-        item = materials[0]
         text = STORE.get_material_text(material_id)
         original = STORE.material_original(material_id)
-        html, fmt = "", ("text" if Path(item.get("path", "")).suffix.lower() == ".txt"
-                         else "markdown")
-        if original:
+        source = STORE.material_source(material_id)
+        kind = (original or Path(item.get("path", ""))).suffix.lower()
+        html, fmt = "", READER_FORMATS.get(kind, "markdown")
+        if original and kind == ".docx":
             try:
                 html, fmt = extras.docx_to_html(original.read_bytes()), "docx"
             except Exception:                          # noqa: BLE001 原文件坏了就退回文本
-                html = ""
+                html, fmt = "", "markdown"
         self._json({"material": item, "content": text[:200000], "truncated": len(text) > 200000,
                     "format": fmt, "html": html, "has_original": bool(original),
+                    "source_type": source.suffix.lower().lstrip(".") if source else "",
+                    "source_name": self._source_name(item, source) if source else "",
+                    "can_open_local": self._is_local_client(),
                     "path": item.get("path", ""), "exists": bool(text)})
 
-    def _serve_original(self, material_id: str) -> None:
-        original = STORE.material_original(material_id)
-        if not original:
-            self._error("这份资料没有保存 Word 原文件", 404)
+    @staticmethod
+    def _source_name(item: dict, source: Path) -> str:
+        safe = "".join(ch for ch in item["title"] if ch not in '\\/:*?"<>|').strip() or "资料"
+        return f"{safe}{source.suffix.lower()}"
+
+    def _is_local_client(self) -> bool:
+        """"用电脑上的程序打开"只给本机浏览器用：手机等其它设备点了会在电脑上弹窗。"""
+        return self.client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
+    def _serve_source(self, material_id: str, download: bool) -> None:
+        """源文件：PDF / 文本在浏览器里直接打开（inline），Word 和 download=1 时下载。"""
+        item = STORE.material(material_id)
+        source = STORE.material_source(material_id) if item else None
+        if not source:
+            self._error("资料不存在" if not item else "源文件已丢失（可能被手动删除）", 404)
             return
-        title = STORE.material(material_id)["title"]
-        safe = "".join(ch for ch in title if ch not in '\\/:*?"<>|').strip() or "资料"
-        self._download(original.read_bytes(), f"{safe}.docx")
+        data = source.read_bytes()
+        suffix = source.suffix.lower()
+        disposition = "attachment" if download or suffix == ".docx" else "inline"
+        quoted = urllib.parse.quote(self._source_name(item, source))
+        self.send_response(200)
+        self.send_header("Content-Type", SOURCE_TYPES.get(suffix, "application/octet-stream"))
+        self.send_header("Content-Disposition", f"{disposition}; filename*=UTF-8''{quoted}")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _open_source(self, material_id: str) -> None:
+        """用电脑上的默认程序（Word、PDF 阅读器、记事本…）打开源文件。"""
+        if not self._is_local_client():
+            self._error("只能在运行本系统的电脑上用本机程序打开，其它设备请用「在浏览器中打开」", 403)
+            return
+        item = STORE.material(material_id)
+        source = STORE.material_source(material_id) if item else None
+        if not source:
+            self._error("资料不存在" if not item else "源文件已丢失（可能被手动删除）", 404)
+            return
+        try:
+            open_with_system(source)
+        except OSError as exc:
+            self._error(f"打开失败：{exc}", 500)
+            return
+        self._json({"ok": True, "name": source.name})
+
+    def _clear_records(self, body: dict) -> None:
+        """FR-12 本人记录清除：只动当前账号自己的学习记录，资料、题库、其他账号一概不碰。
+
+        前端会先列出影响范围、让用户勾选并输入"确认清除"；后端同样校验这句确认语，
+        防止误调接口直接清空。
+        """
+        kinds = body.get("kinds")
+        if not isinstance(kinds, list) or not all(isinstance(k, str) for k in kinds):
+            self._error("请选择要清除的记录", 400)
+            return
+        if body.get("confirm") != "确认清除":
+            self._error("请输入「确认清除」四个字以确认", 400, code="confirm_required")
+            return
+        try:
+            cleared = STORE.clear_records(kinds)
+        except ValueError as exc:
+            self._error(str(exc), 400)
+            return
+        if "conversations" in kinds:
+            _ANSWER_CACHE.clear()          # 缓存里的回答也属于被清掉的对话
+        self._json({"ok": True, "cleared": cleared})
 
     def _serve_raw(self, material_id: str) -> None:
         materials = [m for m in STORE.list_materials() if m["id"] == material_id]
@@ -1383,6 +1599,8 @@ class Handler(BaseHTTPRequestHandler):
         material = STORE.material(material_id)
         if not material:
             self._error("资料不存在", 404)
+            return
+        if self._core_denied(material_ids=[material_id]):
             return
         fields = {}
         if "title" in body:
@@ -1422,6 +1640,9 @@ class Handler(BaseHTTPRequestHandler):
         folder_id = str(body.get("folder_id") or "")
         if action == "move" and not (folder_id and STORE.folder(folder_id)):
             self._error("目标文件夹不存在", 404)
+            return
+        if self._core_denied(folder_ids=[folder_id] if action == "move" else [],
+                             material_ids=ids):
             return
         done, missing = 0, 0
         for material_id in dict.fromkeys(ids):
@@ -1485,7 +1706,8 @@ class Handler(BaseHTTPRequestHandler):
 
         system = (prompts.AGENT_MATERIALS_SYSTEM if scope == "materials"
                   else prompts.AGENT_STUDY_SYSTEM)
-        ctx = tools.ToolContext(store=STORE, retriever_factory=get_retriever)
+        ctx = tools.ToolContext(store=STORE, retriever_factory=get_retriever,
+                                is_admin=is_admin())
         specs = tools.tools_for_scope(scope)
         messages = [{"role": "system", "content": system},
                     {"role": "user", "content": text}]
@@ -1691,42 +1913,65 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _import_upload(self, body: dict) -> None:
-        """上传导入：支持 .docx / .txt / .md / .csv；老式 .doc 明确拒绝。"""
+        """上传导入：支持 .docx / .pdf / .txt / .md / .csv / .json；其余类型明确拒绝。
+
+        原文件一律保留，阅读页"打开源文件"打开的就是它。
+        """
         filename = (body.get("filename") or "").strip()
         low = filename.lower()
+        ext = Path(low).suffix
         title = (body.get("title") or "").strip() or re.sub(r"\.[^.]+$", "", filename) or "导入资料"
         text = (body.get("text") or "").strip()
-        original = b""
-        if not text and body.get("content"):
+        original, pages = b"", 0
+        if self._core_denied(folder_ids=[body.get("folder_id", "")]):
+            return
+        # 上传了文件就保存原件；.txt/.md 等文本类若同时带了 text（导入框里可能改过），正文以 text 为准
+        if body.get("content"):
+            if ext not in IMPORT_TYPES:
+                hint = "老式 .doc 无法直接解析，请先在 Word 里另存为 .docx" if ext == ".doc" \
+                    else f"不支持导入 {ext or '无扩展名'} 文件，只支持 {' / '.join(IMPORT_TYPES)}"
+                self._error(hint, 400)
+                return
             try:
                 raw = extras.b64decode(body["content"])
             except Exception:                          # noqa: BLE001
                 self._error("上传内容不是合法的 base64", 400)
                 return
-            if low.endswith(".docx"):
+            if len(raw) > IMPORT_MAX:
+                self._error(f"文件超过 {IMPORT_MAX // 1024 // 1024} MB，请拆分后再导入", 413)
+                return
+            if ext == ".docx":
                 try:
                     text = extras.docx_to_text(raw)
                 except Exception as exc:               # noqa: BLE001
                     self._error(f"解析 .docx 失败：{exc}", 400)
                     return
-                original = raw                         # 留着原文件：阅读页按它还原排版，也可下载
-            elif low.endswith(".doc"):
-                self._error("老式 .doc 无法直接解析，请先在 Word 里另存为 .docx", 400)
-                return
-            else:
-                text = raw.decode("utf-8", "replace")
+            elif ext == ".pdf":
+                try:
+                    text, info = pdftext.pdf_to_text(raw)
+                except pdftext.PdfError as exc:
+                    self._error(f"PDF 导入失败：{exc}", 400)
+                    return
+                except Exception as exc:               # noqa: BLE001 解析器没覆盖到的坏文件
+                    self._error(f"PDF 导入失败：文件结构无法解析（{exc}）", 400)
+                    return
+                pages = info["pages"]
+            elif not text:
+                text = raw.decode("utf-8-sig", "replace")
+            original = raw
         if not text.strip():
             self._error("文件里没有可用的文字内容", 400)
             return
         status = "pending" if body.get("review") else "approved"
         material = STORE.add_material(
             title=title[:120], text=text, subject=body.get("subject", ""),
-            folder_id=body.get("folder_id", ""), ext=".md", status=status, original=original)
+            folder_id=body.get("folder_id", ""), ext=".txt" if ext == ".txt" else ".md",
+            status=status, original=original, original_ext=ext)
         chunks = rag.chunk_text(text)
         STORE.replace_chunks(material["id"], chunks)
         if not body.get("review"):
             STORE.touch_activity()
-        self._json({"material": material, "chunks": len(chunks),
+        self._json({"material": material, "chunks": len(chunks), "pages": pages,
                     "chars": len(text), "status": status}, 201)
 
     def _refresh_material(self, material_id: str) -> None:

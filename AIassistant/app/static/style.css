@@ -420,6 +420,20 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .material-card.selected { border-color: #b9d0fb; background: #f8fbff; }
 .material-card.dragging { opacity: .5; }
 .folder-pill.drop-over { border-color: var(--brand); background: var(--brand-soft); box-shadow: 0 0 0 2px #d3e2ff; }
+/* 手动排序：拖到卡片上时，用左/右（单列时上/下）一条蓝线标出落点 */
+.material-card.drop-before { box-shadow: inset 4px 0 0 var(--brand); }
+.material-card.drop-after { box-shadow: inset -4px 0 0 var(--brand); }
+@media (max-width: 720px) {
+  .material-card.drop-before { box-shadow: inset 0 4px 0 var(--brand); }
+  .material-card.drop-after { box-shadow: inset 0 -4px 0 var(--brand); }
+}
+.mat-head .mat-title { flex: 1; min-width: 0; }
+.mat-order { display: inline-flex; gap: 2px; flex: none; }
+.mat-order .mini-btn { padding: 1px 7px; }
+.mat-order .mini-btn:disabled { opacity: .35; cursor: default; }
+.fmt-tag { background: #eef6ee; color: #2f7a3b; }
+.card-actions { flex-wrap: wrap; align-items: center; }
+.locked-tip { margin-left: 4px; }
 @media (max-width: 560px) {
   .material-tools input[type="search"] { min-width: 100%; }
   .mat-tip { display: none; }
@@ -640,10 +654,15 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .auth-tab.active { background: #fff; color: var(--brand); font-weight: 600; box-shadow: 0 1px 4px rgba(23, 43, 77, .08); }
 #auth-form { text-align: left; }
 .account-bar {
-  width: 100%; display: flex; align-items: center; gap: 6px;
+  width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px;
   margin: 0 0 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--line);
 }
-.account-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+/* 账号名单独占一行，侧栏 264px 放不下「名字 + 三个操作」 */
+.account-name {
+  flex: 1 0 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--ink-2); margin-bottom: 2px;
+}
+.account-name .role-tag { margin-left: 4px; vertical-align: 1px; }
 /* 密码框右侧的显示/隐藏按钮 */
 .field > .pw-wrap { position: relative; margin: 0; font-size: inherit; color: inherit; }
 .pw-wrap input { padding-right: 56px; }
@@ -663,6 +682,41 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .session-row .session-info { flex: 1; min-width: 0; }
 .session-row .session-info b { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-row .session-info span { font-size: 11.5px; color: var(--ink-3); }
+/* 角色标签 / 账号管理 */
+.role-tag {
+  display: inline-block; padding: 0 6px; margin-left: 4px; border-radius: 6px; vertical-align: 1px;
+  font-size: 11px; font-weight: 600; line-height: 18px; background: #eef1f6; color: var(--ink-2);
+}
+.role-tag.admin { background: #fff1db; color: #a35d00; }
+.role-tag.off { background: #fde8e8; color: var(--danger); }
+.session-row .session-info b .role-tag { display: inline-block; }
+.admin-search { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 13px; margin-top: 6px; }
+.admin-list { max-height: 50vh; }
+.admin-row.disabled { opacity: .7; }
+.admin-acts { display: flex; gap: 6px; flex: none; }
+@media (max-width: 560px) {
+  .admin-row { flex-wrap: wrap; }
+  .admin-acts { width: 100%; justify-content: flex-end; }
+}
+/* 个人信息页：账号与数据 */
+.data-actions { display: flex; flex-direction: column; gap: 12px; }
+.data-row { display: flex; align-items: center; gap: 14px; }
+.data-row > div { flex: 1; min-width: 0; }
+.data-row p { margin: 4px 0 0; }
+.data-row > .btn { flex: none; }
+@media (max-width: 560px) {
+  .data-row { flex-direction: column; align-items: stretch; }
+}
+/* 清除记录：可勾选的范围列表 */
+.clr-kinds { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 14px; }
+.clr-kind {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 8px; font-size: 13px;
+}
+.clr-kind span { flex: 1; }
+.clr-kind b { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.clr-kind.zero { opacity: .5; cursor: default; }
+.clr-kind:has(input:checked) { border-color: #f3b8b8; background: #fff6f6; }
 /* 窄屏侧栏底部整体收起，只留退出登录入口 */
 @media (max-width: 900px) {
   .sidebar .sidebar-foot.has-account { display: flex; justify-content: center; padding: 10px 0 0; }
@@ -1116,6 +1170,11 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   white-space: pre-wrap; font-family: Consolas, "SFMono-Regular", Menlo, monospace;
   font-size: 13px; line-height: 1.7;
 }
+/* PDF 原版：交给浏览器自带的 PDF 阅读器，卡片只当边框 */
+.doc-body.pdf { padding: 0; max-width: 1100px; overflow: hidden; }
+.pdf-frame { display: block; width: 100%; height: calc(100vh - 210px); min-height: 480px; border: 0; }
 @media (max-width: 900px) {
   .doc-body { padding: 18px 16px; font-size: 14.5px; }
+  .doc-body.pdf { padding: 0; }
+  .pdf-frame { height: calc(100vh - 240px); min-height: 360px; }
 }

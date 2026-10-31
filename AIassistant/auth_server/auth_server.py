@@ -10,11 +10,14 @@
     python auth_server.py --host 0.0.0.0           # 局域网
     python auth_server.py --cert a.pem --key b.pem # 直接 HTTPS
 
-管理（只在本机命令行做，不开放网络接口）：
+管理（本机命令行；设了管理员之后，列表 / 禁用 / 启用 / 重置密码也能在网页里做，
+接口 /auth/admin/users 会先校验发起人是管理员）：
     python auth_server.py users
     python auth_server.py disable <用户名>
     python auth_server.py enable <用户名>
     python auth_server.py reset-password <用户名>
+    python auth_server.py grant-admin <用户名>     # 设为管理员，之后可在网页"账号管理"里操作
+    python auth_server.py revoke-admin <用户名>    # 改回学生
 """
 
 from __future__ import annotations
@@ -56,6 +59,7 @@ CREATE TABLE IF NOT EXISTS users (
     nickname TEXT DEFAULT '',
     password_hash TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
+    role TEXT NOT NULL DEFAULT 'student',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     last_login_at TEXT DEFAULT ''
@@ -81,6 +85,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 # 老库补列：device 是客户端自报的设备名；login_at 是这台设备最初登录的时间，
 # 刷新轮换时跟着新会话走，所以设备列表里看到的是"何时登录"而不是"何时刷新"
 SESSION_COLUMNS = ("device", "login_at", "last_seen")
+# 角色：student 学生（默认）/ admin 管理员。管理员只能在本机命令行指定，网页上改不了
+ROLES = ("student", "admin")
 
 
 def now_text() -> str:
@@ -200,6 +206,9 @@ class AuthStore:
         for name in SESSION_COLUMNS:
             if name not in have:
                 self.conn.execute(f"ALTER TABLE sessions ADD COLUMN {name} TEXT DEFAULT ''")
+        have = {row["name"] for row in self.conn.execute("PRAGMA table_info(users)")}
+        if "role" not in have:
+            self.conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'student'")
         self.conn.commit()
         self.lock = threading.Lock()
         self.limiter = RateLimiter()
@@ -207,7 +216,8 @@ class AuthStore:
     @staticmethod
     def public_user(row) -> dict:
         return {"id": row["id"], "username": row["username"], "nickname": row["nickname"] or "",
-                "status": row["status"], "created_at": row["created_at"]}
+                "status": row["status"], "role": row["role"] or "student",
+                "created_at": row["created_at"]}
 
     def _user_by_name(self, username: str):
         return self.conn.execute("SELECT * FROM users WHERE username_key=?",
@@ -416,6 +426,51 @@ class AuthStore:
         rows = self.conn.execute("SELECT * FROM users ORDER BY created_at").fetchall()
         return [dict(self.public_user(r), last_login_at=r["last_login_at"]) for r in rows]
 
+    def set_role(self, username: str, role: str) -> bool:
+        if role not in ROLES:
+            raise AuthError("invalid_input", "角色只能是 student 或 admin", 400)
+        row = self._user_by_name(username)
+        if not row:
+            return False
+        with self.lock:
+            self.conn.execute("UPDATE users SET role=?, updated_at=? WHERE id=?",
+                              (role, now_text(), row["id"]))
+            self.conn.commit()
+        return True
+
+    # 网页管理接口：先确认发起人是管理员，再执行与命令行相同的操作。
+    # 只管账号本身（列表 / 禁用 / 启用 / 重置密码），不提供查看他人聊天记录的能力。
+    def _require_admin(self, access: str):
+        sess, user = self.session_for_access(access)
+        if (user["role"] or "student") != "admin":
+            raise AuthError("forbidden", "需要管理员权限", 403)
+        return sess, user
+
+    def admin_users(self, access: str) -> dict:
+        self._require_admin(access)
+        return {"users": self.list_users()}
+
+    def admin_action(self, access: str, body: dict) -> dict:
+        _, me = self._require_admin(access)
+        action, username = body.get("action"), body.get("username")
+        if not isinstance(username, str) or not username:
+            raise AuthError("invalid_input", "缺少用户名", 400)
+        row = self._user_by_name(username)
+        if not row:
+            raise AuthError("not_found", f"找不到用户：{username}", 404)
+        if action in ("disable", "enable"):
+            if row["id"] == me["id"]:
+                raise AuthError("invalid_input", "不能禁用或启用自己的账号", 400)
+            self.set_status(username, "disabled" if action == "disable" else "active")
+        elif action == "reset_password":
+            password = body.get("password")
+            check_password(password, "新密码")
+            self.reset_password(username, password)
+        else:
+            raise AuthError("invalid_input", "不支持的操作", 400)
+        row = self._user_by_name(username)
+        return {"user": dict(self.public_user(row), last_login_at=row["last_login_at"])}
+
     def set_status(self, username: str, status: str) -> bool:
         row = self._user_by_name(username)
         if not row:
@@ -520,6 +575,10 @@ def make_handler(store: AuthStore, verbose: bool = False):
                     self._json(store.revoke_sessions(self._bearer(), self._body()))
                 elif method == "POST" and path == "/auth/delete":
                     self._json(store.delete_account(self._bearer(), self._body()))
+                elif method == "GET" and path == "/auth/admin/users":
+                    self._json(store.admin_users(self._bearer()))
+                elif method == "POST" and path == "/auth/admin/users":
+                    self._json(store.admin_action(self._bearer(), self._body()))
                 else:
                     raise AuthError("not_found", "接口不存在", 404)
             except AuthError as exc:
@@ -553,9 +612,15 @@ def admin(args, store: AuthStore) -> int:
         if not users:
             print("还没有账号")
         for u in users:
-            print(f"{u['username']:<20} {u['status']:<9} 昵称={u['nickname'] or '-':<10} "
+            print(f"{u['username']:<20} {u['status']:<9} {u['role']:<8} "
+                  f"昵称={u['nickname'] or '-':<10} "
                   f"注册={u['created_at']}  最近登录={u['last_login_at'] or '-'}")
         return 0
+    if args.cmd in ("grant-admin", "revoke-admin"):
+        ok = store.set_role(args.username, "admin" if args.cmd == "grant-admin" else "student")
+        print(("已设为管理员：" if args.cmd == "grant-admin" else "已改回学生：") + args.username
+              if ok else f"找不到用户：{args.username}")
+        return 0 if ok else 1
     if args.cmd in ("disable", "enable"):
         ok = store.set_status(args.username, "disabled" if args.cmd == "disable" else "active")
         print(("已禁用并撤销全部会话：" if args.cmd == "disable" else "已启用：") + args.username
@@ -581,7 +646,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--db", default=str(DEFAULT_DB), help="账号数据库路径")
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("users", help="列出账号")
-    for name in ("disable", "enable", "reset-password"):
+    for name in ("disable", "enable", "reset-password", "grant-admin", "revoke-admin"):
         sub.add_parser(name).add_argument("username")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8740)
