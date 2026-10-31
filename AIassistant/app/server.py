@@ -1849,8 +1849,9 @@ def main() -> int:
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if args.no_auth:
-        STORE.bind(Store())
-        samples, moved = init_store(STORE)
+        local_store = Store()
+        samples, moved = init_store(local_store)
+        STORE.bind(local_store)
         if moved:
             print(f"  已把 {moved} 份资料归入对应文件夹")
         if samples:

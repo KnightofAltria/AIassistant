@@ -12,7 +12,7 @@ function agentLog(scope) {
 function appendStep(log, step) {
   const el = document.createElement('div');
   el.className = 'agent-step' + (step.ok ? '' : ' bad') + (step.need_confirm ? ' warn' : '');
-  const icon = step.need_confirm ? '⏸' : (step.ok ? '✅' : '⚠️');
+  const icon = step.need_confirm ? '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#pause"></use></svg>' : (step.ok ? '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#check"></use></svg>' : '<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#alert"></use></svg>');
   el.innerHTML = `${icon} <b>${esc(step.tool)}</b>
     <span class="step-args">${esc(JSON.stringify(step.args || {}))}</span>
     <div class="step-msg">${esc(step.summary || '')}</div>`;

@@ -319,6 +319,8 @@ async function loadMeta() {
       $('#meta-gender').value = meta.gender || '';
       $('#meta-major').value = meta.major || '';
       $('#meta-needs').value = meta.needs || '';
+      $('#meta-bio').value = meta.bio || '';
+      $('#profile-desc').textContent = meta.bio || '写一句话介绍自己';
     }
     renderIdentity(user || null, avatar || '');
   } catch (e) { /* 忽略 */ }
@@ -335,9 +337,11 @@ async function saveMeta() {
         gender: $('#meta-gender').value.trim(),
         major: $('#meta-major').value.trim(),
         needs: $('#meta-needs').value.trim(),
+        bio: $('#meta-bio').value.trim(),
       }),
     });
-    toast('基本信息已保存，之后的讲解会参考它');
+    $('#profile-desc').textContent = $('#meta-bio').value.trim() || '写一句话介绍自己';
+    toast('个人信息已保存');
   } catch (err) { toast(err.message, true); }
   finally { btn.disabled = false; btn.textContent = '保存'; }
 }
@@ -439,7 +443,7 @@ async function viewConversationSummary() {
     await new Promise((r) => setTimeout(r, 150));
     const box = $('#summary-list');
     if (!summaries.length) {
-      box.innerHTML = '<div class="empty"><div class="empty-icon">📄</div>'
+      box.innerHTML = '<div class="empty"><div class="empty-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#document"></use></svg></div>'
         + '<h3>这个对话还没有总结</h3><p>点聊天页右上角「生成近期总结」</p></div>';
       return;
     }
@@ -511,6 +515,14 @@ document.addEventListener('click', (e) => {
 $('#btn-view-summary').addEventListener('click', viewConversationSummary);
 injectBackBars();          // 9509ae8 改启动流程时把这句漏掉了，返回按钮一直没出现
 $('#btn-edit-avatar').addEventListener('click', () => $('#avatar-file').click());
+
+const avatarDrop = $('#avatar-big');
+avatarDrop.addEventListener('click', () => $('#avatar-file').click());
+avatarDrop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#avatar-file').click(); } });
+['dragenter', 'dragover'].forEach((event) => avatarDrop.addEventListener(event, (e) => { e.preventDefault(); avatarDrop.classList.add('dragging'); }));
+['dragleave', 'drop'].forEach((event) => avatarDrop.addEventListener(event, (e) => { e.preventDefault(); avatarDrop.classList.remove('dragging'); }));
+avatarDrop.addEventListener('drop', (e) => uploadAvatar(e.dataTransfer.files[0]));
+
 $('#avatar-file').addEventListener('change', (e) => {
   uploadAvatar(e.target.files[0]);
   e.target.value = '';                 // 允许再次选同一张图
