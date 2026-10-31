@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>计算机课程学习助手</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+<!-- ============ 登录 / 注册 ============ -->
+<div id="auth" class="gate hidden">
+  <div class="gate-card">
+    <div class="gate-logo"><svg class="brand-mark" aria-hidden="true"><use href="/icons.svg#logo"></use></svg></div>
+    <h1>计算机课程学习助手</h1>
+    <p class="gate-sub">登录后，资料、对话和档案按账号分开保存在本机</p>
+    <div class="auth-tabs">
+      <button id="auth-tab-login" class="auth-tab active" data-mode="login">登录</button>
+      <button id="auth-tab-register" class="auth-tab" data-mode="register">注册</button>
+    </div>
+    <form id="auth-form" autocomplete="on">
+      <label class="field"><span>用户名</span>
+        <input id="auth-username" name="username" autocomplete="username" spellcheck="false"
+               placeholder="3–20 位字母、数字或下划线" maxlength="20" /></label>
+      <label class="field auth-reg hidden"><span>昵称（可选）</span>
+        <input id="auth-nickname" maxlength="20" placeholder="显示在侧栏，不填则用用户名" /></label>
+      <label class="field"><span>密码</span>
+        <span class="pw-wrap"><input id="auth-password" name="password" type="password" autocomplete="current-password"
+               placeholder="8–64 位，含字母和数字" maxlength="64" />
+          <button type="button" class="pw-toggle" data-for="auth-password" title="显示密码">显示</button></span></label>
+      <label class="field auth-reg hidden"><span>确认密码</span>
+        <input id="auth-password2" type="password" autocomplete="new-password" maxlength="64" /></label>
+      <label class="auth-remember"><input type="checkbox" id="auth-remember" /> 记住用户名</label>
+      <button id="auth-submit" type="submit" class="btn primary wide">登录</button>
+    </form>
+    <p id="auth-msg" class="gate-msg"></p>
+    <p class="gate-hint" id="auth-hint">忘记密码请联系管理员重置。</p>
+  </div>
+</div>
+
+<div id="auth-offline" class="offline-bar hidden"></div>
+
+<!-- ============ 首次进入：填写 API Key ============ -->
+<div id="gate" class="gate hidden">
+  <div class="gate-card">
+    <div class="gate-logo"><svg class="brand-mark" aria-hidden="true"><use href="/icons.svg#logo"></use></svg></div>
+    <h1>计算机课程学习助手</h1>
+    <p class="gate-sub">本地运行 · 资料不出本机 · 模型走 DeepSeek API</p>
+    <label class="field">
+      <span>DeepSeek API Key</span>
+      <input id="gate-key" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+    </label>
+    <label class="field">
+      <span>模型</span>
+      <select id="gate-model">
+        <option value="deepseek-chat">deepseek-chat（快，便宜）</option>
+        <option value="deepseek-reasoner">deepseek-reasoner（慢，会思考）</option>
+      </select>
+    </label>
+    <button id="gate-submit" class="btn primary wide">进入</button>
+    <p id="gate-msg" class="gate-msg"></p>
+    <p class="gate-hint">Key 只保存在本机 <code>app/data/config.json</code>，不会上传到任何第三方。可在 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">platform.deepseek.com</a> 申请。</p>
+  </div>
+</div>
+
+<!-- ============ 欢迎主界面（粒子动画） ============ -->
+<div id="landing" class="landing">
+  <canvas id="particles"></canvas>
+  <div class="landing-inner"><div class="landing-streaks" aria-hidden="true"><i></i><i></i><i></i><i></i></div><span class="eyebrow">YOUR SPACE TO THINK & LEARN</span>
+    <div class="landing-logo"><svg class="brand-mark" aria-hidden="true"><use href="/icons.svg#logo"></use></svg></div>
+    <h1>计算机课程学习助手</h1>
+    <p class="landing-sub">组成原理 · 计算机网络 · 操作系统 · 数据结构</p>
+    <button id="btn-start" class="btn-start">开始学习</button>
+    <p class="landing-tip">本地运行 · 资料不出本机</p>
+  </div>
+</div>
+
+<!-- ============ 主界面 ============ -->
+<div id="app" class="app hidden">
+  <aside id="sidebar" class="sidebar">
+    <div class="brand">
+      <div class="brand-logo"><svg class="brand-mark" aria-hidden="true"><use href="/icons.svg#logo"></use></svg></div>
+      <div class="brand-text">
+        <strong>课程学习助手</strong>
+        <span id="brand-sub">本地版</span>
+      </div>
+    </div>
+
+    <div class="profile-card" id="profile-card" role="button" tabindex="0" aria-label="打开个人信息">
+      <div class="avatar" id="avatar">学</div>
+      <div class="profile-meta">
+        <div class="profile-name" id="profile-name">本机用户</div>
+        <div class="profile-desc" id="profile-desc">写一句话介绍自己</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item" data-view="profile" aria-label="个人信息"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#person"></use></svg></i><span>个人信息</span></button>
+      <button class="nav-item active" data-view="chat" aria-label="AI 聊天"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg></i><span>AI 聊天</span></button>
+      <button class="nav-item" data-view="dashboard" aria-label="学习看板"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#dashboard"></use></svg></i><span>学习看板</span></button>
+      <button class="nav-item" data-view="summary" aria-label="近期总结"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#document"></use></svg></i><span>近期总结</span></button>
+      <button class="nav-item" data-view="study" aria-label="科目学习"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#book"></use></svg></i><span>科目学习</span></button>
+      <button class="nav-item" data-view="materials" aria-label="资料管理"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#folder"></use></svg></i><span>资料管理</span></button>
+      <button class="nav-item" data-view="preferences" aria-label="设置"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#settings"></use></svg></i><span>设置</span></button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="mini-stats" id="mini-stats"></div>
+      <button id="btn-settings" data-tip="管理模型连接和 API Key" class="link-btn">API 设置</button>
+      <span class="dot">·</span>
+      <button id="btn-collapse" class="link-btn">收起侧栏</button>
+      <div id="account-bar" class="account-bar hidden">
+        <span id="account-name" class="account-name"></span>
+        <button id="btn-password" class="link-btn">修改密码</button>
+        <span class="dot">·</span>
+        <button id="btn-sessions" class="link-btn">登录设备</button>
+        <span class="dot">·</span>
+        <button id="btn-logout" class="link-btn">退出登录</button>
+      </div>
+    </div>
+  </aside>
+
+  <button id="btn-expand" class="expand-btn hidden" title="展开侧栏"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#menu"></use></svg></button>
+
+  <main class="main">
+    <!-- ---------------- 主界面（今天学点什么） ---------------- -->
+    <section id="view-home" class="view">
+      <canvas id="home-particles" class="home-canvas"></canvas>
+      <div class="home-hero">
+        <span class="eyebrow home-kicker"><svg class="brand-mark" aria-hidden="true"><use href="/icons.svg#logo"></use></svg> LEARNING SPACE <span> / </span> 你的学习空间</span>
+        <h1 class="home-title">今天学点什么？</h1>
+        <p class="muted" id="home-sub">四个科目、27 份资料已就绪</p>
+        <div class="home-actions">
+          <button class="home-card" data-goto="profile"><span class="hc-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#person"></use></svg></span><b>个人信息</b><small>记录你的学习与成长</small></button>
+          <button class="home-card" data-goto="chat"><span class="hc-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg></span><b>AI 聊天</b><small>围绕课程资料交流</small></button>
+          <button class="home-card" data-goto="dashboard"><span class="hc-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#dashboard"></use></svg></span><b>学习看板</b><small>回顾进度与复习安排</small></button>
+          <button class="home-card" data-goto="summary"><span class="hc-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#document"></use></svg></span><b>近期总结</b><small>对话总结与易错提示本</small></button>
+          <button class="home-card" data-goto="study"><span class="hc-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#book"></use></svg></span><b>科目学习</b><small>按章节探索与练习</small></button>
+          <button class="home-card" data-goto="materials"><span class="hc-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#folder"></use></svg></span><b>资料管理</b><small>让资料井然有序</small></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------- 个人信息 ---------------- -->
+    <section id="view-profile" class="view">
+      <header class="view-head">
+        <div>
+          <h2>个人信息</h2>
+          <p class="muted">学习者档案按月一份，保存在当前账号的本地数据目录里</p>
+        </div>
+        <div class="head-actions">
+          <button id="btn-edit-name" data-tip="修改学习助手内显示的名字" class="btn">修改显示名</button>
+          <button id="btn-edit-avatar" data-tip="从本机选择 PNG 或 JPG 图片作为头像" class="btn">上传头像</button>
+          <button id="btn-reset-avatar" data-tip="移除当前图片并恢复默认头像" class="btn hidden">恢复默认头像</button>
+          <input id="avatar-file" type="file" accept="image/png,image/jpeg" hidden />
+          <button id="btn-gen-profile-2" data-tip="根据学习记录生成本月档案" class="btn primary">生成本月档案</button>
+        </div>
+      </header>
+      <div class="profile-hero">
+        <div class="avatar large avatar-drop" id="avatar-big" title="点击或拖入 PNG / JPG 头像" role="button" tabindex="0" aria-label="点击或拖入头像">学</div>
+        <div>
+          <h3 id="profile-name-big">本机用户</h3>
+          <p class="muted small" id="profile-summary-line">记录你的学习与成长</p><p class="avatar-hint">点击或拖入图片更换头像</p>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h3>基本信息</h3>
+          <button id="btn-save-meta" data-tip="保存基本信息和个人简介" class="btn primary">保存</button>
+        </div>
+
+        <div class="panel-body meta-grid">
+          <label class="field"><span>年龄</span>
+            <input id="meta-age" type="number" min="6" max="100" step="1" inputmode="numeric" placeholder="例如 21" /></label>
+          <label class="field"><span>性别</span>
+            <input id="meta-gender" maxlength="30" placeholder="例如 男 / 女 / 不便透露" /></label>
+          <label class="field"><span>专业</span>
+            <input id="meta-major" maxlength="30" placeholder="例如 计算机科学与技术" /></label>
+          <label class="field"><span>需求</span>
+            <input id="meta-needs" maxlength="200" placeholder="例如 期末冲刺 / 打牢基础 / 项目实践" /></label>
+          <label class="field bio-field"><span>个人简介</span><textarea id="meta-bio" maxlength="200" rows="3" placeholder="写一句话介绍自己，记录你的学习目标或兴趣"></textarea></label>
+        </div>
+        <p id="meta-msg" class="small err-text"></p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>学习者档案（按月）</h3></div>
+        <div id="profile-panel-2" class="panel-body"></div>
+      </div>
+    </section>
+
+    <section id="view-preferences" class="view">
+      <header class="view-head"><div><span class="eyebrow">MAKE IT YOURS</span><h2>设置</h2><p class="muted">调整适合你的学习体验</p></div></header>
+      <div class="preferences-grid"><div class="panel preference-panel"><div class="panel-head"><h3>界面偏好</h3></div>
+        <label class="preference-row"><span><b>功能提示</b><small>悬停或键盘聚焦时显示功能介绍</small></span><input type="checkbox" id="pref-tooltips" checked /></label>
+        <label class="preference-row"><span><b>动态效果</b><small>显示背景线条与文字流动效果</small></span><input type="checkbox" id="pref-motion" checked /></label>
+      </div><div class="panel preference-panel"><div class="panel-head"><h3>模型连接</h3></div><p class="muted">管理模型和 API Key</p><button id="pref-api" data-tip="管理模型连接和 API Key" class="btn">打开 API 设置</button></div></div>
+    </section>
+
+    <!-- ---------------- AI 聊天 ---------------- -->
+    <section id="view-chat" class="view active">
+      <header class="view-head">
+        <div>
+          <h2>AI 聊天</h2>
+          <p class="muted">回答会尽量依据你导入的资料，并标注出处编号；每条回答都能展开「检索详情」</p>
+        </div>
+        <div class="head-actions">
+          <select id="chat-style" class="btn" title="回答风格">
+            <option value="concise">简明</option>
+            <option value="detailed">详解</option>
+            <option value="socratic">苏格拉底式</option>
+          </select>
+          <button id="btn-feynman" class="btn">费曼练习</button>
+          <button id="btn-new-chat" class="btn">新对话</button>
+          <button id="btn-view-summary" class="btn">查看本对话总结</button>
+          <button id="btn-summarize" class="btn primary">生成近期总结</button>
+        </div>
+      </header>
+      <div class="chat-wrap">
+        <div id="conv-list" class="conv-list"></div>
+        <div class="chat-main">
+          <div id="messages" class="messages">
+            <div class="empty" id="chat-empty">
+              <div class="empty-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#chat"></use></svg></div>
+              <h3>开始提问吧</h3>
+              <p>比如「TCP 为什么需要三次握手」<br/>先在「资料管理」导入课件，回答就会带出处</p>
+            </div>
+          </div>
+          <form id="chat-form" class="composer">
+            <textarea id="chat-input" rows="1" placeholder="输入问题，Enter 发送，Shift+Enter 换行"></textarea>
+            <button type="submit" class="btn primary">发送</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------- 学习看板 ---------------- -->
+    <section id="view-dashboard" class="view dash">
+      <header class="view-head">
+        <div>
+          <h2>学习看板</h2>
+          <p class="muted">复习队列、掌握度、今日建议与用量统计，全部由本地数据实时算出</p>
+        </div>
+        <div class="head-actions">
+          <button id="btn-export-report" class="btn primary">导出学习报告（.docx）</button>
+        </div>
+      </header>
+      <div class="kpi-row" id="dash-kpi"></div>
+
+      <div class="dash-board">
+        <section class="panel dash-cell c-sug">
+          <div class="panel-head"><h3>今天建议做什么</h3></div>
+          <div id="dash-recommend" class="panel-body"></div>
+        </section>
+
+        <section class="panel dash-cell c-review">
+          <div class="panel-head"><h3>复习队列</h3>
+            <span id="review-due" class="badge"></span></div>
+          <div id="review-box" class="panel-body"></div>
+        </section>
+
+        <section class="panel dash-cell c-heat">
+          <div class="panel-head"><h3>学习热力图</h3>
+            <span class="muted small" id="heatmap-sub"></span></div>
+          <div class="panel-body"><div id="heatmap-box" class="heatmap"></div></div>
+        </section>
+
+        <section class="panel dash-cell c-radar">
+          <div class="panel-head"><h3>能力雷达</h3></div>
+          <div class="panel-body"><canvas id="radar-canvas" class="viz-canvas"></canvas></div>
+        </section>
+
+        <section class="panel dash-cell c-graph">
+          <div class="panel-head"><h3>知识图谱</h3>
+            <span class="muted small">章节与资料的关键词关联</span></div>
+          <div class="panel-body"><canvas id="graph-canvas" class="viz-canvas"></canvas></div>
+        </section>
+
+        <section class="panel dash-cell c-mastery">
+          <div class="panel-head"><h3>章节掌握度</h3></div>
+          <div id="mastery-box" class="panel-body"></div>
+        </section>
+
+        <section class="panel dash-cell c-forecast">
+          <div class="panel-head"><h3>未来 7 天复习量</h3></div>
+          <div class="panel-body"><div id="forecast-box" class="forecast"></div></div>
+        </section>
+
+        <section class="panel dash-cell c-mistake">
+          <div class="panel-head"><h3>错题 → 变式题</h3>
+            <span class="muted small">做错的题会同时进入复习队列</span></div>
+          <div id="mistake-box" class="panel-body"></div>
+        </section>
+
+        <section class="panel dash-cell c-search">
+          <div class="panel-head"><h3>资料全文检索</h3></div>
+          <div class="panel-body">
+            <form id="search-form" class="composer inline">
+              <input id="search-input" placeholder="输入关键词，例如：中断 死锁 三次握手" />
+              <button class="btn primary" type="submit">检索</button>
+            </form>
+            <div id="search-results"></div>
+          </div>
+        </section>
+
+        <section class="panel dash-cell c-usage">
+          <div class="panel-head"><h3>模型调用（近 7 天）</h3></div>
+          <div id="usage-box" class="panel-body"></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ---------------- 近期总结 ---------------- -->
+    <section id="view-summary" class="view">
+      <header class="view-head">
+        <div>
+          <h2>近期总结</h2>
+          <p class="muted">每次对话可生成一份总结；易错提示本也从这里生成。学习者档案在「个人信息」页</p>
+        </div>
+        <div class="head-actions">
+          <button id="btn-gen-tips" class="btn primary">生成易错提示本</button>
+        </div>
+      </header>
+      <div id="summary-list" class="card-list"></div>
+    </section>
+
+    <!-- ---------------- 科目学习 ---------------- -->
+    <section id="view-study" class="view">
+      <header class="view-head">
+        <div>
+          <h2 id="study-title">科目学习</h2>
+          <p class="muted" id="study-sub">选择科目与章节，先看讲解再做题</p>
+        </div>
+        <div class="head-actions">
+          <button id="btn-add-subject" class="btn primary">添加科目</button>
+          <button id="btn-study-back" class="btn hidden">返回科目</button>
+        </div>
+      </header>
+      <div class="agent-box">
+        <div class="agent-presets">
+          <button class="chip" data-scope="study" data-agent-preset="列出所有科目和章节，标出哪些是内置的">查看科目结构</button>
+          <button class="chip" data-scope="study" data-agent-preset="给数据结构加一章：并查集与路径压缩，并写 5 条大纲">给数据结构加一章</button>
+          <button class="chip" data-scope="study" data-agent-preset="给操作系统新增一个章节，讲进程通信，并出 3 道题">加章节并出题</button>
+        </div>
+        <div id="agent-log-study" class="agent-log hidden"></div>
+        <form id="study-agent-form" class="composer">
+          <textarea id="study-agent-input" rows="1" placeholder="用一句话调整科目，例如：把「树」这一章改名为「树与二叉树」，大纲加一条 AVL 旋转"></textarea>
+          <button id="study-agent-send" class="btn primary" type="submit">执行</button>
+        </form>
+      </div>
+      <div id="subject-grid" class="subject-grid"></div>
+      <div id="chapter-list" class="chapter-list hidden"></div>
+      <div id="chapter-detail" class="chapter-detail hidden"></div>
+      <form id="study-ask-form" class="composer floating hidden">
+        <textarea id="study-ask-input" rows="1" placeholder="随时提问这一章的内容…"></textarea>
+        <button type="submit" class="btn primary">问</button>
+      </form>
+    </section>
+
+    <!-- ---------------- 资料管理 ---------------- -->
+    <section id="view-materials" class="view">
+      <header class="view-head">
+        <div>
+          <h2>资料管理</h2>
+          <p class="muted">导入的资料会被切片建索引，聊天与章节讲解时按相关度检索</p>
+        </div>
+        <div class="head-actions">
+          <button id="btn-import" class="btn primary">导入资料</button>
+          <button id="btn-new-folder" class="btn">新建文件夹</button>
+        </div>
+      </header>
+      <div class="agent-box">
+        <div class="agent-presets">
+          <button class="chip" data-scope="materials" data-agent-preset="看看现在有哪些资料和文件夹，有没有放错的">检查资料归类</button>
+          <button class="chip" data-scope="materials" data-agent-preset="按科目把散落的资料归类到对应文件夹">一键按科目归类</button>
+          <button class="chip" data-scope="materials" data-agent-preset="列出所有资料，把不属于任何科目的资料移到核心资料文件夹">清理无归属资料</button>
+        </div>
+        <div id="agent-log-materials" class="agent-log hidden"></div>
+        <form id="material-agent-form" class="composer">
+          <textarea id="material-agent-input" rows="1" placeholder="用一句话让我整理资料，例如：把讲 TCP 的那几篇都放到计算机网络文件夹"></textarea>
+          <button id="material-agent-send" class="btn primary" type="submit">执行</button>
+        </form>
+      </div>
+      <div id="pending-bar" class="banner hidden"></div>
+      <div id="shared-warning" class="banner hidden"></div>
+      <div id="folder-bar" class="folder-bar"></div>
+      <div id="material-tools" class="material-tools">
+        <input id="mat-search" type="search" placeholder="搜索资料名 / 来源" />
+        <select id="mat-subject" title="按科目筛选"><option value="">全部科目</option></select>
+        <select id="mat-sort" title="排序">
+          <option value="new">最新导入</option>
+          <option value="old">最早导入</option>
+          <option value="title">按名称</option>
+          <option value="size">按大小</option>
+        </select>
+        <label class="mat-check-all"><input type="checkbox" id="mat-check-all" /> 全选</label>
+        <span id="mat-selected" class="muted small"></span>
+        <button id="mat-batch-move" class="btn small" disabled>批量移动</button>
+        <button id="mat-batch-del" class="btn danger small" disabled>批量删除</button>
+      </div>
+      <p class="muted small mat-tip">提示：可以把资料卡片拖到上方的文件夹里完成移动。</p>
+      <div id="material-list" class="card-list"></div>
+    </section>
+  </main>
+</div>
+
+<!-- ============ 导入资料弹窗 ============ -->
+<div id="modal-import" class="modal hidden">
+  <div class="modal-card">
+    <h3>导入资料</h3>
+    <label class="field"><span>标题</span><input id="imp-title" placeholder="例如：计算机网络 第 3 章 传输层" /></label>
+    <label class="field"><span>科目（可选）</span>
+      <select id="imp-subject"><option value="">不指定</option></select>
+    </label>
+    <label class="field"><span>文件夹</span><select id="imp-folder"><option value="">根目录</option></select></label>
+    <label class="field"><span>内容</span><textarea id="imp-text" rows="10" placeholder="粘贴文本，或点下方选择文件（.txt / .md / .csv / .json / .docx）"></textarea></label>
+    <label class="field checkbox-field"><span>
+      <input type="checkbox" id="imp-review" /> 先存为「待审核」，不立刻进入检索
+    </span></label>
+    <div class="modal-actions">
+      <input type="file" id="imp-file" accept=".txt,.md,.markdown,.csv,.json,.docx" hidden />
+      <button id="imp-pick" class="btn">选择文件</button>
+      <span class="spacer"></span>
+      <button id="imp-cancel" class="btn">取消</button>
+      <button id="imp-save" class="btn primary">导入</button>
+    </div>
+    <p id="imp-msg" class="muted small"></p>
+  </div>
+</div>
+
+<!-- ============ 总结放大弹窗 ============ -->
+<div id="modal-summary-view" class="modal hidden">
+  <div class="modal-card summary-card">
+    <div class="summary-head">
+      <h3 id="sumv-title">总结</h3>
+      <button id="sumv-close" class="btn">关闭</button>
+    </div>
+    <div class="summary-meta" id="sumv-meta"></div>
+    <div class="summary-body" id="sumv-body"></div>
+  </div>
+</div>
+
+<!-- ============ 删除文件夹弹窗 ============ -->
+<div id="modal-folder-del" class="modal hidden">
+  <div class="modal-card narrow">
+    <h3>删除文件夹「<span id="fdel-name"></span>」</h3>
+    <p class="muted small">该文件夹里有 <b id="fdel-count">0</b> 份资料，请选择处理方式：</p>
+    <p id="fdel-shared" class="small"></p>
+    <div class="modal-actions column">
+      <button id="fdel-move" class="btn wide">只删文件夹，资料移到根目录（安全）</button>
+      <button id="fdel-purge" class="btn danger wide">连同资料一起删除（不可恢复）</button>
+      <button id="fdel-cancel" class="btn wide">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 移动资料弹窗 ============ -->
+<div id="modal-move" class="modal hidden">
+  <div class="modal-card narrow">
+    <h3>移动资料</h3>
+    <p class="small"><b id="move-title"></b></p>
+    <p class="muted small">当前位置：<span id="move-from"></span></p>
+    <label class="field"><span>移动到</span>
+      <select id="move-target"></select></label>
+    <p id="move-msg" class="small err-text"></p>
+    <div class="modal-actions">
+      <button id="move-cancel" class="btn">取消</button>
+      <button id="move-ok" class="btn primary">移动</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 编辑资料弹窗 ============ -->
+<div id="modal-mat-edit" class="modal hidden">
+  <div class="modal-card narrow">
+    <h3>编辑资料</h3>
+    <label class="field"><span>资料名</span>
+      <input id="medit-title" maxlength="80" /></label>
+    <label class="field"><span>所属科目</span>
+      <select id="medit-subject"></select></label>
+    <p class="muted small">改科目只影响检索时的科目过滤，不会移动文件夹；需要的话再用「移动到…」。</p>
+    <p id="medit-msg" class="small err-text"></p>
+    <div class="modal-actions">
+      <button id="medit-cancel" class="btn">取消</button>
+      <button id="medit-ok" class="btn primary">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 添加科目弹窗 ============ -->
+<div id="modal-subject" class="modal hidden">
+  <div class="modal-card narrow">
+    <h3>添加科目</h3>
+    <p class="banner warn small" style="margin-bottom:14px">
+      <svg class="line-icon" aria-hidden="true"><use href="/icons.svg#calendar"></use></svg> 新增科目需要一点时间：程序会自动生成章节与例题，并把资料整理到该科目的文件夹里。
+      你也可以先粘贴几段视频链接，它们会被存进该科目的资料夹，方便复习时跳转。
+    </p>
+    <label class="field"><span>科目名称</span>
+      <input id="subj-name" placeholder="例如：数据库系统概论" /></label>
+    <label class="field"><span>视频链接（可选，一行一个）</span>
+      <textarea id="subj-videos" rows="3" placeholder="https://www.bilibili.com/video/BV..."></textarea></label>
+    <div class="modal-actions">
+      <button id="subj-cancel" class="btn">取消</button>
+      <button id="subj-ok" class="btn primary">创建并生成章节</button>
+    </div>
+    <p id="subj-msg" class="muted small"></p>
+  </div>
+</div>
+
+<!-- ============ API 设置弹窗 ============ -->
+<div id="modal-settings" class="modal hidden">
+  <div class="modal-card narrow">
+    <h3>API 设置</h3>
+    <p class="muted small">当前 Key：<code id="set-mask">未设置</code></p>
+    <label class="field"><span>更换 API Key</span><input id="set-key" type="password" placeholder="sk-..." /></label>
+    <label class="field"><span>模型</span>
+      <select id="set-model">
+        <option value="deepseek-chat">deepseek-chat</option>
+        <option value="deepseek-reasoner">deepseek-reasoner</option>
+      </select>
+    </label>
+    <div class="modal-actions">
+      <button id="set-cancel" class="btn">取消</button>
+      <button id="set-save" class="btn primary">保存并校验</button>
+    </div>
+    <p id="set-msg" class="muted small"></p>
+  </div>
+</div>
+
+<!-- ============ 修改密码弹窗 ============ -->
+<div id="modal-password" class="modal hidden">
+  <div class="modal-card narrow">
+    <h3>修改密码</h3>
+    <p class="muted small">修改后，该账号在其他电脑上的登录会失效。</p>
+    <label class="field"><span>原密码</span><input id="pw-old" type="password" autocomplete="current-password" maxlength="64" /></label>
+    <label class="field"><span>新密码</span><input id="pw-new" type="password" autocomplete="new-password" maxlength="64" placeholder="8–64 位，含字母和数字" /></label>
+    <label class="field"><span>确认新密码</span><input id="pw-new2" type="password" autocomplete="new-password" maxlength="64" /></label>
+    <div class="modal-actions">
+      <button id="pw-cancel" class="btn">取消</button>
+      <button id="pw-save" class="btn primary">确认修改</button>
+    </div>
+    <p id="pw-msg" class="muted small"></p>
+  </div>
+</div>
+
+<!-- ============ 登录设备弹窗 ============ -->
+<div id="modal-sessions" class="modal hidden">
+  <div class="modal-card narrow">
+    <h3>登录设备</h3>
+    <p class="muted small">这个账号当前在以下设备上保持登录。不认识的设备可以让它下线，然后尽快修改密码。</p>
+    <div id="sessions-list" class="sessions-list"></div>
+    <p id="sessions-msg" class="small err-text"></p>
+    <div class="modal-actions">
+      <button id="sessions-delete" class="btn danger small">注销账号…</button>
+      <span class="spacer"></span>
+      <button id="sessions-close" class="btn">关闭</button>
+      <button id="sessions-revoke-others" class="btn primary">退出其他所有设备</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 注销账号弹窗 ============ -->
+<div id="modal-delete-account" class="modal hidden">
+  <div class="modal-card narrow">
+    <h3>注销账号</h3>
+    <p class="banner warn small">注销后账号<b>无法恢复</b>：认证服务里的账号与所有登录会话会被删除，
+      本机该账号下的资料、对话、总结、档案、头像也会一并删除。其他电脑上的本地数据不受影响，但无法再登录查看。</p>
+    <label class="field"><span>输入密码确认身份</span>
+      <input id="del-password" type="password" autocomplete="current-password" maxlength="64" /></label>
+    <label class="field"><span>输入用户名 <b id="del-username"></b> 以确认</span>
+      <input id="del-confirm" autocomplete="off" spellcheck="false" maxlength="20" /></label>
+    <p id="del-msg" class="small err-text"></p>
+    <div class="modal-actions">
+      <button id="del-cancel" class="btn">取消</button>
+      <button id="del-ok" class="btn danger">永久注销</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 启动时询问近期总结 ============ -->
+<div id="modal-summary-ask" class="modal hidden">
+  <div class="modal-card narrow">
+    <h3>要不要先把上次的对话总结一下？</h3>
+    <p class="muted small">检测到最近一次对话：<b id="sumask-title"></b></p>
+    <p class="muted small" id="sumask-meta"></p>
+    <div class="modal-actions column">
+      <button id="sumask-yes" class="btn primary wide">好，先生成近期总结</button>
+      <button id="sumask-later" class="btn wide">先不总结，直接进聊天</button>
+      <button id="sumask-no" class="btn wide">关闭提示</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<!-- ============ 费曼练习弹窗 ============ -->
+<div id="modal-feynman" class="modal hidden">
+  <div class="modal-card">
+    <h3>费曼练习</h3>
+    <p class="muted small">用你自己的话把这个知识点讲一遍，讲不清的地方就是没懂的地方。</p>
+    <label class="field"><span>知识点</span>
+      <input id="fey-topic" placeholder="例如：虚拟内存、TCP 拥塞控制" /></label>
+    <label class="field"><span>我的复述</span>
+      <textarea id="fey-text" rows="8" placeholder="不要抄书，用大白话讲给一个没学过的人听…"></textarea></label>
+    <div class="modal-actions">
+      <button id="fey-cancel" class="btn">取消</button>
+      <button id="fey-submit" class="btn primary">交给助教点评</button>
+    </div>
+    <div id="fey-result" class="fey-result"></div>
+  </div>
+</div>
+
+<!-- ============ 变式题弹窗 ============ -->
+<div id="modal-variant" class="modal hidden">
+  <div class="modal-card">
+    <h3>变式题</h3>
+    <p class="muted small" id="var-sub">同一个考点，换一个问法，检验是不是真的会了。</p>
+    <div id="var-body" class="quiz"></div>
+    <div class="modal-actions">
+      <button id="var-close" class="btn">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script src="/ui.js"></script>
+<script src="/app.js"></script>
+<script src="/auth.js"></script>
+<script src="/extras.js"></script>
+<script src="/agent.js"></script>
+<script src="/landing.js"></script>
+<script src="/keepalive.js"></script>
+</body>
+</html>
