@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import sqlite3
 import time
@@ -26,6 +27,7 @@ DATA_DIR = APP_DIR / "data"
 MATERIAL_DIR = DATA_DIR / "materials"
 DB_PATH = DATA_DIR / "csla.db"
 CONFIG_PATH = DATA_DIR / "config.json"
+MONTH_RE = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS config (
@@ -183,8 +185,13 @@ def new_id() -> str:
 
 
 class Store:
-    def __init__(self, db_path: Path | str = DB_PATH):
+    def __init__(self, db_path: Path | str = DB_PATH, data_dir: Path | str | None = None):
+        """data_dir 指定资料、档案目录（登录后为 data/users/<用户ID>/）。
+
+        不传时沿用模块常量 MATERIAL_DIR / DATA_DIR，与单用户时代的行为一致。
+        """
         self.db_path = Path(db_path)
+        self.data_dir = Path(data_dir) if data_dir else None
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
@@ -229,6 +236,10 @@ class Store:
                 digest = hashlib.sha256(p.read_bytes()).hexdigest()[:16]
                 self.conn.execute("UPDATE materials SET hash=? WHERE id=?", (digest, row["id"]))
         self.conn.commit()
+
+    @property
+    def material_dir(self) -> Path:
+        return self.data_dir / "materials" if self.data_dir else MATERIAL_DIR
 
     # ---------------------------------------------------------------- 配置
     def get_config(self) -> dict:
@@ -301,9 +312,9 @@ class Store:
                      source_url: str = "", ext: str = ".md",
                      status: str = "approved") -> dict:
         mid = new_id()
-        MATERIAL_DIR.mkdir(parents=True, exist_ok=True)
+        self.material_dir.mkdir(parents=True, exist_ok=True)
         safe = "".join(ch for ch in title if ch not in '\\/:*?"<>|').strip() or mid
-        path = MATERIAL_DIR / f"{mid[:8]}_{safe}{ext}"
+        path = self.material_dir / f"{mid[:8]}_{safe}{ext}"
         path.write_text(text, encoding="utf-8")
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
         ts = now()
@@ -443,6 +454,10 @@ class Store:
     def move_material(self, material_id: str, folder_id: str) -> None:
         self.conn.execute("UPDATE materials SET folder_id=? WHERE id=?", (folder_id, material_id))
         self.conn.commit()
+
+    def material(self, material_id: str) -> dict | None:
+        row = self.conn.execute("SELECT * FROM materials WHERE id=?", (material_id,)).fetchone()
+        return dict(row) if row else None
 
     def assign_orphan_materials(self) -> int:
         """把落在根目录的资料，按科目归入对应文件夹；没有科目的归入共识资料。"""
@@ -702,13 +717,19 @@ class Store:
     # ---------------------------------------------------------------- 用户档案（本地多份）
     @property
     def profile_dir(self) -> Path:
-        d = DATA_DIR / "profile"
+        d = (self.data_dir or DATA_DIR) / "profile"
         d.mkdir(parents=True, exist_ok=True)
         return d
 
+    def _profile_path(self, month: str) -> Path:
+        """月份只认 YYYY-MM，挡住 ../ 之类的路径拼接。"""
+        if not MONTH_RE.fullmatch(month or ""):
+            raise ValueError("月份格式应为 YYYY-MM")
+        return self.profile_dir / f"{month}.md"
+
     def save_profile(self, content: str, month: str | None = None) -> dict:
         month = month or time.strftime("%Y-%m")
-        path = self.profile_dir / f"{month}.md"
+        path = self._profile_path(month)
         path.write_text(content, encoding="utf-8")
         self.update_profile(content)
         return {"month": month, "path": str(path), "bytes": path.stat().st_size}
@@ -722,13 +743,48 @@ class Store:
         return out
 
     def read_profile(self, month: str) -> str:
-        path = self.profile_dir / f"{month}.md"
+        path = self._profile_path(month)
         return path.read_text(encoding="utf-8") if path.exists() else ""
 
     def delete_profile(self, month: str) -> None:
-        path = self.profile_dir / f"{month}.md"
+        path = self._profile_path(month)
         if path.exists():
             path.unlink()
+
+    # ---------------------------------------------------------------- 头像（本地一张图）
+    AVATAR_TYPES = {".png": b"\x89PNG\r\n\x1a\n", ".jpg": b"\xff\xd8\xff"}
+    AVATAR_MAX = 1024 * 1024
+
+    def avatar_file(self) -> Path | None:
+        base = self.data_dir or DATA_DIR
+        for ext in self.AVATAR_TYPES:
+            path = base / f"avatar{ext}"
+            if path.is_file():
+                return path
+        return None
+
+    def avatar_version(self) -> str:
+        """头像的版本号（修改时间），给前端拼 ?v= 防缓存；没有头像返回空串。"""
+        path = self.avatar_file()
+        return str(int(path.stat().st_mtime * 1000)) if path else ""
+
+    def save_avatar(self, data: bytes) -> str:
+        ext = next((e for e, magic in self.AVATAR_TYPES.items() if data.startswith(magic)), "")
+        if not ext:
+            raise ValueError("头像只支持 PNG / JPEG 图片")
+        if len(data) > self.AVATAR_MAX:
+            raise ValueError("头像图片不能超过 1 MB")
+        self.delete_avatar()
+        base = self.data_dir or DATA_DIR
+        base.mkdir(parents=True, exist_ok=True)
+        (base / f"avatar{ext}").write_bytes(data)
+        return self.avatar_version()
+
+    def delete_avatar(self) -> None:
+        path = self.avatar_file()
+        while path:
+            path.unlink()
+            path = self.avatar_file()
 
     # ---------------------------------------------------------------- 复习队列（间隔重复）
     def add_review(self, stem: str, answer: str = "", subject: str = "", chapter: str = "",
@@ -991,6 +1047,6 @@ class Store:
                       "reviews", "usage_log", "activity"):
             self.conn.execute(f"DELETE FROM {table}")
         self.conn.commit()
-        if MATERIAL_DIR.exists():
-            shutil.rmtree(MATERIAL_DIR, ignore_errors=True)
-        MATERIAL_DIR.mkdir(parents=True, exist_ok=True)
+        if self.material_dir.exists():
+            shutil.rmtree(self.material_dir, ignore_errors=True)
+        self.material_dir.mkdir(parents=True, exist_ok=True)

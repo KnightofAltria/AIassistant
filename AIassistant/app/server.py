@@ -3,21 +3,26 @@
 """计算机课程学习助手 —— 本地服务（仅标准库，无第三方依赖）。
 
 启动：
-    python server.py                 # 默认 127.0.0.1:8737
+    python server.py                 # 默认 127.0.0.1:8737，需先启动 ../auth_server/auth_server.py
     python server.py --port 9000
     python server.py --mock          # 离线演示模式，不需要 API Key
+    python server.py --no-auth       # 跳过登录（单用户，仅开发调试）
 
-启动后在浏览器打开 http://127.0.0.1:8737 ，先填写 DeepSeek API Key 进入。
-所有数据保存在本文件所在目录的 data/ 下，可随时删除。
+启动后在浏览器打开 http://127.0.0.1:8737 ，先登录 / 注册，再填写 DeepSeek API Key 进入。
+所有数据保存在本文件所在目录的 data/ 下，按账号分在 data/users/<用户ID>/，可随时删除。
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import mimetypes
 import re
+import shutil
+import sqlite3
 import sys
 import threading
 import time
@@ -27,6 +32,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from os import _exit
 from pathlib import Path
 
+import auth_client
 import deepseek
 import extras
 import prompts
@@ -38,8 +44,145 @@ from store import DATA_DIR, Store
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
 
-STORE = Store()
+
+class AuthRequired(Exception):
+    """未登录时访问了需要账号数据的接口。"""
+
+
+class CurrentStore:
+    """当前登录账号的 Store。登录、退出、切换账号时用 bind() 替换。
+
+    tools、extras 等拿到的都是这个代理，切换账号时不用改它们。
+
+    Store 只有一条 sqlite 连接，而 HTTP 服务是多线程的：页面加载时浏览器会并发发
+    好几个请求，交错执行会让事务卡在未提交状态，之后所有写操作都报
+    "database is locked"。所以经代理调用的 Store 方法一律串行执行。
+    """
+
+    def __init__(self):
+        self._store: Store | None = None
+        self._lock = threading.RLock()
+
+    def bind(self, store: Store | None) -> None:
+        with self._lock:
+            self._store = store
+
+    @property
+    def bound(self) -> bool:
+        return self._store is not None
+
+    def __getattr__(self, name: str):
+        store = self.__dict__.get("_store")
+        if store is None:
+            raise AuthRequired()
+        attr = getattr(store, name)
+        if not callable(attr):
+            return attr
+        lock = self.__dict__["_lock"]
+
+        def locked(*args, **kwargs):
+            with lock:
+                return attr(*args, **kwargs)
+        return locked
+
+
+STORE = CurrentStore()
 LOCK = threading.Lock()
+
+# ---------------------------------------------------------------- 登录与按账号隔离
+# 规格见 文档/登录注册方案/登录注册与本地部署流程.md 第 6 节
+USERS_DIR = DATA_DIR / "users"
+LEGACY_MARK = USERS_DIR / ".legacy_migrated"
+AUTH: auth_client.AuthClient | None = None      # None 表示 --no-auth 单用户模式
+CURRENT_UID = ""
+# 未登录也能访问的接口
+OPEN_PATHS = {"/api/state", "/api/heartbeat", "/api/client-closed"}
+
+
+def init_store(store: Store) -> tuple[int, int]:
+    """内置科目、标准文件夹、示例资料；返回（导入示例数，归位数）。"""
+    seed.seed(store)
+    seed.ensure_folders(store)
+    samples = seed.seed_samples(store) + seed.import_shared_samples(store)
+    return samples, seed.reorganize(store)
+
+
+def adopt_legacy_data(user_dir: Path) -> bool:
+    """升级前的 data/csla.db 归第一个在本机登录的账号所有。"""
+    if LEGACY_MARK.exists():
+        return False
+    USERS_DIR.mkdir(parents=True, exist_ok=True)
+    legacy_db = DATA_DIR / "csla.db"
+    moved = False
+    if legacy_db.is_file() and not (user_dir / "csla.db").exists():
+        user_dir.mkdir(parents=True, exist_ok=True)
+        for name in ("csla.db", "csla.db-journal", "csla.db-wal", "csla.db-shm",
+                     "materials", "profile"):
+            src = DATA_DIR / name
+            if src.exists():
+                shutil.move(str(src), str(user_dir / name))
+        conn = sqlite3.connect(str(user_dir / "csla.db"))
+        old_prefix, new_prefix = str(DATA_DIR / "materials"), str(user_dir / "materials")
+        conn.execute("UPDATE materials SET path = ? || substr(path, ?) WHERE path LIKE ?",
+                     (new_prefix, len(old_prefix) + 1, old_prefix + "%"))
+        conn.commit()
+        conn.close()
+        moved = True
+    LEGACY_MARK.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+    return moved
+
+
+def activate_user(user: dict) -> None:
+    """切到某个账号的数据目录；同一账号重复调用不做事。"""
+    global CURRENT_UID
+    uid = str(user.get("id") or "")
+    if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", uid):
+        raise ValueError("认证服务返回的用户 ID 不合法")
+    with LOCK:
+        if CURRENT_UID == uid and STORE.bound:
+            return
+        user_dir = USERS_DIR / uid
+        if adopt_legacy_data(user_dir):
+            print(f"  已把升级前的本地数据迁移给账号 {user.get('username')}")
+        store = Store(user_dir / "csla.db", data_dir=user_dir)
+        init_store(store)
+        local = store.ensure_user()
+        # 显示名以账号昵称为准（可能在别的电脑上改过）；没设昵称时才用用户名兜底
+        nickname = user.get("nickname") or ""
+        if nickname and local.get("name") != nickname:
+            store.set_meta({"name": nickname})
+        elif not nickname and local.get("name") in ("", "本机用户"):
+            store.set_meta({"name": user.get("username") or "本机用户"})
+        STORE.bind(store)
+        CURRENT_UID = uid
+        reset_caches()
+
+
+def deactivate_user() -> None:
+    global CURRENT_UID
+    with LOCK:
+        STORE.bind(None)
+        CURRENT_UID = ""
+        reset_caches()
+
+
+def sync_auth(force: bool = False) -> None:
+    """按需在线校验会话，并让当前数据目录与登录状态一致。"""
+    if AUTH is None:
+        return
+    AUTH.verify(force=force)
+    if AUTH.logged_in:
+        activate_user(AUTH.user)
+    elif STORE.bound:
+        deactivate_user()
+
+
+def auth_status() -> dict:
+    if AUTH is None:
+        return {"enabled": False, "logged_in": True, "user": None, "offline": False,
+                "auth_server": "", "notice": ""}
+    return AUTH.status()
+
 
 # ---------------------------------------------------------------- 浏览器心跳 / 自动退出
 CLIENT = {"seen": False, "last_seen": time.time(), "visible": True, "close_at": 0.0}
@@ -96,6 +239,14 @@ def get_retriever() -> rag.Retriever:
         _RETRIEVER = rag.Retriever(STORE.all_chunks())
         _RETRIEVER_VERSION = version
     return _RETRIEVER
+
+
+def reset_caches() -> None:
+    """切换账号后检索器和回答缓存都属于上一个账号，必须丢掉。"""
+    global _RETRIEVER, _RETRIEVER_VERSION
+    _RETRIEVER = None
+    _RETRIEVER_VERSION = -1
+    _ANSWER_CACHE.clear()
 
 
 def client() -> deepseek.DeepSeekClient:
@@ -204,21 +355,38 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     # ------------------------------------------------------------ 路由
+    def _need_login(self, path: str) -> bool:
+        """未登录访问账号数据接口时直接回 401，返回 True 表示已拦截。"""
+        if not path.startswith("/api/") or path in OPEN_PATHS or path.startswith("/api/auth/"):
+            return False
+        if STORE.bound:
+            return False
+        self._error("请先登录", 401, code="auth_required")
+        return True
+
     def do_GET(self) -> None:      # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
         path, query = parsed.path, urllib.parse.parse_qs(parsed.query)
         try:
+            if self._need_login(path):
+                return
             if path.startswith("/api/"):
                 self._api_get(path, query)
             else:
                 self._static(path)
+        except AuthRequired:
+            self._error("请先登录", 401, code="auth_required")
         except Exception as exc:                      # noqa: BLE001
             self._error(f"服务器内部错误：{exc}", 500)
 
     def do_POST(self) -> None:     # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
         try:
+            if self._need_login(parsed.path):
+                return
             self._api_post(parsed.path, self._body())
+        except AuthRequired:
+            self._error("请先登录", 401, code="auth_required")
         except deepseek.DeepSeekError as exc:
             self._error(str(exc), 502, retryable=exc.retryable)
         except Exception as exc:                      # noqa: BLE001
@@ -227,7 +395,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_PATCH(self) -> None:    # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
         try:
+            if self._need_login(parsed.path):
+                return
             self._api_post(parsed.path, self._body())
+        except AuthRequired:
+            self._error("请先登录", 401, code="auth_required")
         except deepseek.DeepSeekError as exc:
             self._error(str(exc), 502, retryable=exc.retryable)
         except Exception as exc:                      # noqa: BLE001
@@ -237,7 +409,11 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         query = urllib.parse.parse_qs(parsed.query)
         try:
+            if self._need_login(parsed.path):
+                return
             self._api_delete(parsed.path, query)
+        except AuthRequired:
+            self._error("请先登录", 401, code="auth_required")
         except Exception as exc:                      # noqa: BLE001
             self._error(f"删除失败：{exc}", 500)
 
@@ -262,6 +438,11 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------ GET API
     def _api_get(self, path: str, query: dict) -> None:
         if path == "/api/state":
+            sync_auth()
+            auth = auth_status()
+            if not STORE.bound:
+                self._json({"configured": False, "mock": deepseek.MOCK, "auth": auth})
+                return
             cfg = STORE.get_config()
             self._json({
                 "configured": STORE.has_api_key() or deepseek.MOCK,
@@ -269,16 +450,46 @@ class Handler(BaseHTTPRequestHandler):
                 "masked_key": STORE.mask_key(),
                 "model": cfg.get("model", deepseek.DEFAULT_MODEL),
                 "user": STORE.ensure_user(),
+                "avatar": STORE.avatar_version(),
                 "stats": STORE.stats(),
                 "pending_summary": _pending_summary(),
+                "auth": auth,
             })
             return
 
+        if path == "/api/auth/status":
+            sync_auth()
+            self._json(auth_status())
+            return
+
         if path == "/api/profile":
-            self._json({"profile": STORE.ensure_user().get("profile", ""),
+            user = STORE.ensure_user()
+            self._json({"profile": user.get("profile", ""),
                         "files": STORE.list_profiles(),
                         "meta": STORE.get_meta(),
-                        "user": STORE.ensure_user().get("name", "")})
+                        "user": user.get("name", ""),
+                        "avatar": STORE.avatar_version()})
+            return
+
+        if path == "/api/profile/avatar":
+            self._serve_avatar()
+            return
+
+        m = re.fullmatch(r"/api/profile/([\w-]+)(/download)?", path)
+        if m:
+            try:
+                text = STORE.read_profile(m.group(1))
+            except ValueError as exc:
+                self._error(str(exc), 400)
+                return
+            if not text:
+                self._error("该月份没有档案", 404)
+                return
+            if m.group(2):
+                self._download(text.encode("utf-8"), f"学习者档案-{m.group(1)}.md",
+                               "text/markdown; charset=utf-8")
+            else:
+                self._json({"month": m.group(1), "content": text})
             return
 
         if path == "/api/subjects":
@@ -336,6 +547,10 @@ class Handler(BaseHTTPRequestHandler):
             folder = query.get("folder", [""])[0]
             materials = STORE.list_materials(folder if folder else None)
             folders = STORE.list_folders()
+            subject_names = {s["name"] for s in STORE.subjects()}
+            for f in folders:
+                # 内置文件夹、科目同名文件夹不允许改名（见 /api/folders/<id>/rename）
+                f["renamable"] = not f.get("slug") and f["name"] not in subject_names
             fmap = {f["id"]: f for f in folders}
             for mat in materials:
                 f = fmap.get(mat.get("folder_id", ""), {})
@@ -400,6 +615,11 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------ POST API
     def _api_post(self, path: str, body: dict) -> None:
+        # ---- 登录注册（转发给认证服务，token 只留在本机服务）
+        if path.startswith("/api/auth/"):
+            self._auth_post(path, body)
+            return
+
         # ---- 配置 API Key
         if path == "/api/config":
             key = (body.get("api_key") or "").strip()
@@ -497,6 +717,25 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True, "meta": meta}, 201)
             return
 
+        # ---- 显示名 / 头像
+        if path == "/api/profile/name":
+            self._set_display_name(body)
+            return
+
+        if path == "/api/profile/avatar":
+            try:
+                data = base64.b64decode(str(body.get("content") or ""), validate=True)
+            except binascii.Error:
+                self._error("头像数据无效", 400)
+                return
+            try:
+                version = STORE.save_avatar(data)
+            except ValueError as exc:
+                self._error(str(exc), 400)
+                return
+            self._json({"ok": True, "avatar": version}, 201)
+            return
+
         # ---- 用户档案
         if path == "/api/profile/generate":
             self._generate_profile(body.get("month") or None)
@@ -592,9 +831,42 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"folder": folder}, 201)
             return
 
+        m = re.fullmatch(r"/api/folders/([\w-]+)/rename", path)
+        if m:
+            folder = STORE.folder(m.group(1))
+            name = (body.get("name") or "").strip()
+            if not folder:
+                self._error("文件夹不存在", 404)
+                return
+            if folder.get("slug"):
+                # 内置文件夹按 slug 识别，启动时会被 seed 改回标准名，改了也留不住
+                self._error("内置文件夹不能改名", 403)
+                return
+            if any(s["name"] == folder["name"] for s in STORE.subjects()):
+                # 科目与资料文件夹按同名对应（建科目、抓取资料都靠它），改名会脱钩
+                self._error(f"这是科目「{folder['name']}」的资料文件夹，不能单独改名", 403)
+                return
+            if not name or len(name) > 40:
+                self._error("文件夹名需为 1–40 个字", 400)
+                return
+            other = STORE.folder_by_name(name)
+            if other and other["id"] != folder["id"]:
+                self._error("同名文件夹已存在", 409)
+                return
+            STORE.rename_folder(folder["id"], name)
+            self._json({"ok": True, "folder": STORE.folder(folder["id"])})
+            return
+
         m = re.fullmatch(r"/api/materials/([\w-]+)/move", path)
         if m:
-            STORE.move_material(m.group(1), body.get("folder_id", ""))
+            folder_id = body.get("folder_id") or ""
+            if not STORE.material(m.group(1)):
+                self._error("资料不存在", 404)
+                return
+            if folder_id and not STORE.folder(folder_id):
+                self._error("目标文件夹不存在", 404)
+                return
+            STORE.move_material(m.group(1), folder_id)
             self._json({"ok": True})
             return
 
@@ -641,6 +913,51 @@ class Handler(BaseHTTPRequestHandler):
 
         self._error("未知接口", 404)
 
+    # ------------------------------------------------------------ 登录注册
+    def _auth_post(self, path: str, body: dict) -> None:
+        if AUTH is None:
+            self._error("当前以 --no-auth 单用户模式运行，不需要登录", 400, code="auth_disabled")
+            return
+        username = str(body.get("username") or "").strip()
+        password = body.get("password") if isinstance(body.get("password"), str) else ""
+        try:
+            if path == "/api/auth/login":
+                user = AUTH.login(username, password)
+                activate_user(user)
+                self._json(auth_status())
+                return
+            if path == "/api/auth/register":
+                AUTH.register(username, password, str(body.get("nickname") or "").strip())
+                user = AUTH.login(username, password)      # 注册后直接进入
+                activate_user(user)
+                self._json(auth_status(), 201)
+                return
+            if path == "/api/auth/logout":
+                AUTH.logout()
+                deactivate_user()
+                self._json(auth_status())
+                return
+            if path == "/api/auth/password":
+                AUTH.change_password(str(body.get("old_password") or ""),
+                                     str(body.get("new_password") or ""))
+                self._json({"ok": True})
+                return
+        except auth_client.AuthFailed as exc:
+            if path == "/api/auth/password" and exc.code in ("token_invalid", "account_disabled"):
+                # 会话已被撤销或账号被禁用：清掉本机会话，前端据 auth_required 回登录页
+                AUTH.logout()
+                deactivate_user()
+                self._error(exc.message, 401, code="auth_required")
+                return
+            # 其余（密码错误、用户名重复、格式不对、限流）原样透传，不影响当前登录
+            self._error(exc.message, exc.status, code=exc.code)
+            return
+        except auth_client.AuthUnavailable as exc:
+            self._error(f"认证服务不可达（{AUTH.base_url}）：{exc}", 503,
+                        code="auth_unavailable")
+            return
+        self._error("未知接口", 404)
+
     # ------------------------------------------------------------ DELETE API
     def _api_delete(self, path: str, query: dict | None = None) -> None:
         query = query or {}
@@ -660,7 +977,15 @@ class Handler(BaseHTTPRequestHandler):
 
         m = re.fullmatch(r"/api/profile/([\w-]+)", path)
         if m:
-            STORE.delete_profile(m.group(1))
+            if m.group(1) == "avatar":
+                STORE.delete_avatar()
+                self._json({"ok": True})
+                return
+            try:
+                STORE.delete_profile(m.group(1))
+            except ValueError as exc:
+                self._error(str(exc), 400)
+                return
             self._json({"ok": True})
             return
 
@@ -937,6 +1262,38 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    # ------------------------------------------------------------ 业务：显示名 / 头像
+    def _set_display_name(self, body: dict) -> None:
+        """显示名 = 账号昵称：本机库与认证服务各存一份，认证服务连不上时只改本机。"""
+        name = str(body.get("name") or "").strip()
+        if not name or len(name) > 20:
+            self._error("显示名需为 1–20 个字", 400)
+            return
+        notice = ""
+        if AUTH is not None:
+            try:
+                AUTH.update_nickname(name)
+            except auth_client.AuthFailed as exc:
+                self._error(exc.message, exc.status, code=exc.code)
+                return
+            except auth_client.AuthUnavailable:
+                notice = "认证服务暂时连不上，显示名只在本机生效"
+        STORE.set_meta({"name": name})
+        self._json({"ok": True, "name": name, "notice": notice, "auth": auth_status()})
+
+    def _serve_avatar(self) -> None:
+        path = STORE.avatar_file()
+        if not path:
+            self._error("还没有设置头像", 404)
+            return
+        data = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png" if path.suffix == ".png" else "image/jpeg")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(data)
+
 
     # ------------------------------------------------------------ 业务：工具型 AI
     def _agent_stream(self, body: dict) -> None:
@@ -1148,11 +1505,12 @@ class Handler(BaseHTTPRequestHandler):
         return {"nodes": nodes, "links": links,
                 "subjects": [s["name"] for s in subjects]}
 
-    def _download(self, data: bytes, filename: str) -> None:
+    def _download(self, data: bytes, filename: str,
+                  ctype: str = "application/vnd.openxmlformats-officedocument"
+                               ".wordprocessingml.document") -> None:
         quoted = urllib.parse.quote(filename)
         self.send_response(200)
-        self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument"
-                                        ".wordprocessingml.document")
+        self.send_header("Content-Type", ctype)
         self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quoted}")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
@@ -1474,9 +1832,14 @@ def main() -> int:
                     help="页面可见时的空闲上限秒数（配合 --exit-on-close）")
     ap.add_argument("--idle-hidden", type=float, default=300.0,
                     help="页面切后台时的空闲上限秒数")
+    ap.add_argument("--auth-server", default="",
+                    help="账号认证服务地址，默认取 CSLA_AUTH_SERVER / data/client.json / "
+                         + auth_client.DEFAULT_SERVER)
+    ap.add_argument("--no-auth", action="store_true",
+                    help="跳过登录，单用户模式（数据在 data/ 下，与旧版一致），仅供开发调试")
     args = ap.parse_args()
 
-    global EXIT_ON_CLOSE, IDLE_VISIBLE, IDLE_HIDDEN
+    global EXIT_ON_CLOSE, IDLE_VISIBLE, IDLE_HIDDEN, AUTH
     EXIT_ON_CLOSE = args.exit_on_close
     IDLE_VISIBLE = args.idle_visible
     IDLE_HIDDEN = args.idle_hidden
@@ -1485,14 +1848,20 @@ def main() -> int:
         deepseek.MOCK = True
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    seed.seed(STORE)
-    seed.ensure_folders(STORE)
-    samples = seed.seed_samples(STORE) + seed.import_shared_samples(STORE)
-    moved = seed.reorganize(STORE)
-    if moved:
-        print(f"  已把 {moved} 份资料归入对应文件夹")
-    if samples:
-        print(f"  已导入内置示例资料 {samples} 份（可在界面里删除）")
+    if args.no_auth:
+        STORE.bind(Store())
+        samples, moved = init_store(STORE)
+        if moved:
+            print(f"  已把 {moved} 份资料归入对应文件夹")
+        if samples:
+            print(f"  已导入内置示例资料 {samples} 份（可在界面里删除）")
+    else:
+        AUTH = auth_client.AuthClient(auth_client.resolve_server(args.auth_server, DATA_DIR),
+                                      DATA_DIR / "session.json")
+        try:
+            sync_auth(force=True)
+        except Exception as exc:                      # noqa: BLE001 - 启动不因账号问题失败
+            print(f"  恢复登录状态失败：{exc}")
 
     try:
         httpd = QuietHTTPServer((args.host, args.port), Handler)
@@ -1511,6 +1880,11 @@ def main() -> int:
     print(f"  地址：{url}")
     print(f"  数据目录：{DATA_DIR}")
     print(f"  模式：{'离线演示（--mock）' if deepseek.MOCK else 'DeepSeek API'}")
+    if AUTH is None:
+        print("  登录：关闭（--no-auth 单用户模式）")
+    else:
+        who = AUTH.user["username"] if AUTH.logged_in else "未登录"
+        print(f"  认证服务：{AUTH.base_url}（当前：{who}{'，离线' if AUTH.offline else ''}）")
     print(f"  自动退出：{'开启（关闭浏览器页面后停止）' if EXIT_ON_CLOSE else '关闭'}")
     print("=" * 56)
 

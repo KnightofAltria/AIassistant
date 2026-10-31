@@ -43,7 +43,7 @@ def get(base: str, path: str, timeout: float = 10.0):
 # ---------------------------------------------------------------- 静态检查
 def check_python_syntax() -> None:
     bad = []
-    for path in sorted(APP.glob("*.py")):
+    for path in sorted(APP.glob("*.py")) + sorted((APP.parent / "auth_server").glob("*.py")):
         proc = subprocess.run([sys.executable, "-m", "py_compile", str(path)],
                               capture_output=True)
         if proc.returncode != 0:
@@ -137,6 +137,35 @@ def check_store_extensions() -> None:
 
 
 # ---------------------------------------------------------------- 只读接口
+def login_state(base: str) -> tuple[bool, dict]:
+    """返回（是否已进入账号数据，/api/state 里的 auth 字段）。"""
+    _, body = get(base, "/api/state")
+    auth = json.loads(body or b"{}").get("auth") or {}
+    return bool(auth.get("logged_in", True)), auth
+
+
+def check_auth_gate(base: str) -> None:
+    """未登录时：账号数据接口一律 401 auth_required，开放接口照常可用。"""
+    for path in ("/api/subjects", "/api/materials", "/api/profile", "/api/conversations"):
+        try:
+            status, _ = get(base, path)
+            check(f"未登录 GET {path} 被拦截", False, f"返回了 {status}")
+        except urllib.error.HTTPError as exc:
+            code = (json.loads(exc.read() or b"{}").get("error") or {}).get("code", "")
+            check(f"未登录 GET {path} 被拦截", exc.code == 401 and code == "auth_required",
+                  f"{exc.code} {code}")
+        except urllib.error.URLError as exc:
+            check(f"未登录 GET {path} 被拦截", False, f"服务未启动？{exc.reason}")
+            return
+    try:
+        status, body = get(base, "/api/auth/status")
+        auth = json.loads(body or b"{}")
+        check("GET /api/auth/status", status == 200 and auth.get("enabled") is True,
+              f"认证服务 {auth.get('auth_server', '')}")
+    except urllib.error.URLError as exc:
+        check("GET /api/auth/status", False, str(exc))
+
+
 def check_api(base: str) -> None:
     endpoints = [
         ("/api/state", "状态"),
@@ -166,7 +195,7 @@ def check_api(base: str) -> None:
 
 def check_assets(base: str) -> None:
     for path in ("/", "/app.js", "/extras.js", "/agent.js", "/landing.js",
-                 "/keepalive.js", "/style.css"):
+                 "/keepalive.js", "/auth.js", "/style.css"):
         try:
             status, body = get(base, path)
             check(f"GET {path}", status == 200 and len(body) > 200, f"{len(body)} 字节")
@@ -204,6 +233,12 @@ def check_page_markers(base: str) -> None:
         "知识图谱": 'id="graph-canvas"',
         "能力雷达": 'id="radar-canvas"',
         "复习预测": 'id="forecast-box"',
+        "登录注册页": 'id="auth"',
+        "修改密码弹窗": 'id="modal-password"',
+        "退出登录按钮": 'id="btn-logout"',
+        "移动资料弹窗": 'id="modal-move"',
+        "头像上传": 'id="avatar-file"',
+        "修改显示名": 'id="btn-edit-name"',
     }
     missing = [k for k, v in markers.items() if v not in html]
     check("首页关键元素", not missing, "齐全" if not missing else f"缺少：{missing}")
@@ -252,9 +287,14 @@ def main() -> int:
         urllib.request.urlopen(base + "/api/state", timeout=5)
         print("== 静态资源与页面 ==")
         check_assets(base)
-        check_api(base)
         check_page_markers(base)
-        check_data_health(base)
+        logged_in, auth = login_state(base)
+        if logged_in:
+            check_api(base)
+            check_data_health(base)
+        else:
+            print("（尚未登录：只检查登录拦截；登录后重跑可检查账号数据接口）")
+            check_auth_gate(base)
     except urllib.error.URLError:
         print("（服务没启动，跳过接口与页面检查；启动后重跑能看到全貌）")
 

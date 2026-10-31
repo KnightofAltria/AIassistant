@@ -1,7 +1,7 @@
 # 计算机课程学习助手（本地可运行版）
 
-按 `设计文档.txt` 实现的第一个可运行版本：**不登录、不用本地模型，只接 DeepSeek API**，
-所有数据存在本机 `app/data/` 下，随时可删。
+按 `设计文档.txt` 实现的第一个可运行版本：**账号登录 + DeepSeek API，不用本地模型**，
+学习数据按账号存在本机 `app/data/users/<用户ID>/` 下，随时可删。
 
 ## 怎么启动
 
@@ -11,31 +11,51 @@
 AIassistant\启动.bat      （或 run.bat，同一个东西）
 ```
 
-会弹出一个黑窗口，自动找 Python、启动服务、打开浏览器 `http://127.0.0.1:8737`。
-首次进入先填 DeepSeek API Key（[在这里申请](https://platform.deepseek.com/api_keys)）。
+会弹出一个黑窗口，自动找 Python、在另一个最小化窗口里启动账号认证服务、启动学习助手、
+打开浏览器 `http://127.0.0.1:8737`。
+首次进入先**注册 / 登录**，再填 DeepSeek API Key（[在这里申请](https://platform.deepseek.com/api_keys)）。
 
 **关掉就停**：启动脚本带 `--exit-on-close`，关掉最后一个浏览器页面约 25 秒后，
 服务会自动停止，黑窗口自己退出。想立刻停：窗口里按 Ctrl+C，或直接关窗口。
+认证服务窗口不会跟着退出，需要时手动关掉（下次启动若它还在，会直接复用）。
 
 命令行启动也可以：
 
 ```powershell
+python AIassistant\auth_server\auth_server.py   # 终端 1：账号认证服务，127.0.0.1:8740
 cd AIassistant\app
-python server.py --open --exit-on-close     # 关页面即停服
+python server.py --open --exit-on-close     # 终端 2：关页面即停服
 python server.py --open                     # 不自动退出，适合长期挂着
 ```
 
 相关参数：`--exit-on-close`（开关）、`--idle-visible 25`（页面可见时空闲上限秒数）、
-`--idle-hidden 300`（页面切后台时的上限）。
+`--idle-hidden 300`（页面切后台时的上限）、`--auth-server <地址>`（认证服务不在本机时用）、
+`--no-auth`（跳过登录，单用户，仅开发调试）。
 
-**没有任何第三方依赖**，不需要 `pip install`，Python 3.10+ 即可（用标准库实现
-HTTP 服务、SSE 流式、SQLite 存储、BM25 检索）。
+**没有任何第三方依赖**，不需要 `pip install`，Python 3.9+ 即可（用标准库实现
+HTTP 服务、SSE 流式、SQLite 存储、BM25 检索、PBKDF2 密码哈希）。
 
-没有 Key 也能先看界面：
+没有 Key 也能先看界面（仍需先登录）：
 
 ```powershell
 python server.py --mock --open    # 离线演示模式，模型输出为占位文本
 ```
+
+## 账号与登录
+
+- 账号由独立的认证服务（`auth_server/`）管理，账号库在 `auth_server/data/auth.db`，只存密码哈希。
+- 学习助手只保存登录凭证 `app/data/session.json`；资料、对话、档案按账号分目录，切换账号互不可见。
+- 升级前的 `app/data/csla.db` 会在**第一个登录的账号**下自动迁移过去。
+- 认证服务暂时连不上时，已登录的账号可离线继续用最多 7 天。
+- 忘记密码 / 禁用账号只能在认证服务所在电脑上用命令行处理：
+
+```powershell
+python auth_server.py users                    # 列出账号
+python auth_server.py reset-password <用户名>   # 重置密码（会让该账号所有登录失效）
+python auth_server.py disable <用户名>          # 禁用；enable 恢复
+```
+
+局域网 / 公网部署、接口说明见 `文档/登录注册方案/登录注册与本地部署流程.md`。
 
 ## 资料是怎么组织的
 
@@ -77,11 +97,11 @@ python crawl.py --crawl      # 联网抓取并导入（17 篇，按科目自动�
 | 对话总结保存在「近期总结」 | ✅ 一键生成 Markdown 总结并落库；同时更新用户画像 |
 | 科目学习：4 个科目、按章节、大纲讲解 + 题目 | ✅ 19 章内置大纲；可点「生成讲解」让模型扩写；可生成单选题并即时判分 |
 | 学习中底侧保留对话框随时提问 | ✅ 章节页底部常驻输入框，提问不落会话记录 |
-| 资料管理：浏览、导入、新建文件夹、删除、RAG 问答 | ✅ 支持导入/新建/删除/按科目检索；**拖动排序未做**（浏览器原生拖拽与文件系统写入有冲突，建议后续用显式「移动到…」） |
+| 资料管理：浏览、导入、新建文件夹、删除、RAG 问答 | ✅ 支持导入/新建/删除/按科目检索；资料卡「移动到…」换文件夹，自建文件夹可点 ✎ 改名（内置与科目同名的文件夹不可改）；**拖动排序未做** |
 | 资料三类（开发者放入 / 学生导入 / 软件搜集） | ✅ 抓取脚本导入的算「软件开发包」，界面导入的算「学生资料」，均记录来源 |
 | 模型回答依据资料并给出处 | ✅ 服务端生成片段编号 `[c1]`…，模型只能用这些编号；回答后**校验编号合法性**，非法编号会在事件里标红 |
 | 每次对话生成易错提示本 | ✅ 做题答错自动进「易错本」；`prompts.MISTAKE_SYSTEM` 已备好，可加一个「按错题生成提示」按钮（下一步） |
-| 用户档案（本地文件、按对话生成、可多份） | ✅ 存 SQLite 的 users.profile，每次生成总结时刷新；**按月归档未做** |
+| 用户档案（本地文件、按对话生成、可多份） | ✅ 按月一份 `.md`，存在账号目录 `profile/` 下；个人信息页可点任一月份查看、下载、删除 |
 | 一个页面填 API、通过后进入 | ✅ 无 Key 时只能停在门禁页 |
 | 全部资料可删除 | ✅ 资料、文件夹（连带资料）、总结、会话、题目均可删 |
 | 软件联网搜新资料 | ⚠️ 提供 `crawl.py` 手动抓取；**提问时自动联网未做**（需要搜索 API，且要防 SSRF，按设计文档 14 章应先做白名单） |
@@ -153,17 +173,24 @@ python check.py
 python selftest.py
 ```
 
-`check.py` 检查：Python/JS 语法、前端重复声明、HTML 配平、静态资源、只读接口、页面关键元素、数据体检。
+`check.py` 检查：Python/JS 语法、前端重复声明、HTML 配平、静态资源、页面关键元素；
+未登录时检查账号数据接口都返回 401，登录后检查只读接口与数据体检。
 `selftest.py` 检查：完整链路（聊天流、总结、出题、判分、讲解、视频推荐、文件上传下载、删除），
 约 7 次模型调用，**不要频繁跑**。
 
 ## 自检
 
 ```powershell
-# 终端 1
+# 终端 1（不想起认证服务就加 --no-auth；否则先在浏览器登录一次再跑）
 python server.py --mock
 # 终端 2
 python selftest.py
+```
+
+登录注册另有零成本的单元测试（临时目录 + 随机端口，不碰 `app/data/`）：
+
+```powershell
+python test_auth.py
 ```
 
 覆盖：静态资源、科目树、资料导入与切片、检索命中、SSE 事件顺序、引用校验、
@@ -171,9 +198,10 @@ python selftest.py
 
 ## 数据与隐私
 
-- API Key 明文存在 `app/data/config.json`，只发给 `api.deepseek.com`。
+- API Key 明文存在当前账号的 `app/data/users/<用户ID>/csla.db` 里，只发给 `api.deepseek.com`；每个账号各填各的。
+- 密码只交给认证服务做哈希校验，本机不保存密码；`app/data/session.json` 里是登录凭证，删掉等于退出登录。
 - 聊天内容只存在本机 SQLite；发往 DeepSeek 的只有当前一轮的对话与检索到的资料片段。
-- 想彻底清空：停掉服务，删掉 `app/data/` 整个目录即可。
+- 想彻底清空：停掉服务，删掉 `app/data/` 整个目录即可（账号本身在认证服务里，不受影响）。
 
 ## 常见问题
 
@@ -182,6 +210,9 @@ python selftest.py
 | 填了 Key 提示 401 | Key 无效或已删；到 platform.deepseek.com 重新生成 |
 | 提示 402 | DeepSeek 账户余额不足 |
 | 端口被占用 | `python server.py --port 9000` |
+| 登录时提示"认证服务不可达" | 认证服务没启动，或 `--auth-server` 地址不对；本机演示先运行 `auth_server.py` |
+| 登录提示"失败次数过多" | 同一用户名 15 分钟内输错 5 次会锁定，等 15 分钟或重启认证服务 |
+| 忘记密码 | 在认证服务电脑上 `python auth_server.py reset-password <用户名>` |
 | 公司/校园网连不上 DeepSeek | 设置环境变量 `HTTPS_PROXY` 后再启动 |
 | 回答里出现"资料不足" | 说明检索没命中，先在「资料管理」导入对应章节的资料 |
 | 想换回真实模型但不想重填 Key | 右上「API 设置」里改模型即可 |

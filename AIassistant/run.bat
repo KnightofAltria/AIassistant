@@ -44,6 +44,9 @@ echo       关掉最后一个页面约 25 秒后，服务会自动停止，本窗口随之退出。
 echo       想立刻停止：本窗口按 Ctrl+C，或直接关闭本窗口。
 echo ----------------------------------------------
 
+rem 本机账号认证服务（单独的最小化窗口；已在运行时新窗口会因端口占用自行退出）
+start "CSLA 认证服务" /min %PY% "%~dp0auth_server\auth_server.py"
+
 %PY% server.py --open --exit-on-close
 
 echo.

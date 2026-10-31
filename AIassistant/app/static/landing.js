@@ -233,13 +233,13 @@ function stopHomeField() {
 }
 
 /* ---------------------------------------------------------------- 视图导航栈 */
+/* 每次切页都写进浏览器历史（?view=xxx），所以浏览器的前进/后退、刷新都能回到对应页面；
+   navStack 只用来判断页面里的「← 返回」还有没有上一页。入栈出栈在 switchView 包装里做。 */
 const navStack = [];
+let historyIdx = (history.state && history.state.idx) || 0;   // 刷新后接着原来的编号
 
-function go(view, opts) {
-  if (state.view !== view) navStack.push(state.view);
+function go(view) {
   switchView(view);
-  if (view === 'profile') loadProfilePage();
-  if (view === 'home') { startHomeField(); refreshHomeSub(); }
 }
 
 function goHome() {
@@ -248,9 +248,37 @@ function goHome() {
 }
 
 function goBack() {
-  const prev = navStack.pop();
-  go(prev || 'home');
+  if (navStack.length) history.back();   // 交给 popstate，和浏览器后退走同一条路
+  else go('home');
 }
+
+function viewUrl(view) {
+  const url = new URL(location.href);
+  if (view === 'home') url.searchParams.delete('view');   // 主界面用干净地址，刷新会重播欢迎动画
+  else url.searchParams.set('view', view);
+  return url.pathname + url.search + url.hash;
+}
+
+function recordHistory(view) {
+  const target = viewUrl(view);
+  if (target === location.pathname + location.search + location.hash) {
+    history.replaceState({ view, idx: historyIdx }, '', target);
+  } else {
+    historyIdx += 1;
+    history.pushState({ view, idx: historyIdx }, '', target);
+  }
+}
+
+window.addEventListener('popstate', (e) => {
+  const st = e.state || {};
+  const view = st.view || new URLSearchParams(location.search).get('view') || 'home';
+  if (!document.getElementById(`view-${view}`)) return;
+  const idx = typeof st.idx === 'number' ? st.idx : 0;
+  if (idx < historyIdx) navStack.pop();
+  else if (state.view !== view) navStack.push(state.view);
+  historyIdx = idx;
+  switchView(view, { fromHistory: true });
+});
 
 async function refreshHomeSub() {
   try {
@@ -285,17 +313,14 @@ function injectBackBars() {
 /* ---------------------------------------------------------------- 个人信息页 */
 async function loadMeta() {
   try {
-    const { meta, user } = await api('/api/profile');
+    const { meta, user, avatar } = await api('/api/profile');
     if (meta) {
       $('#meta-age').value = meta.age || '';
       $('#meta-gender').value = meta.gender || '';
       $('#meta-major').value = meta.major || '';
       $('#meta-needs').value = meta.needs || '';
     }
-    if (user) {
-      $('#profile-name-big').textContent = user;
-      $('#avatar-big').textContent = user.slice(0, 1);
-    }
+    renderIdentity(user || null, avatar || '');
   } catch (e) { /* 忽略 */ }
 }
 
@@ -319,17 +344,16 @@ async function saveMeta() {
 
 function loadProfilePage() {
   loadMeta();
-  const name = $('#profile-name').textContent;
-  $('#profile-name-big').textContent = name;
-  $('#avatar-big').textContent = name.slice(0, 1);
+  renderIdentity(null);
   renderProfileInto($('#profile-panel-2'));
 }
 
-async function renderProfileInto(host) {
+/* 档案列表：点月份看全文，可下载为 .md；默认展开最新一份 */
+async function renderProfileInto(host, month) {
   const body = host.querySelector('.panel-body') || host;
   body.innerHTML = '<span class="muted small">加载中…</span>';
   try {
-    const { profile, files } = await api('/api/profile');
+    const { files } = await api('/api/profile');
     body.innerHTML = '';
     $('#profile-summary-line').textContent = files.length
       ? `已有 ${files.length} 份档案：${files.map((f) => f.month).join('、')}`
@@ -338,31 +362,72 @@ async function renderProfileInto(host) {
       body.innerHTML = '<p class="muted small">档案会依据最近的对话总结生成，按月一份，存在本地。</p>';
       return;
     }
+    const current = files.some((f) => f.month === month) ? month : files[0].month;
+    const pre = document.createElement('pre');
+    pre.className = 'profile-pre';
     files.forEach((f) => {
       const row = document.createElement('div');
-      row.className = 'profile-row';
+      row.className = 'profile-row clickable' + (f.month === current ? ' active' : '');
+      row.title = '点击查看这个月的档案';
       row.innerHTML = `<b>${esc(f.month)}</b>
         <span class="muted small">${(f.size / 1024).toFixed(1)} KB</span>
-        <span class="spacer"></span>
-        <button class="mini-btn" data-m="${esc(f.month)}">删除</button>`;
-      row.querySelector('button').addEventListener('click', async () => {
+        <span class="row-actions">
+          <a class="mini-btn" href="/api/profile/${esc(f.month)}/download" download>下载</a>
+          <button class="mini-btn" data-act="del">删除</button>
+        </span>`;
+      row.addEventListener('click', (ev) => {
+        if (ev.target.closest('.row-actions')) return;
+        body.querySelectorAll('.profile-row').forEach((r) => r.classList.toggle('active', r === row));
+        showProfileMonth(pre, f.month);
+      });
+      row.querySelector('[data-act="del"]').addEventListener('click', async () => {
         if (!confirm(`删除 ${f.month} 的学习者档案？`)) return;
-        await api(`/api/profile/${f.month}`, { method: 'DELETE' });
-        renderProfileInto(host);
-        loadProfilePage();
-        toast('已删除档案');
+        try {
+          await api(`/api/profile/${f.month}`, { method: 'DELETE' });
+          renderProfileInto(host, current === f.month ? '' : current);
+          loadProfile();
+          toast('已删除档案');
+        } catch (err) { toast(err.message, true); }
       });
       body.appendChild(row);
     });
-    if (profile) {
-      const pre = document.createElement('pre');
-      pre.className = 'profile-pre';
-      pre.textContent = profile;
-      body.appendChild(pre);
-    }
+    body.appendChild(pre);
+    showProfileMonth(pre, current);
   } catch (err) {
     body.innerHTML = `<span class="muted">${esc(err.message)}</span>`;
   }
+}
+
+async function showProfileMonth(pre, month) {
+  pre.textContent = '加载中…';
+  try {
+    const { content } = await api(`/api/profile/${month}`);
+    pre.textContent = content;
+  } catch (err) { pre.textContent = err.message; }
+}
+
+/* ---------------------------------------------------------------- 头像上传 */
+async function uploadAvatar(file) {
+  if (!file) return;
+  if (!/^image\/(png|jpeg)$/.test(file.type)) { toast('头像只支持 PNG 或 JPG 图片', true); return; }
+  if (file.size > 1024 * 1024) { toast('头像不能超过 1 MB', true); return; }
+  try {
+    const dataUrl = await readFileBase64(file);
+    const res = await api('/api/profile/avatar', {
+      method: 'POST', body: JSON.stringify({ content: dataUrl.split(',')[1] || '' }),
+    });
+    renderIdentity(null, res.avatar);
+    toast('头像已更新');
+  } catch (err) { toast(err.message, true); }
+}
+
+async function resetAvatar() {
+  if (!confirm('删除自定义头像，恢复为名字首字？')) return;
+  try {
+    await api('/api/profile/avatar', { method: 'DELETE' });
+    renderIdentity(null, '');
+    toast('已恢复默认头像');
+  } catch (err) { toast(err.message, true); }
 }
 
 /* ---------------------------------------------------------------- 聊天：查看本对话总结 */
@@ -444,7 +509,14 @@ document.addEventListener('click', (e) => {
 });
 
 $('#btn-view-summary').addEventListener('click', viewConversationSummary);
-$('#btn-edit-avatar').addEventListener('click', () => $('#profile-card').click());
+injectBackBars();          // 9509ae8 改启动流程时把这句漏掉了，返回按钮一直没出现
+$('#btn-edit-avatar').addEventListener('click', () => $('#avatar-file').click());
+$('#avatar-file').addEventListener('change', (e) => {
+  uploadAvatar(e.target.files[0]);
+  e.target.value = '';                 // 允许再次选同一张图
+});
+$('#btn-reset-avatar').addEventListener('click', resetAvatar);
+$('#btn-edit-name').addEventListener('click', editDisplayName);
 
 window.genProfileFromPage = async function genProfileFromPage() {
   const btn = $('#btn-gen-profile-2');
@@ -461,23 +533,27 @@ window.genProfileFromPage = async function genProfileFromPage() {
 $('#btn-gen-profile-2').addEventListener('click', () => window.genProfileFromPage());
 $('#btn-save-meta').addEventListener('click', saveMeta);
 
-/* 侧边栏点击时记录导航栈 */
-document.querySelectorAll('.nav-item').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    const target = btn.dataset.view;
-    if (state.view !== target) go(target);
-  });
-});
-
-/* ---------------------------------------------------------------- 主界面隐藏侧边栏 */
+/* ---------------------------------------------------------------- 主界面隐藏侧边栏 + 记录浏览器历史 */
+/* 所有切页（侧边栏、主界面卡片、各模块里的跳转）最终都走 switchView，在这里统一入栈、写历史 */
 (function wrapSwitchView() {
   const original = window.switchView;
   if (typeof original !== 'function') return;
-  window.switchView = function patchedSwitchView(view) {
+  window.switchView = function patchedSwitchView(view, opts) {
+    const from = state.view;
+    const o = opts || {};
     original(view);
+    if (o.replace) {                       // 启动时的切页：不产生历史记录，也不算"上一页"
+      navStack.length = 0;
+      history.replaceState({ view, idx: historyIdx }, '', viewUrl(view));
+    } else if (!o.fromHistory) {
+      if (from && from !== view) navStack.push(from);
+      if (view === 'home') navStack.length = 0;
+      recordHistory(view);
+    }
     const app = $('#app');
     if (app) app.classList.toggle('hide-sidebar', view === 'home');
-    if (view === 'home') startHomeField(); else stopHomeField();
+    if (view === 'home') { startHomeField(); refreshHomeSub(); } else stopHomeField();
+    if (view === 'profile') loadProfilePage();
   };
 })();
 
@@ -504,8 +580,7 @@ document.querySelectorAll('.nav-item').forEach((btn) => {
   const prewarm = setInterval(() => {
     if (typeof window.switchView !== 'function') return;
     clearInterval(prewarm);
-    goHome();
-    refreshHomeSub();
+    switchView('home', { replace: true });
   }, 120);
 
   // 再看接口：没配 Key 就把欢迎界面藏起来，让门禁页露出来

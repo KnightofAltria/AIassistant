@@ -8,6 +8,36 @@
 </head>
 <body>
 
+<!-- ============ 登录 / 注册 ============ -->
+<div id="auth" class="gate hidden">
+  <div class="gate-card">
+    <div class="gate-logo">CS</div>
+    <h1>计算机课程学习助手</h1>
+    <p class="gate-sub">登录后，资料、对话和档案按账号分开保存在本机</p>
+    <div class="auth-tabs">
+      <button id="auth-tab-login" class="auth-tab active" data-mode="login">登录</button>
+      <button id="auth-tab-register" class="auth-tab" data-mode="register">注册</button>
+    </div>
+    <form id="auth-form" autocomplete="on">
+      <label class="field"><span>用户名</span>
+        <input id="auth-username" name="username" autocomplete="username" spellcheck="false"
+               placeholder="3–20 位字母、数字或下划线" maxlength="20" /></label>
+      <label class="field auth-reg hidden"><span>昵称（可选）</span>
+        <input id="auth-nickname" maxlength="20" placeholder="显示在侧栏，不填则用用户名" /></label>
+      <label class="field"><span>密码</span>
+        <input id="auth-password" name="password" type="password" autocomplete="current-password"
+               placeholder="8–64 位，含字母和数字" maxlength="64" /></label>
+      <label class="field auth-reg hidden"><span>确认密码</span>
+        <input id="auth-password2" type="password" autocomplete="new-password" maxlength="64" /></label>
+      <button id="auth-submit" type="submit" class="btn primary wide">登录</button>
+    </form>
+    <p id="auth-msg" class="gate-msg"></p>
+    <p class="gate-hint" id="auth-hint">忘记密码请联系管理员重置。</p>
+  </div>
+</div>
+
+<div id="auth-offline" class="offline-bar hidden"></div>
+
 <!-- ============ 首次进入：填写 API Key ============ -->
 <div id="gate" class="gate hidden">
   <div class="gate-card">
@@ -54,11 +84,11 @@
       </div>
     </div>
 
-    <div class="profile-card" id="profile-card" title="点击自定义头像">
+    <div class="profile-card" id="profile-card" title="点击修改显示名">
       <div class="avatar" id="avatar">学</div>
       <div class="profile-meta">
         <div class="profile-name" id="profile-name">本机用户</div>
-        <div class="profile-desc" id="profile-desc">点击头像可自定义</div>
+        <div class="profile-desc" id="profile-desc">点击修改显示名</div>
       </div>
     </div>
 
@@ -76,6 +106,12 @@
       <button id="btn-settings" class="link-btn">API 设置</button>
       <span class="dot">·</span>
       <button id="btn-collapse" class="link-btn">收起侧栏</button>
+      <div id="account-bar" class="account-bar hidden">
+        <span id="account-name" class="account-name"></span>
+        <button id="btn-password" class="link-btn">修改密码</button>
+        <span class="dot">·</span>
+        <button id="btn-logout" class="link-btn">退出登录</button>
+      </div>
     </div>
   </aside>
 
@@ -103,10 +139,13 @@
       <header class="view-head">
         <div>
           <h2>个人信息</h2>
-          <p class="muted">学习者档案保存在本地 <code>app/data/profile/</code>，按月一份</p>
+          <p class="muted">学习者档案按月一份，保存在当前账号的本地数据目录里</p>
         </div>
         <div class="head-actions">
-          <button id="btn-edit-avatar" class="btn">自定义头像</button>
+          <button id="btn-edit-name" class="btn">修改显示名</button>
+          <button id="btn-edit-avatar" class="btn">上传头像</button>
+          <button id="btn-reset-avatar" class="btn hidden">恢复默认头像</button>
+          <input id="avatar-file" type="file" accept="image/png,image/jpeg" hidden />
           <button id="btn-gen-profile-2" class="btn primary">生成本月档案</button>
         </div>
       </header>
@@ -385,6 +424,22 @@
   </div>
 </div>
 
+<!-- ============ 移动资料弹窗 ============ -->
+<div id="modal-move" class="modal hidden">
+  <div class="modal-card narrow">
+    <h3>移动资料</h3>
+    <p class="small"><b id="move-title"></b></p>
+    <p class="muted small">当前位置：<span id="move-from"></span></p>
+    <label class="field"><span>移动到</span>
+      <select id="move-target"></select></label>
+    <p id="move-msg" class="small err-text"></p>
+    <div class="modal-actions">
+      <button id="move-cancel" class="btn">取消</button>
+      <button id="move-ok" class="btn primary">移动</button>
+    </div>
+  </div>
+</div>
+
 <!-- ============ 添加科目弹窗 ============ -->
 <div id="modal-subject" class="modal hidden">
   <div class="modal-card narrow">
@@ -422,6 +477,22 @@
       <button id="set-save" class="btn primary">保存并校验</button>
     </div>
     <p id="set-msg" class="muted small"></p>
+  </div>
+</div>
+
+<!-- ============ 修改密码弹窗 ============ -->
+<div id="modal-password" class="modal hidden">
+  <div class="modal-card narrow">
+    <h3>修改密码</h3>
+    <p class="muted small">修改后，该账号在其他电脑上的登录会失效。</p>
+    <label class="field"><span>原密码</span><input id="pw-old" type="password" autocomplete="current-password" maxlength="64" /></label>
+    <label class="field"><span>新密码</span><input id="pw-new" type="password" autocomplete="new-password" maxlength="64" placeholder="8–64 位，含字母和数字" /></label>
+    <label class="field"><span>确认新密码</span><input id="pw-new2" type="password" autocomplete="new-password" maxlength="64" /></label>
+    <div class="modal-actions">
+      <button id="pw-cancel" class="btn">取消</button>
+      <button id="pw-save" class="btn primary">确认修改</button>
+    </div>
+    <p id="pw-msg" class="muted small"></p>
   </div>
 </div>
 
@@ -471,6 +542,7 @@
 </div>
 
 <script src="/app.js"></script>
+<script src="/auth.js"></script>
 <script src="/extras.js"></script>
 <script src="/agent.js"></script>
 <script src="/landing.js"></script>

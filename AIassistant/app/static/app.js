@@ -32,6 +32,9 @@ async function api(path, options) {
   try { data = text ? JSON.parse(text) : null; } catch (e) { data = { raw: text }; }
   if (!res.ok) {
     const msg = (data && data.error && data.error.message) || `请求失败（${res.status}）`;
+    // 登录失效（退出、被禁用、离线超期）：回登录页
+    if (res.status === 401 && data && data.error && data.error.code === 'auth_required'
+        && typeof showAuth === 'function') showAuth();
     throw new Error(msg);
   }
   return data;
@@ -70,7 +73,9 @@ async function streamSSE(path, payload, handlers) {
   });
   if (!res.ok) {
     let msg = `请求失败（${res.status}）`;
-    try { const d = await res.json(); msg = (d.error && d.error.message) || msg; } catch (e) {}
+    let code = '';
+    try { const d = await res.json(); msg = (d.error && d.error.message) || msg; code = (d.error && d.error.code) || ''; } catch (e) {}
+    if (res.status === 401 && code === 'auth_required' && typeof showAuth === 'function') showAuth();
     throw new Error(msg);
   }
   const reader = res.body.getReader();
@@ -101,6 +106,10 @@ async function streamSSE(path, payload, handlers) {
 /* ---------------------------------------------------------------- 启动 */
 async function boot() {
   const st = await api('/api/state');
+  // 先登录，再看 API Key（Key 按账号保存）
+  if (st.auth && st.auth.enabled && !st.auth.logged_in) { showAuth(st.auth); return; }
+  $('#auth').classList.add('hidden');
+  renderAccount(st.auth);
   if (!st.configured) {
     $('#gate').classList.remove('hidden');
     $('#app').classList.add('hidden');
@@ -114,17 +123,18 @@ function enterApp(st) {
   $('#gate').classList.add('hidden');
   $('#app').classList.remove('hidden');
   $('#brand-sub').textContent = st.mock ? '离线演示模式' : (st.model || 'deepseek-chat');
-  $('#profile-name').textContent = (st.user && st.user.name) || '本机用户';
+  renderIdentity((st.user && st.user.name) || '本机用户', st.avatar || '');
   renderStats(st.stats);
   loadProfile();
   // 支持 ?view=dashboard 这类深链接：刷新后还停在原来那一页，也方便截图与演示
+  // replace：启动时的切页不写进浏览器历史（landing.js 的包装会处理这个参数）
   const want = new URLSearchParams(location.search).get('view');
   const landing = $('#landing');
   if (want && document.getElementById(`view-${want}`)) {
     if (landing) landing.classList.add('hidden');
-    switchView(want);
+    switchView(want, { replace: true });
   } else {
-    switchView('chat');
+    switchView('chat', { replace: true });
   }
   loadConversations();
 }
@@ -185,13 +195,37 @@ $('#btn-expand').addEventListener('click', () => {
   $('#btn-expand').classList.add('hidden');
 });
 
-$('#profile-card').addEventListener('click', async () => {
-  const name = prompt('自定义显示名（头像取首字）', $('#profile-name').textContent);
-  if (!name) return;
-  $('#profile-name').textContent = name;
-  $('#avatar').textContent = name.slice(0, 1);
-  toast('已更新显示名（仅本次界面生效）');
-});
+/* ---------------------------------------------------------------- 显示名 / 头像 */
+/* name 传 null 表示不改名字；avatar 是头像版本号，空串表示没有头像（显示名字首字） */
+function renderIdentity(name, avatar) {
+  if (name != null) {
+    $('#profile-name').textContent = name;
+    $('#profile-name-big').textContent = name;
+  }
+  if (avatar !== undefined) state.avatar = avatar;
+  const initial = $('#profile-name').textContent.slice(0, 1);
+  ['#avatar', '#avatar-big'].forEach((sel) => {
+    const el = $(sel);
+    el.textContent = state.avatar ? '' : initial;
+    el.style.backgroundImage = state.avatar ? `url(/api/profile/avatar?v=${state.avatar})` : '';
+    el.classList.toggle('has-img', !!state.avatar);
+  });
+  const reset = $('#btn-reset-avatar');
+  if (reset) reset.classList.toggle('hidden', !state.avatar);
+}
+
+async function editDisplayName() {
+  const name = prompt('显示名（1–20 个字，会同步为账号昵称）', $('#profile-name').textContent);
+  if (name == null || !name.trim()) return;
+  try {
+    const res = await api('/api/profile/name', { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
+    renderIdentity(res.name);
+    if (res.auth && typeof renderAccount === 'function') renderAccount(res.auth);
+    toast(res.notice || '显示名已保存', !!res.notice);
+  } catch (err) { toast(err.message, true); }
+}
+
+$('#profile-card').addEventListener('click', editDisplayName);
 
 /* ---------------------------------------------------------------- 设置 */
 function openModal(sel) { $(sel).classList.remove('hidden'); }
@@ -704,11 +738,17 @@ function renderFolderBar() {
     wrap.title = f.is_shared ? '共识资料（不推荐修改）' : f.name;
     wrap.innerHTML = `${f.is_shared ? '🔒' : '📁'} <span class="pill-name">${esc(f.name)}</span>
       <i class="pill-count">${f.count || 0}</i>
+      ${f.renamable ? '<b class="pill-edit" title="重命名">✎</b>' : ''}
       <b class="pill-del" title="删除文件夹">✕</b>`;
     wrap.addEventListener('click', (ev) => {
       if (ev.target.classList.contains('pill-del')) {
         ev.stopPropagation();
         openFolderDelete(f);
+        return;
+      }
+      if (ev.target.classList.contains('pill-edit')) {
+        ev.stopPropagation();
+        renameFolder(f);
         return;
       }
       state.folderId = f.id;
@@ -717,6 +757,40 @@ function renderFolderBar() {
     bar.appendChild(wrap);
   });
 }
+
+async function renameFolder(folder) {
+  const name = prompt('新的文件夹名称', folder.name);
+  if (name == null || !name.trim() || name.trim() === folder.name) return;
+  try {
+    await api(`/api/folders/${folder.id}/rename`, { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
+    loadMaterials(); toast('文件夹已重命名');
+  } catch (err) { toast(err.message, true); }
+}
+
+function openMoveMaterial(m) {
+  $('#move-title').textContent = m.title;
+  $('#move-from').textContent = m.folder_name || '根目录';
+  // 不提供"根目录"：根目录里的资料下次启动会被 reorganize 自动归回科目文件夹
+  $('#move-target').innerHTML = FOLDERS.map((f) =>
+    `<option value="${f.id}"${f.id === (m.folder_id || '') ? ' selected' : ''}>${f.is_shared ? '🔒 ' : ''}${esc(f.name)}</option>`).join('');
+  $('#move-msg').textContent = '';
+  $('#modal-move').dataset.materialId = m.id;
+  $('#modal-move').dataset.fromId = m.folder_id || '';
+  openModal('#modal-move');
+}
+
+$('#move-cancel').addEventListener('click', () => closeModal('#modal-move'));
+$('#move-ok').addEventListener('click', async () => {
+  const box = $('#modal-move');
+  const target = $('#move-target').value;
+  if (target === box.dataset.fromId) { $('#move-msg').textContent = '已经在这个文件夹里了'; return; }
+  try {
+    await api(`/api/materials/${box.dataset.materialId}/move`, { method: 'POST', body: JSON.stringify({ folder_id: target }) });
+    closeModal('#modal-move');
+    loadMaterials();
+    toast(`已移动到「${(FOLDERS.find((f) => f.id === target) || {}).name || '目标文件夹'}」`);
+  } catch (err) { $('#move-msg').textContent = err.message; }
+});
 
 function openFolderDelete(folder) {
   $('#fdel-name').textContent = folder.name;
@@ -753,9 +827,11 @@ function renderMaterialList(materials) {
       <div class="card-actions">
         <button class="btn primary small" data-act="open">打开源文件</button>
         <button class="btn small" data-act="preview">查看内容</button>
+        <button class="btn small" data-act="move">移动到…</button>
         <button class="btn danger small" data-act="del">删除</button>
       </div>`;
     el.querySelector('.mat-title').addEventListener('click', () => window.open(`/api/materials/${m.id}/raw`, '_blank'));
+    el.querySelector('[data-act="move"]').addEventListener('click', () => openMoveMaterial(m));
     el.querySelector('[data-act="open"]').addEventListener('click', () => window.open(`/api/materials/${m.id}/raw`, '_blank'));
     el.querySelector('[data-act="copy"]').addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(m.path || ''); toast('路径已复制'); }

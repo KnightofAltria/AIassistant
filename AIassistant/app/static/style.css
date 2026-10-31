@@ -146,6 +146,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   background: linear-gradient(135deg, #3c7cf5, #7db1ff);
   color: #fff; font-weight: 700;
 }
+.avatar.has-img { background-size: cover; background-position: center; background-color: #e8eef8; }
 .profile-name { font-weight: 600; font-size: 13.5px; }
 .profile-desc { font-size: 11.5px; color: var(--ink-3); }
 
@@ -394,6 +395,12 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   padding: 0 3px; border-radius: 50%; transition: .15s;
 }
 .pill-del:hover { color: #fff; background: var(--danger); }
+.pill-edit {
+  font-weight: 400; color: var(--ink-3); font-size: 12px;
+  padding: 0 3px; border-radius: 50%; transition: .15s;
+}
+.pill-edit:hover { color: #fff; background: var(--brand); }
+.err-text { color: var(--danger); min-height: 1em; }
 
 .material-card .mat-title { cursor: pointer; }
 .material-card .mat-title:hover { color: var(--brand); text-decoration: underline; text-underline-offset: 3px; }
@@ -475,6 +482,10 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   padding: 6px 10px; background: #f8fafd; border-radius: 8px; font-size: 12.5px;
 }
 .profile-row b { font-weight: 600; }
+.profile-row.clickable { cursor: pointer; transition: .15s; }
+.profile-row.clickable:hover { background: var(--brand-soft); }
+.profile-row.active { background: var(--brand-soft); color: var(--brand); }
+.profile-row .row-actions { margin-left: auto; display: flex; gap: 6px; }
 .profile-pre {
   white-space: pre-wrap; font-family: inherit; font-size: 12.5px; line-height: 1.7;
   max-height: 220px; overflow: auto; margin: 6px 0 0;
@@ -596,6 +607,36 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 /* 门禁页要盖在欢迎界面之上；欢迎界面从页面加载就存在，避免先闪一下功能页 */
 .gate { position: fixed; inset: 0; z-index: 90; overflow: auto; }
+
+/* ---------------- 登录 / 注册 / 账号 ---------------- */
+.auth-tabs {
+  display: flex; gap: 4px; padding: 4px; margin: 0 0 18px;
+  background: #f2f5fa; border-radius: 10px;
+}
+.auth-tab {
+  flex: 1; padding: 8px 0; border: 0; border-radius: 8px; cursor: pointer;
+  background: transparent; color: var(--ink-2); font: inherit; font-size: 13.5px;
+}
+.auth-tab.active { background: #fff; color: var(--brand); font-weight: 600; box-shadow: 0 1px 4px rgba(23, 43, 77, .08); }
+#auth-form { text-align: left; }
+.account-bar {
+  width: 100%; display: flex; align-items: center; gap: 6px;
+  margin: 0 0 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--line);
+}
+.account-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+/* 窄屏侧栏底部整体收起，只留退出登录入口 */
+@media (max-width: 900px) {
+  .sidebar .sidebar-foot.has-account { display: flex; justify-content: center; padding: 10px 0 0; }
+  .sidebar-foot.has-account > :not(.account-bar),
+  .sidebar-foot.has-account .account-bar > :not(#btn-logout) { display: none; }
+  .sidebar-foot.has-account .account-bar { justify-content: center; margin: 0; padding: 0; border: 0; }
+}
+.offline-bar {
+  position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 60;
+  padding: 6px 16px; border-radius: 0 0 10px 10px;
+  background: #fff6e5; color: var(--warn); border: 1px solid #f3dfb5; border-top: 0;
+  font-size: 12.5px; box-shadow: var(--shadow);
+}
 .landing { will-change: opacity; }
 
 /* ---------- 总结放大 ---------- */
