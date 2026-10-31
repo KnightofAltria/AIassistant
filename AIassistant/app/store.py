@@ -25,6 +25,7 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parent
 DATA_DIR = APP_DIR / "data"
 MATERIAL_DIR = DATA_DIR / "materials"
+ORIGINAL_EXT = ".docx"      # 上传的 Word 原文件与抽出的文本同名，只换扩展名
 DB_PATH = DATA_DIR / "csla.db"
 CONFIG_PATH = DATA_DIR / "config.json"
 MONTH_RE = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
@@ -310,12 +311,15 @@ class Store:
     # ---------------------------------------------------------------- 资料
     def add_material(self, title: str, text: str, subject: str = "", folder_id: str = "",
                      source_url: str = "", ext: str = ".md",
-                     status: str = "approved") -> dict:
+                     status: str = "approved", original: bytes = b"") -> dict:
+        """original：上传的 .docx 原文件，和抽出的文本同名放在一起，阅读页按它渲染排版。"""
         mid = new_id()
         self.material_dir.mkdir(parents=True, exist_ok=True)
         safe = "".join(ch for ch in title if ch not in '\\/:*?"<>|').strip() or mid
         path = self.material_dir / f"{mid[:8]}_{safe}{ext}"
         path.write_text(text, encoding="utf-8")
+        if original:
+            path.with_suffix(ORIGINAL_EXT).write_bytes(original)
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
         ts = now()
         self.conn.execute(
@@ -342,7 +346,18 @@ class Store:
             return ""
         return Path(row["path"]).read_text(encoding="utf-8", errors="replace")
 
+    def material_original(self, material_id: str) -> Path | None:
+        """导入时保存的 .docx 原文件；没有（老资料、粘贴的文本）时返回 None。"""
+        row = self.conn.execute("SELECT path FROM materials WHERE id=?", (material_id,)).fetchone()
+        if not row or not row["path"] or Path(row["path"]).suffix.lower() == ORIGINAL_EXT:
+            return None
+        p = Path(row["path"]).with_suffix(ORIGINAL_EXT)
+        return p if p.is_file() else None
+
     def delete_material(self, material_id: str) -> None:
+        original = self.material_original(material_id)
+        if original:
+            original.unlink()
         row = self.conn.execute("SELECT path FROM materials WHERE id=?", (material_id,)).fetchone()
         if row and row["path"]:
             p = Path(row["path"])

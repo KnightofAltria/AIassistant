@@ -391,6 +391,26 @@
       <p class="muted small mat-tip">提示：可以把资料卡片拖到上方的文件夹里完成移动。</p>
       <div id="material-list" class="card-list"></div>
     </section>
+
+    <!-- ---------------- 资料阅读（?view=reader&id=资料ID） ---------------- -->
+    <section id="view-reader" class="view">
+      <header class="view-head">
+        <div>
+          <h2 id="reader-title">资料阅读</h2>
+          <p class="muted" id="reader-meta"></p>
+        </div>
+        <div class="head-actions">
+          <div class="seg" id="reader-mode">
+            <button class="seg-btn active" data-mode="render">排版</button>
+            <button class="seg-btn" data-mode="source">原文</button>
+          </div>
+          <a id="reader-download" class="btn hidden" download>下载 Word 原文件</a>
+          <a id="reader-raw" class="btn" download>下载文本</a>
+        </div>
+      </header>
+      <div id="reader-note" class="banner hidden"></div>
+      <article id="reader-body" class="doc-body"></article>
+    </section>
   </main>
 </div>
 

@@ -256,6 +256,9 @@ function viewUrl(view) {
   const url = new URL(location.href);
   if (view === 'home') url.searchParams.delete('view');   // 主界面用干净地址，刷新会重播欢迎动画
   else url.searchParams.set('view', view);
+  // 阅读页带上资料 ID（?view=reader&id=…），刷新、前进后退都能回到同一份资料
+  if (view === 'reader' && state.readerId) url.searchParams.set('id', state.readerId);
+  else url.searchParams.delete('id');
   return url.pathname + url.search + url.hash;
 }
 
@@ -277,6 +280,7 @@ window.addEventListener('popstate', (e) => {
   if (idx < historyIdx) navStack.pop();
   else if (state.view !== view) navStack.push(state.view);
   historyIdx = idx;
+  if (view === 'reader') state.readerId = new URLSearchParams(location.search).get('id') || '';
   switchView(view, { fromHistory: true });
 });
 
@@ -375,8 +379,8 @@ async function renderProfileInto(host, month) {
       return;
     }
     const current = files.some((f) => f.month === month) ? month : files[0].month;
-    const pre = document.createElement('pre');
-    pre.className = 'profile-pre';
+    const pre = document.createElement('div');
+    pre.className = 'profile-pre profile-doc';
     files.forEach((f) => {
       const row = document.createElement('div');
       row.className = 'profile-row clickable' + (f.month === current ? ' active' : '');
@@ -414,7 +418,7 @@ async function showProfileMonth(pre, month) {
   pre.textContent = '加载中…';
   try {
     const { content } = await api(`/api/profile/${month}`);
-    pre.textContent = content;
+    pre.innerHTML = md(content);            // 档案是 markdown，按排版显示；原文可点「下载」
   } catch (err) { pre.textContent = err.message; }
 }
 
@@ -503,7 +507,7 @@ async function viewConversationSummary() {
       const el = document.createElement('div');
       el.className = 'card highlight';
       el.innerHTML = `<h4>${esc(s.title)}</h4><div class="meta">${esc(s.created_at)}</div>
-        <pre>${esc(s.content)}</pre>`;
+        <div class="summary-body">${md(s.content)}</div>`;
       box.appendChild(el);
     });
     loadSummaries();

@@ -245,6 +245,8 @@ def check_page_markers(base: str) -> None:
         "注销账号弹窗": 'id="modal-delete-account"',
         "记住用户名": 'id="auth-remember"',
         "个人信息校验提示": 'id="meta-msg"',
+        "资料阅读页": 'id="view-reader"',
+        "下载Word原文件": 'id="reader-download"',
     }
     missing = [k for k, v in markers.items() if v not in html]
     check("首页关键元素", not missing, "齐全" if not missing else f"缺少：{missing}")

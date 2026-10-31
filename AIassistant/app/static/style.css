@@ -1025,6 +1025,8 @@ mark { background: #fff3b0; color: inherit; padding: 0 1px; border-radius: 3px; 
   .nav-item i { font-size: 17px; }
   .view { padding: 16px 14px 32px; }
   .view.dash { padding: 16px 14px 36px; }
+}
+
 @media (max-width: 900px) {
   .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .kpi-value { font-size: 20px; }
@@ -1045,3 +1047,75 @@ mark { background: #fff3b0; color: inherit; padding: 0 1px; border-radius: 3px; 
 .view { overflow-x: hidden; }
 .view-head p, .kpi-hint, .mastery-label { overflow-wrap: anywhere; }
 
+
+/* ============================================================
+   markdown / Word 排版（聊天气泡、总结、档案、资料阅读页共用）
+   ============================================================ */
+.bubble > :first-child, .summary-body > :first-child, .doc-body > :first-child { margin-top: 0; }
+.bubble > :last-child, .summary-body > :last-child, .doc-body > :last-child { margin-bottom: 0; }
+.bubble p, .body p { margin: 6px 0; }
+.bubble ul, .bubble ol, .body ul, .body ol, .summary-body ol { margin: 6px 0; padding-left: 22px; }
+.bubble blockquote, .body blockquote {
+  margin: 8px 0; padding: 6px 12px; border-left: 3px solid var(--brand-2);
+  background: rgba(106, 161, 255, .08); border-radius: 0 8px 8px 0;
+}
+.bubble hr, .summary-body hr, .doc-body hr, .body hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
+pre.code {
+  background: #f3f6fb; border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px 12px; overflow: auto; white-space: pre; font-size: 12.5px; line-height: 1.6;
+  font-family: Consolas, "SFMono-Regular", Menlo, monospace;
+}
+.md-table { overflow-x: auto; margin: 10px 0; }
+.md-table table { border-collapse: collapse; min-width: 50%; font-size: 13px; }
+.md-table th, .md-table td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+.md-table th { background: #f2f6fc; font-weight: 600; }
+.md-table tr:nth-child(even) td { background: #fafcff; }
+.md-table td p { margin: 0; }
+.bubble a, .summary-body a, .doc-body a, .body a { color: var(--brand); word-break: break-all; }
+.msg.user .bubble a { color: #fff; text-decoration: underline; }
+.msg.user .bubble code { background: rgba(255, 255, 255, .2); }
+
+/* 学习档案：渲染后的版本 */
+.profile-doc { white-space: normal; font-size: 13px; max-height: 360px; }
+.profile-doc h1 { font-size: 16px; margin: 4px 0 8px; }
+.profile-doc h2 { font-size: 14.5px; margin: 12px 0 6px; }
+.profile-doc h3 { font-size: 13.5px; margin: 10px 0 4px; }
+.profile-doc ul, .profile-doc ol { margin: 4px 0; padding-left: 20px; }
+.profile-doc p { margin: 4px 0; }
+.card .summary-body { max-height: 320px; font-size: 13px; }
+
+/* ---------- 资料阅读页 ---------- */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+.seg-btn { border: 0; background: transparent; padding: 7px 14px; font: inherit; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+.seg-btn + .seg-btn { border-left: 1px solid var(--line); }
+.seg-btn.active { background: var(--brand-soft); color: var(--brand); font-weight: 600; }
+a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+.doc-body {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 28px 36px; width: 100%; max-width: 920px; margin: 0 auto 40px;
+  font-size: 15px; line-height: 1.9; color: var(--ink); word-break: break-word;
+}
+.doc-body h1 { font-size: 24px; margin: 22px 0 12px; }
+.doc-body h2 { font-size: 20px; margin: 22px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.doc-body h3 { font-size: 17px; margin: 18px 0 8px; }
+.doc-body h4, .doc-body h5, .doc-body h6 { font-size: 15px; margin: 14px 0 6px; }
+.doc-body p { margin: 10px 0; }
+.doc-body ul, .doc-body ol { margin: 8px 0; padding-left: 26px; }
+.doc-body li { margin: 4px 0; }
+.doc-body blockquote {
+  margin: 12px 0; padding: 8px 14px; background: #f7faff;
+  border-left: 3px solid var(--brand-2); color: var(--ink-2); border-radius: 0 8px 8px 0;
+}
+.doc-body code { background: #f2f5fa; padding: 1px 5px; border-radius: 5px; font-size: 13.5px; }
+.doc-body img { max-width: 100%; height: auto; border-radius: 6px; }
+.doc-body .md-table table { font-size: 14px; }
+.doc-body .doc-center { text-align: center; }
+.doc-body .doc-right { text-align: right; }
+.doc-body .doc-ph { color: var(--ink-3); font-size: 12.5px; }
+.doc-body.source {
+  white-space: pre-wrap; font-family: Consolas, "SFMono-Regular", Menlo, monospace;
+  font-size: 13px; line-height: 1.7;
+}
+@media (max-width: 900px) {
+  .doc-body { padding: 18px 16px; font-size: 14.5px; }
+}

@@ -644,7 +644,7 @@ async function runSearch(query) {
         <p>${hl(h.snippet, q)}</p>
         <div class="card-actions"><button class="btn small" data-act="open">打开资料</button></div>`;
       el.querySelector('[data-act="open"]').addEventListener('click',
-        () => window.open(`/api/materials/${h.material_id}/raw`, '_blank'));
+        () => openMaterial(h.material_id));
       box.appendChild(el);
     });
   } catch (err) {

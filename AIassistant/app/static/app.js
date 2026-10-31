@@ -46,22 +46,150 @@ function esc(s) {
     .replace(/"/g, '&quot;');
 }
 
-/* 轻量 markdown：标题、粗体、行内代码、代码块、列表、引用 */
+/* markdown 渲染：标题、段落、粗斜体、删除线、行内代码、代码块、有序/无序列表（可嵌套）、
+   引用、表格、分隔线、链接。先转义再加标签；链接只放行 http/https，资料里夹带的 HTML 不会执行 */
+const MD_LIST = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
+const MD_HR = /^ {0,3}([-*_])(\s*\1){2,}\s*$/;
+const MD_TABLE_SEP = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+
+function mdLink(url, label) {
+  return `<a href="${esc(url)}" target="_blank" rel="noreferrer noopener">${label}</a>`;
+}
+
+function mdInline(raw) {
+  const keep = [];
+  const put = (html) => `\u0000${keep.push(html) - 1}\u0000`;
+  let s = String(raw);
+  s = s.replace(/`([^`]+)`/g, (m, code) => put(`<code>${esc(code)}</code>`));
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (m, label, url) => put(mdLink(url, esc(label))));
+  // 裸链接：遇到中文、全角标点就停，末尾的英文标点不算进链接
+  s = s.replace(/https?:\/\/[^\s<>()"'\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]+/g, (url) => {
+    const tail = (url.match(/[.,;:!?]+$/) || [''])[0];
+    const clean = url.slice(0, url.length - tail.length);
+    return put(mdLink(clean, esc(clean))) + tail;
+  });
+  // 斜体要求 * 内侧紧贴文字，免得 C 指针 `int *p, *q` 被当成斜体
+  s = esc(s)
+    .replace(/\*\*(?=\S)(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*(?=[^\s*])([^*]*?[^\s*])?\*(?!\*)/g,
+      (m, pre, body) => (body === undefined ? m : `${pre}<em>${body}</em>`))
+    .replace(/~~(.+?)~~/g, '<del>$1</del>');
+  return s.replace(/\u0000(\d+)\u0000/g, (m, i) => keep[Number(i)]);
+}
+
+function mdCells(line) {
+  let s = line.trim();
+  if (s.startsWith('|')) s = s.slice(1);
+  if (s.endsWith('|') && !s.endsWith('\\|')) s = s.slice(0, -1);
+  return s.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, '|'));
+}
+
+function mdIsTable(line, next) {
+  return line.includes('|') && next != null && next.includes('|') && next.includes('-')
+    && MD_TABLE_SEP.test(next);
+}
+
+function mdStartsBlock(line, next) {
+  return /^\s*```/.test(line) || /^#{1,6}\s/.test(line) || MD_HR.test(line)
+    || /^\s*>/.test(line) || MD_LIST.test(line) || mdIsTable(line, next);
+}
+
+function mdTable(lines, i) {
+  const head = mdCells(lines[i]);
+  const aligns = mdCells(lines[i + 1]).map((c) =>
+    (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : ''));
+  const cell = (tag, text, k) =>
+    `<${tag}${aligns[k] ? ` style="text-align:${aligns[k]}"` : ''}>${mdInline(text)}</${tag}>`;
+  let html = '<div class="md-table"><table><thead><tr>'
+    + head.map((c, k) => cell('th', c, k)).join('') + '</tr></thead><tbody>';
+  i += 2;
+  while (i < lines.length && lines[i].trim() && lines[i].includes('|')) {
+    const row = mdCells(lines[i]);
+    html += '<tr>' + head.map((h, k) => cell('td', row[k] || '', k)).join('') + '</tr>';
+    i += 1;
+  }
+  return [html + '</tbody></table></div>', i];
+}
+
+function mdList(lines, i) {
+  const items = [];
+  while (i < lines.length) {
+    const line = lines[i];
+    const m = MD_HR.test(line) ? null : line.match(MD_LIST);
+    if (m) {
+      items.push({ indent: m[1].replace(/\t/g, '    ').length, ordered: /\d/.test(m[2]),
+        num: parseInt(m[2], 10), text: m[3] });
+    } else if (!line.trim()) {
+      // 列表中间的空行：后面还是列表项或缩进的续行，就算同一个列表
+      const next = lines[i + 1];
+      if (next == null || !((MD_LIST.test(next) && !MD_HR.test(next)) || /^\s{2,}\S/.test(next))) break;
+    } else if (/^\s{2,}\S/.test(line) || !mdStartsBlock(line, lines[i + 1])) {
+      items[items.length - 1].text += '\n' + line.trim();
+    } else break;
+    i += 1;
+  }
+  let html = '';
+  const stack = [];
+  items.forEach((it) => {
+    const tag = it.ordered ? 'ol' : 'ul';
+    const open = () => {
+      html += `<${tag}${it.ordered && it.num !== 1 ? ` start="${it.num}"` : ''}>`;
+      stack.push({ indent: it.indent, tag });
+    };
+    while (stack.length && it.indent < stack[stack.length - 1].indent) html += `</li></${stack.pop().tag}>`;
+    const top = stack[stack.length - 1];
+    if (!top || it.indent > top.indent) open();
+    else if (top.tag !== tag) { html += `</li></${stack.pop().tag}>`; open(); }
+    else html += '</li>';
+    const text = it.text.replace(/^\[([ xX])\]\s+/, (m, x) => (x === ' ' ? '☐ ' : '☑ '));
+    html += `<li>${text.split('\n').map(mdInline).join('<br>')}`;
+  });
+  while (stack.length) html += `</li></${stack.pop().tag}>`;
+  return [html, i];
+}
+
+function mdBlocks(lines) {
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    let m;
+    if (!line.trim()) { i += 1; continue; }
+    if (/^\s*```/.test(line)) {
+      const code = [];
+      i += 1;
+      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) code.push(lines[i++]);
+      i += 1;                       // 跳过结尾的 ```；流式输出时可能还没到，到末尾就停
+      out.push(`<pre class="code">${esc(code.join('\n'))}</pre>`);
+    } else if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {
+      const n = m[1].length;
+      out.push(`<h${n}>${mdInline(m[2].replace(/\s+#+\s*$/, ''))}</h${n}>`);
+      i += 1;
+    } else if (MD_HR.test(line)) {
+      out.push('<hr>');
+      i += 1;
+    } else if (mdIsTable(line, lines[i + 1])) {
+      [m, i] = mdTable(lines, i);
+      out.push(m);
+    } else if (/^\s*>/.test(line)) {
+      const quote = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) quote.push(lines[i++].replace(/^\s*> ?/, ''));
+      out.push(`<blockquote>${mdBlocks(quote)}</blockquote>`);
+    } else if (MD_LIST.test(line)) {
+      [m, i] = mdList(lines, i);
+      out.push(m);
+    } else {
+      const para = [];
+      while (i < lines.length && lines[i].trim()
+             && !(para.length && mdStartsBlock(lines[i], lines[i + 1]))) para.push(lines[i++].trim());
+      out.push(`<p>${para.map(mdInline).join('<br>')}</p>`);
+    }
+  }
+  return out.join('');
+}
+
 function md(text) {
-  let s = esc(text || '');
-  s = s.replace(/```([\s\S]*?)```/g, (m, code) => `<pre class="code">${code.trim()}</pre>`);
-  s = s.replace(/^###### (.*)$/gm, '<h6>$1</h6>')
-       .replace(/^##### (.*)$/gm, '<h5>$1</h5>')
-       .replace(/^#### (.*)$/gm, '<h4>$1</h4>')
-       .replace(/^### (.*)$/gm, '<h3>$1</h3>')
-       .replace(/^## (.*)$/gm, '<h2>$1</h2>')
-       .replace(/^# (.*)$/gm, '<h1>$1</h1>');
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
-  s = s.replace(/^\s*[-*] (.*)$/gm, '<li>$1</li>');
-  s = s.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>');
-  s = s.replace(/^&gt; (.*)$/gm, '<blockquote>$1</blockquote>');
-  return s;
+  return mdBlocks(String(text || '').replace(/\r\n?/g, '\n').replace(/\u0000/g, '').split('\n'));
 }
 
 /* ---------------------------------------------------------------- SSE 流 */
@@ -130,6 +258,7 @@ function enterApp(st) {
   // replace：启动时的切页不写进浏览器历史（landing.js 的包装会处理这个参数）
   const want = new URLSearchParams(location.search).get('view');
   const landing = $('#landing');
+  if (want === 'reader') state.readerId = new URLSearchParams(location.search).get('id') || '';
   if (want && document.getElementById(`view-${want}`)) {
     if (landing) landing.classList.add('hidden');
     switchView(want, { replace: true });
@@ -182,6 +311,7 @@ function switchView(view) {
   if (view === 'study') loadSubjects();
   if (view === 'materials') loadMaterials();
   if (view === 'dashboard' && typeof loadDashboard === 'function') loadDashboard();
+  if (view === 'reader') loadReader();
 }
 
 $$('.nav-item').forEach((btn) => btn.addEventListener('click', () => switchView(btn.dataset.view)));
@@ -949,7 +1079,7 @@ function renderMaterialList(materials) {
     el.innerHTML = `
       <div class="mat-head">
         <input type="checkbox" class="mat-check" title="选择"${SELECTED.has(m.id) ? ' checked' : ''} />
-        <h4 class="mat-title" title="点击打开源文件">${esc(m.title)}</h4>
+        <h4 class="mat-title" title="点击阅读">${esc(m.title)}</h4>
       </div>
       <div class="meta">
         ${m.folder_name ? `<span class="tag">${m.folder_shared ? '🔒 ' : '📁 '}${esc(m.folder_name)}</span>` : '<span class="tag">根目录</span>'}
@@ -961,8 +1091,7 @@ function renderMaterialList(materials) {
       <div class="path-line" title="${esc(m.path || '')}">${esc(m.path || '（无源文件路径）')}
         <button class="mini-btn" data-act="copy">复制路径</button></div>
       <div class="card-actions">
-        <button class="btn primary small" data-act="open">打开源文件</button>
-        <button class="btn small" data-act="preview">查看内容</button>
+        <button class="btn primary small" data-act="open">阅读</button>
         <button class="btn small" data-act="edit">编辑</button>
         <button class="btn small" data-act="move">移动到…</button>
         <button class="btn danger small" data-act="del">删除</button>
@@ -979,22 +1108,13 @@ function renderMaterialList(materials) {
       el.classList.add('dragging');
     });
     el.addEventListener('dragend', () => el.classList.remove('dragging'));
-    el.querySelector('.mat-title').addEventListener('click', () => window.open(`/api/materials/${m.id}/raw`, '_blank'));
+    el.querySelector('.mat-title').addEventListener('click', () => openMaterial(m.id));
     el.querySelector('[data-act="edit"]').addEventListener('click', () => openMaterialEdit(m));
     el.querySelector('[data-act="move"]').addEventListener('click', () => openMoveMaterial(m));
-    el.querySelector('[data-act="open"]').addEventListener('click', () => window.open(`/api/materials/${m.id}/raw`, '_blank'));
+    el.querySelector('[data-act="open"]').addEventListener('click', () => openMaterial(m.id));
     el.querySelector('[data-act="copy"]').addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(m.path || ''); toast('路径已复制'); }
       catch (e) { toast('复制失败，可手动选中路径', true); }
-    });
-    el.querySelector('[data-act="preview"]').addEventListener('click', async () => {
-      try {
-        const d = await api(`/api/materials/${m.id}`);
-        const w = window.open('', '_blank');
-        w.document.write(`<meta charset="utf-8"><title>${esc(d.material.title)}</title>
-          <pre style="white-space:pre-wrap;font:14px/1.7 'Microsoft YaHei',monospace;padding:24px;max-width:900px;margin:auto">${esc(d.content)}</pre>`);
-        w.document.close();
-      } catch (err) { toast(err.message, true); }
     });
     el.querySelector('[data-act="del"]').addEventListener('click', async () => {
       if (m.folder_shared && !confirm(`「${m.title}」位于共识资料文件夹，删除会影响所有科目。仍要删除吗？`)) return;
@@ -1130,6 +1250,68 @@ async function doDeleteFolder(mode) {
     const st = await api('/api/state'); renderStats(st.stats);
   } catch (err) { toast(err.message, true); }
 }
+
+/* ---------------------------------------------------------------- 资料阅读页 */
+/* Word 原文件由服务端渲染成 HTML（已转义，只含排版标签）；.md 按 markdown 渲染；.txt 原样显示 */
+function openMaterial(id) {
+  state.readerId = id;
+  switchView('reader');
+}
+
+const READER = { data: null, mode: 'render' };
+
+async function loadReader() {
+  const id = state.readerId;
+  const body = $('#reader-body');
+  READER.data = null;
+  $('#reader-title').textContent = '资料阅读';
+  $('#reader-meta').textContent = '';
+  $('#reader-note').classList.add('hidden');
+  $('#reader-download').classList.add('hidden');
+  body.className = 'doc-body';
+  if (!id) { body.innerHTML = '<p class="muted">没有指定资料，请从资料管理里点「阅读」。</p>'; return; }
+  body.innerHTML = '<p class="muted">加载中…</p>';
+  try {
+    const d = await api(`/api/materials/${encodeURIComponent(id)}`);
+    if (state.readerId !== id) return;        // 加载期间又换了资料
+    READER.data = d;
+    const m = d.material;
+    const label = { docx: 'Word 文档', markdown: 'Markdown', text: '纯文本' }[d.format] || '';
+    $('#reader-title').textContent = m.title;
+    $('#reader-meta').textContent = [label, m.subject || '未分类', `${(m.bytes / 1024).toFixed(1)} KB`,
+      m.created_at, m.source_url ? `来源：${m.source_url}` : ''].filter(Boolean).join(' · ');
+    $('#reader-raw').href = `/api/materials/${encodeURIComponent(id)}/raw`;
+    const dl = $('#reader-download');
+    dl.classList.toggle('hidden', !d.has_original);
+    if (d.has_original) dl.href = `/api/materials/${encodeURIComponent(id)}/original`;
+    const notes = [];
+    if (d.truncated) notes.push('内容较长，只显示了前 20 万字，完整内容请下载查看。');
+    if (d.has_original && !d.html) notes.push('Word 原文件解析失败，下面显示的是抽取出的文字。');
+    if (!d.exists) notes.push('源文件已丢失（可能被手动删除）。');
+    $('#reader-note').textContent = notes.join(' ');
+    $('#reader-note').classList.toggle('hidden', !notes.length);
+    renderReader();
+  } catch (err) {
+    body.innerHTML = `<p style="color:var(--danger)">${esc(err.message)}</p>`;
+  }
+}
+
+function renderReader() {
+  const d = READER.data;
+  const body = $('#reader-body');
+  $$('#reader-mode .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.mode === READER.mode));
+  if (!d) return;
+  const source = READER.mode === 'source' || d.format === 'text';
+  body.className = 'doc-body' + (source ? ' source' : '');
+  if (source) body.textContent = d.content || '';
+  else if (d.format === 'docx' && d.html) body.innerHTML = d.html;
+  else body.innerHTML = md(d.content || '') || '<p class="muted">（空）</p>';
+}
+
+$$('#reader-mode .seg-btn').forEach((b) => b.addEventListener('click', () => {
+  READER.mode = b.dataset.mode;
+  renderReader();
+}));
 
 /* ---------------------------------------------------------------- 启动 */
 boot().catch((err) => {

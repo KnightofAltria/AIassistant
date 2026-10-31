@@ -588,6 +588,11 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_raw(m.group(1))
             return
 
+        m = re.fullmatch(r"/api/materials/([\w-]+)/original", path)
+        if m:
+            self._serve_original(m.group(1))
+            return
+
         m = re.fullmatch(r"/api/materials/([\w-]+)", path)
         if m:
             self._material_detail(m.group(1))
@@ -1322,14 +1327,33 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------ 业务：资料文件
     def _material_detail(self, material_id: str) -> None:
+        """阅读页数据。format：docx（html 是服务端按原文件渲染好的）/ markdown / text。"""
         materials = [m for m in STORE.list_materials() if m["id"] == material_id]
         if not materials:
             self._error("资料不存在", 404)
             return
         item = materials[0]
         text = STORE.get_material_text(material_id)
-        self._json({"material": item, "content": text[:20000],
+        original = STORE.material_original(material_id)
+        html, fmt = "", ("text" if Path(item.get("path", "")).suffix.lower() == ".txt"
+                         else "markdown")
+        if original:
+            try:
+                html, fmt = extras.docx_to_html(original.read_bytes()), "docx"
+            except Exception:                          # noqa: BLE001 原文件坏了就退回文本
+                html = ""
+        self._json({"material": item, "content": text[:200000], "truncated": len(text) > 200000,
+                    "format": fmt, "html": html, "has_original": bool(original),
                     "path": item.get("path", ""), "exists": bool(text)})
+
+    def _serve_original(self, material_id: str) -> None:
+        original = STORE.material_original(material_id)
+        if not original:
+            self._error("这份资料没有保存 Word 原文件", 404)
+            return
+        title = STORE.material(material_id)["title"]
+        safe = "".join(ch for ch in title if ch not in '\\/:*?"<>|').strip() or "资料"
+        self._download(original.read_bytes(), f"{safe}.docx")
 
     def _serve_raw(self, material_id: str) -> None:
         materials = [m for m in STORE.list_materials() if m["id"] == material_id]
@@ -1672,6 +1696,7 @@ class Handler(BaseHTTPRequestHandler):
         low = filename.lower()
         title = (body.get("title") or "").strip() or re.sub(r"\.[^.]+$", "", filename) or "导入资料"
         text = (body.get("text") or "").strip()
+        original = b""
         if not text and body.get("content"):
             try:
                 raw = extras.b64decode(body["content"])
@@ -1684,6 +1709,7 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as exc:               # noqa: BLE001
                     self._error(f"解析 .docx 失败：{exc}", 400)
                     return
+                original = raw                         # 留着原文件：阅读页按它还原排版，也可下载
             elif low.endswith(".doc"):
                 self._error("老式 .doc 无法直接解析，请先在 Word 里另存为 .docx", 400)
                 return
@@ -1695,7 +1721,7 @@ class Handler(BaseHTTPRequestHandler):
         status = "pending" if body.get("review") else "approved"
         material = STORE.add_material(
             title=title[:120], text=text, subject=body.get("subject", ""),
-            folder_id=body.get("folder_id", ""), ext=".md", status=status)
+            folder_id=body.get("folder_id", ""), ext=".md", status=status, original=original)
         chunks = rag.chunk_text(text)
         STORE.replace_chunks(material["id"], chunks)
         if not body.get("review"):

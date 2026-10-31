@@ -602,6 +602,98 @@ class LocalApiTest(TempDataTest):
         self.assertNotIn(500, statuses)
         self.assertEqual(call(self.base, "POST", "/api/profile/meta", {"major": "ok"})[0], 201)
 
+    def test_docx_upload_keeps_original_and_renders(self):
+        import base64
+        import extras
+        doc = extras.build_docx("测试文档", [
+            ("h2", "第一章 <script>"), ("p", "正文段落"), ("bullet", "要点一"),
+            ("table", [["列A", "列B"], ["1", "2"]])])
+        status, data = call(self.base, "POST", "/api/materials/import", {
+            "filename": "课件.docx", "content": base64.b64encode(doc).decode()})
+        self.assertEqual(status, 201)
+        mid = data["material"]["id"]
+        status, detail = call(self.base, "GET", f"/api/materials/{mid}")
+        self.assertEqual((status, detail["format"], detail["has_original"]), (200, "docx", True))
+        html = detail["html"]
+        for piece in ("<li>要点一", "<table>", "<td>", "正文段落"):
+            self.assertIn(piece, html)
+        self.assertIn("&lt;script&gt;", html)               # 文字一律转义
+        self.assertNotIn("<script>", html)
+        self.assertIn("第一章", detail["content"])          # 抽出的文字照旧建索引
+        status, headers, body = self.raw("GET", f"/api/materials/{mid}/original")
+        self.assertEqual((status, body), (200, doc))
+        self.assertIn("attachment", headers["Content-Disposition"])
+        original = self.server.STORE.material_original(mid)
+        self.assertTrue(original and original.is_file())
+        self.assertEqual(self.raw("DELETE", f"/api/materials/{mid}")[0], 200)
+        self.assertFalse(original.exists())                 # 删资料时原文件一起删
+
+    def test_markdown_material_has_no_original(self):
+        mat = self.server.STORE.add_material("笔记", "# 标题\n\n| a | b |\n|---|---|\n| 1 | 2 |", ext=".md")
+        status, detail = call(self.base, "GET", f"/api/materials/{mat['id']}")
+        self.assertEqual((status, detail["format"], detail["has_original"], detail["html"]),
+                         (200, "markdown", False, ""))
+        self.assertEqual(self.raw("GET", f"/api/materials/{mat['id']}/original")[0], 404)
+        self.assertEqual(call(self.base, "GET", "/api/materials/nope")[0], 404)
+
+
+class DocxHtmlTest(unittest.TestCase):
+    """docx → HTML：标题样式、有序/无序列表、粗斜体、链接只放行 http(s)、合并单元格。"""
+
+    W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ' \
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+
+    def make(self, body: str) -> bytes:
+        import io
+        import zipfile
+        styles = (f'<w:styles {self.W}><w:style w:type="paragraph" w:styleId="1">'
+                  '<w:name w:val="heading 1"/></w:style>'
+                  '<w:style w:type="paragraph" w:styleId="a5"><w:name w:val="标题 2"/></w:style></w:styles>')
+        numbering = (f'<w:numbering {self.W}>'
+                     '<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/></w:lvl>'
+                     '<w:lvl w:ilvl="1"><w:numFmt w:val="bullet"/></w:lvl></w:abstractNum>'
+                     '<w:num w:numId="3"><w:abstractNumId w:val="0"/></w:num></w:numbering>')
+        rels = ('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId9" Type="hyperlink" Target="https://example.com/a?b=1&amp;c=2" TargetMode="External"/>'
+                '<Relationship Id="rId8" Type="hyperlink" Target="javascript:alert(1)" TargetMode="External"/>'
+                '</Relationships>')
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("word/document.xml", f"<w:document {self.W}><w:body>{body}</w:body></w:document>")
+            zf.writestr("word/styles.xml", styles)
+            zf.writestr("word/numbering.xml", numbering)
+            zf.writestr("word/_rels/document.xml.rels", rels)
+        return buf.getvalue()
+
+    @staticmethod
+    def p(text: str, ppr: str = "", rpr: str = "") -> str:
+        return f'<w:p><w:pPr>{ppr}</w:pPr><w:r><w:rPr>{rpr}</w:rPr><w:t>{text}</w:t></w:r></w:p>'
+
+    def test_structure(self):
+        import extras
+        num = lambda lvl: f'<w:numPr><w:ilvl w:val="{lvl}"/><w:numId w:val="3"/></w:numPr>'  # noqa: E731
+        body = (self.p("章", '<w:pStyle w:val="1"/>') + self.p("节", '<w:pStyle w:val="a5"/>')
+                + self.p("一", num(0)) + self.p("子", num(1)) + self.p("二", num(0))
+                + self.p("粗", rpr="<w:b/>") + self.p("不粗", rpr='<w:b w:val="0"/><w:i/>')
+                + '<w:p><w:hyperlink r:id="rId9"><w:r><w:t>好链接</w:t></w:r></w:hyperlink>'
+                  '<w:hyperlink r:id="rId8"><w:r><w:t>坏链接</w:t></w:r></w:hyperlink></w:p>'
+                + '<w:tbl><w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/></w:tcPr>' + self.p("合并")
+                + '</w:tc></w:tr><w:tr><w:tc>' + self.p("a") + '</w:tc><w:tc>' + self.p("b")
+                + '</w:tc></w:tr></w:tbl>')
+        html = extras.docx_to_html(self.make(body))
+        self.assertIn("<h1>章</h1><h2>节</h2>", html)
+        self.assertIn("<ol><li>一<ul><li>子</li></ul></li><li>二</li></ol>", html)
+        self.assertIn("<p><strong>粗</strong></p><p><em>不粗</em></p>", html)
+        self.assertIn('<a href="https://example.com/a?b=1&amp;c=2"', html)
+        self.assertNotIn("javascript", html)
+        self.assertIn("坏链接", html)
+        self.assertIn('<td colspan="2"><p>合并</p></td>', html)
+
+    def test_rejects_non_docx(self):
+        import extras
+        with self.assertRaises(Exception):
+            extras.docx_to_html(b"not a zip")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
