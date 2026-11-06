@@ -232,10 +232,8 @@ function stopHomeField() {
   if (homeField) { homeField.stop(); homeField = null; }
 }
 
-/* ---------------------------------------------------------------- 视图导航栈 */
-/* 每次切页都写进浏览器历史（?view=xxx），所以浏览器的前进/后退、刷新都能回到对应页面；
-   navStack 只用来判断页面里的「← 返回」还有没有上一页。入栈出栈在 switchView 包装里做。 */
-const navStack = [];
+/* ---------------------------------------------------------------- 视图导航 */
+/* 浏览器历史用于前进/后退与刷新；页内返回按功能层级导航。 */
 let historyIdx = (history.state && history.state.idx) || 0;   // 刷新后接着原来的编号
 
 function go(view) {
@@ -243,13 +241,14 @@ function go(view) {
 }
 
 function goHome() {
-  navStack.length = 0;
   go('home');
 }
 
 function goBack() {
-  if (navStack.length) history.back();   // 交给 popstate，和浏览器后退走同一条路
-  else go('home');
+  // 页内返回按功能层级走，不能受此前访问学习看板等页面的顺序影响。
+  // 浏览器自身的前进/后退仍由 popstate 处理。
+  if (state.view === 'reader') go('materials');
+  else goHome();
 }
 
 function viewUrl(view) {
@@ -277,8 +276,6 @@ window.addEventListener('popstate', (e) => {
   const view = st.view || new URLSearchParams(location.search).get('view') || 'home';
   if (!document.getElementById(`view-${view}`)) return;
   const idx = typeof st.idx === 'number' ? st.idx : 0;
-  if (idx < historyIdx) navStack.pop();
-  else if (state.view !== view) navStack.push(state.view);
   historyIdx = idx;
   if (view === 'reader') state.readerId = new URLSearchParams(location.search).get('id') || '';
   switchView(view, { fromHistory: true });
@@ -605,20 +602,16 @@ $('#btn-gen-profile-2').addEventListener('click', () => window.genProfileFromPag
 $('#btn-save-meta').addEventListener('click', saveMeta);
 
 /* ---------------------------------------------------------------- 主界面隐藏侧边栏 + 记录浏览器历史 */
-/* 所有切页（侧边栏、主界面卡片、各模块里的跳转）最终都走 switchView，在这里统一入栈、写历史 */
+/* 所有切页（侧边栏、主界面卡片、各模块里的跳转）最终都走 switchView，在这里统一写历史 */
 (function wrapSwitchView() {
   const original = window.switchView;
   if (typeof original !== 'function') return;
   window.switchView = function patchedSwitchView(view, opts) {
-    const from = state.view;
     const o = opts || {};
     original(view);
     if (o.replace) {                       // 启动时的切页：不产生历史记录，也不算"上一页"
-      navStack.length = 0;
       history.replaceState({ view, idx: historyIdx }, '', viewUrl(view));
     } else if (!o.fromHistory) {
-      if (from && from !== view) navStack.push(from);
-      if (view === 'home') navStack.length = 0;
       recordHistory(view);
     }
     const app = $('#app');
