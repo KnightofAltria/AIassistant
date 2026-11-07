@@ -158,12 +158,12 @@ def seed(store) -> None:
     for s_ord, subject in enumerate(SUBJECTS):
         sid = new_id()
         store.conn.execute(
-            "INSERT INTO subjects(id, slug, name, ord) VALUES(?,?,?,?)",
+            "INSERT INTO subjects(id, slug, name, ord, is_builtin) VALUES(?,?,?,?,1)",
             (sid, subject["slug"], subject["name"], s_ord))
         for c_ord, (title, outline_items) in enumerate(subject["chapters"]):
             outline = "\n".join(f"- {item}" for item in outline_items)
             store.conn.execute(
-                "INSERT INTO chapters(id, subject_id, title, ord, outline) VALUES(?,?,?,?,?)",
+                "INSERT INTO chapters(id, subject_id, title, ord, outline, is_builtin) VALUES(?,?,?,?,?,1)",
                 (new_id(), sid, title, c_ord, outline))
     store.conn.commit()
 

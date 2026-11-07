@@ -400,6 +400,7 @@
       <div id="pending-bar" class="banner hidden"></div>
       <div id="shared-warning" class="banner hidden"></div>
       <div id="folder-bar" class="folder-bar"></div>
+      <section id="reference-panel" class="reference-panel"></section>
       <div id="material-tools" class="material-tools">
         <input id="mat-search" type="search" placeholder="搜索资料名 / 来源" />
         <select id="mat-subject" title="按科目筛选"><option value="">全部科目</option></select>
@@ -451,9 +452,12 @@
       <select id="imp-subject"><option value="">不指定</option></select>
     </label>
     <label class="field"><span>文件夹</span><select id="imp-folder"><option value="">根目录</option></select></label>
-    <label class="field"><span>内容</span><textarea id="imp-text" rows="10" placeholder="粘贴文本，或点下方选择文件（.pdf / .docx / .txt / .md / .csv / .json，最大 20 MB）"></textarea></label>
+      <label class="field"><span>内容</span><textarea id="imp-text" rows="10" placeholder="粘贴文本，或点下方选择文件（.pdf / .docx / .txt / .md / .csv / .json，最大 32 MB）"></textarea></label>
     <label class="field checkbox-field"><span>
       <input type="checkbox" id="imp-review" /> 先存为「待审核」，不立刻进入检索
+    </span></label>
+    <label class="field checkbox-field"><span>
+      <input type="checkbox" id="imp-reference" /> 设为这个文件夹的主要参考文献（教材 / 课程讲义）
     </span></label>
     <div class="modal-actions">
       <input type="file" id="imp-file" accept=".pdf,.docx,.txt,.md,.markdown,.csv,.json" hidden />
@@ -694,11 +698,29 @@
   </div>
 </div>
 
+<div id="modal-reference" class="modal hidden">
+  <div class="modal-card reference-modal">
+    <h3 id="ref-modal-title">主要参考文献</h3>
+    <p class="muted small">每行：标题 | PDF页码 | 层级（1为大章，2为小节）。页码以PDF阅读器显示为准，未知可填0。保存后先预览，再添加章节。</p>
+    <label class="field"><span>教材目录</span><textarea id="ref-toc" rows="12"></textarea></label>
+    <label class="field"><span>目标科目</span><select id="ref-subject"></select></label>
+    <label class="field"><span>章节粒度</span><select id="ref-granularity"><option value="chapter">按大章添加 · 小节作为教学单元</option><option value="section">按小节细分 · 适合逐节精学</option></select></label>
+    <div id="ref-preview" class="reference-preview"></div>
+    <p id="ref-msg" class="small err-text"></p>
+    <div class="modal-actions">
+      <button id="ref-close" class="btn">关闭</button>
+      <button id="ref-save" class="btn">保存目录</button>
+      <button id="ref-plan" class="btn">预览章节</button>
+      <button id="ref-apply" class="btn primary" disabled>添加章节</button>
+    </div>
+  </div>
+</div>
 <script src="/ui.js"></script>
 <script src="/app.js"></script>
 <script src="/auth.js"></script>
 <script src="/extras.js"></script>
 <script src="/agent.js"></script>
+<script src="/references.js"></script>
 <script src="/landing.js"></script>
 <script src="/keepalive.js"></script>
 </body>

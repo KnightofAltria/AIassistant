@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 
@@ -70,15 +71,19 @@ class DeepSeekClient:
 
     # ---------------------------------------------------------------- 流式对话
     def stream_chat(self, messages: list[dict], temperature: float = 0.3,
-                    max_tokens: int = 2048) -> "list[str] | object":
+                    max_tokens: int = 2048, on_finish=None) -> "list[str] | object":
         if MOCK:
-            return iter(_mock_stream(messages))
+            def mock():
+                yield from _mock_stream(messages)
+                if on_finish:
+                    on_finish("stop")
+            return mock()
         payload = {
             "model": self.model, "messages": messages, "stream": True,
             "temperature": temperature, "max_tokens": max_tokens,
         }
         resp = self._request("/chat/completions", payload, stream=True)
-        return _iter_sse(resp)
+        return _iter_sse(resp, on_finish)
 
     # ---------------------------------------------------------------- 带工具的对话
     def chat_with_tools(self, messages: list[dict], tools: list[dict],
@@ -112,7 +117,7 @@ class DeepSeekClient:
             raise DeepSeekError(f"返回格式异常：{str(data)[:300]}") from exc
 
 
-def _iter_sse(resp):
+def _iter_sse(resp, on_finish=None):
     """解析 SSE：逐行读 data: {...}，抽取 delta.content。"""
     try:
         for raw in resp:
@@ -130,6 +135,8 @@ def _iter_sse(resp):
             if not choices:
                 continue
             delta = choices[0].get("delta") or {}
+            if choices[0].get("finish_reason") and on_finish:
+                on_finish(choices[0]["finish_reason"])
             piece = delta.get("content")
             if piece:
                 yield piece
@@ -148,8 +155,10 @@ def _has_evidence(messages: list[dict]) -> bool:
 def _mock_stream(messages: list[dict]):
     user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
     if _has_evidence(messages):
+        match = re.search(r"\[(c\d+)\]", "\n".join(m.get("content", "") for m in messages))
+        cid = match.group(1) if match else "c1"
         text = ("[演示模式] 根据检索到的资料，结论如下：资料中给出的要点可以直接作为答案依据，"
-                "我用 [c1] 标注了出处。若要更细的推导，可以继续追问。")
+                f"我用 [{cid}] 标注了出处。若要更细的推导，可以继续追问。")
     elif "总结" in user:
         text = ("[演示模式] 本次对话围绕若干知识点展开，主要收获与待补充之处见下。"
                 "（未配置 API Key，此处为本地演示文本）")

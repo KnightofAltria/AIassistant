@@ -35,11 +35,13 @@ from os import _exit
 from pathlib import Path
 
 import auth_client
+import curriculum
 import deepseek
 import extras
 import pdftext
 import prompts
 import rag
+import references
 import seed
 import tools
 from store import DATA_DIR, Store
@@ -91,10 +93,11 @@ class CurrentStore:
 
 STORE = CurrentStore()
 LOCK = threading.Lock()
+TUTOR_JOBS: set[tuple] = set()
 
 # 资料导入：允许的文件类型与单个文件上限（前端 index.html 的 accept 与之保持一致）
 IMPORT_TYPES = (".pdf", ".docx", ".md", ".markdown", ".txt", ".csv", ".json")
-IMPORT_MAX = 20 * 1024 * 1024
+IMPORT_MAX = 32 * 1024 * 1024
 # 阅读页按原文件类型决定怎么显示
 READER_FORMATS = {".md": "markdown", ".markdown": "markdown", ".pdf": "pdf",
                   ".txt": "text", ".csv": "text", ".json": "text"}
@@ -120,7 +123,8 @@ def init_store(store: Store) -> tuple[int, int]:
     """内置科目、标准文件夹、示例资料；返回（导入示例数，归位数）。"""
     seed.seed(store)
     seed.ensure_folders(store)
-    samples = seed.seed_samples(store) + seed.import_shared_samples(store)
+    samples = (seed.seed_samples(store) + seed.import_shared_samples(store)
+               + references.seed_books(store) + references.seed_guides(store))
     return samples, seed.reorganize(store)
 
 
@@ -540,6 +544,33 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------ GET API
     def _api_get(self, path: str, query: dict) -> None:
+        if path == "/api/references/catalog":
+            self._json({"books": references.catalog()})
+            return
+        m = re.fullmatch(r"/api/folders/([\w-]+)/references", path)
+        if m:
+            folder = STORE.folder(m.group(1))
+            if not folder:
+                self._error("文件夹不存在", 404)
+                return
+            self._json({"references": STORE.reference_materials(folder["id"]),
+                        "editable": is_admin() or not folder.get("is_shared")})
+            return
+        m = re.fullmatch(r"/api/chapters/([\w-]+)/lecture", path)
+        if m:
+            chapter = STORE.chapter(m.group(1))
+            if not chapter or not chapter.get("lecture"):
+                self._error("本章尚未保存完整讲义", 404)
+                return
+            content = chapter["lecture"].encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/markdown; charset=utf-8")
+            name = urllib.parse.quote(chapter["title"] + ".md")
+            self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{name}")
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+            return
         if path == "/api/state":
             sync_auth()
             auth = auth_status()
@@ -748,6 +779,15 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------ POST API
     def _api_post(self, path: str, body: dict) -> None:
+        if path == "/api/references/download" or re.fullmatch(
+                r"/api/materials/[\w-]+/reference(?:/chapters)?", path):
+            try:
+                self._reference_post(path, body)
+            except ValueError as exc:
+                self._error(str(exc), 400)
+            except OSError as exc:
+                self._error(f"教材下载或读取失败：{exc}", 502)
+            return
         # ---- 登录注册（转发给认证服务，token 只留在本机服务）
         if path.startswith("/api/auth/"):
             self._auth_post(path, body)
@@ -1391,43 +1431,160 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------ 业务：章节
     def _chapter_tutor(self, chapter_id: str, body: dict) -> None:
-        chapter = STORE.chapter(chapter_id)
-        if not chapter:
-            self._error("章节不存在", 404)
-            return
-        if not STORE.has_api_key() and not deepseek.MOCK:
-            self._error("尚未配置 DeepSeek API Key", 401)
-            return
-        ctx = rag_context(f"{chapter['title']} {chapter.get('outline', '')}",
-                          subject=chapter.get("subject_name", ""))
+        # 固定账号和数据库；长时间生成时不能把结果写进后来登录的账号。
+        with LOCK, STORE._lock:
+            owner = STORE._store
+            chapter = owner.chapter(chapter_id)
+            if not chapter:
+                self._error("章节不存在", 404)
+                return
+            cfg = owner.get_config()
+            if not cfg.get("api_key") and not deepseek.MOCK:
+                self._error("尚未配置 DeepSeek API Key", 401)
+                return
+            job = (id(owner), chapter_id)
+            if job in TUTOR_JOBS:
+                self._error("本章正在生成，请等待完成", 409)
+                return
+            units = curriculum.units(chapter)
+            contexts = [references.evidence(owner, chapter, u["query"], i)
+                        for i, u in enumerate(units)]
+            meta_line = owner.meta_summary()
+            TUTOR_JOBS.add(job)
         system = prompts.SUBJECT_TUTOR_SYSTEM.format(
             chapter=chapter["title"], subject=chapter["subject_name"])
-        meta_line = STORE.meta_summary()
         if meta_line:
             system += f"\n\n学习者信息（用于调整讲解深浅）：{meta_line}"
-        if ctx.evidence:
-            system += f"\n\n参考资料（只能引用这些编号）：\n\n{ctx.evidence}"
-
-        self._sse_start()
-        self._sse("status", {"stage": "generating", "chapter_id": chapter_id})
-        collected: list[str] = []
         started = time.time()
         try:
-            for piece in client().stream_chat(
-                    [{"role": "system", "content": system},
-                     {"role": "user", "content": f"请讲解本章：{chapter['title']}"}]):
-                collected.append(piece)
-                self._sse("delta", {"text": piece})
-            answer = "".join(collected)
-            log_usage("tutor", [{"content": system}], answer, 0,
-                      int((time.time() - started) * 1000))
-            STORE.set_outline(chapter_id, answer)
-            verification = rag.validate_citations(answer, ctx.citations, ctx.insufficient)
+            self._sse_start()
+            self._sse("status", {"stage": "generating", "chapter_id": chapter_id,
+                                "total": len(units), "units": [u["title"] for u in units]})
+            intro = f"# {chapter['subject_name']} · {chapter['title']}\n\n"
+            intro += ("> [演示模式] 以下仅用于验证生成流程，不是真实学习讲义。\n\n" if deepseek.MOCK else "")
+            intro += "## 学习路线\n\n" + curriculum.checklist(chapter) + "\n\n"
+            self._sse("delta", {"text": intro})
+            sections, citations, prompt_chars = [intro], [], 0
+            generator = deepseek.DeepSeekClient(cfg.get("api_key", ""),
+                                                cfg.get("model", deepseek.DEFAULT_MODEL))
+            for i, unit in enumerate(units):
+                with LOCK:
+                    if STORE._store is not owner:
+                        raise ValueError("账号已切换，已停止生成")
+                self._sse("progress", {"current": i + 1, "total": len(units),
+                                       "title": unit["title"], "completed": i})
+                evidence, allowed = contexts[i]
+                instruction = (system + "\n\n本次只讲教学单元：" + unit["title"] +
+                               "\n全章覆盖清单（用于避免漏讲、重复）：\n" + curriculum.checklist(chapter))
+                instruction += ("\n\n参考原文（引用范围仅限本单元）：\n" + evidence if evidence else
+                                "\n本单元没有检索到相关教材原文，全节标为补充讲解，不使用引用编号。")
+                messages = [{"role": "system", "content": instruction},
+                            {"role": "user", "content": f"请完整讲解「{unit['title']}」，包含五个规定标题。"}]
+                prompt_chars += sum(len(m["content"]) for m in messages)
+                heading = f"## {i + 1}. {unit['title']}\n\n"
+                self._sse("delta", {"text": heading})
+                pieces, finish = [], []
+                for piece in generator.stream_chat(messages, max_tokens=4096, on_finish=finish.append):
+                    pieces.append(piece)
+                    self._sse("delta", {"text": piece})
+                section = "".join(pieces)
+                if finish != ["stop"] or not curriculum.valid_section(section, deepseek.MOCK):
+                    raise ValueError(f"第{i + 1}节输出过短、结构不全或被截断，请重新生成")
+                verification = rag.validate_citations(section, allowed)
+                if not verification["passed"]:
+                    raise ValueError(f"第{i + 1}节出现未提供的引用编号，未保存")
+                sections.append(heading + section + "\n\n")
+                citations.extend(allowed)
+                self._sse("delta", {"text": "\n\n"})
+            answer = "".join(sections)
+            verification = rag.validate_citations(answer, citations)
+            used = [c for c in citations if c["citation_id"] in verification["used"]]
+            if used:
+                bibliography = "## 参考文献与页码\n\n" + "\n".join(
+                    f"- [{c['citation_id']}] {c['title']}，" +
+                    (f"PDF第{c['page']}页" if c["page"] else "正文摘录（无PDF页码）") for c in used) + "\n"
+                answer += bibliography
+                self._sse("delta", {"text": bibliography})
+            meta = {"units": [u["title"] for u in units], "completed_units": len(units),
+                    "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"), "mock": deepseek.MOCK,
+                    "model": generator.model, "citations": used}
+            with LOCK, STORE._lock:
+                if STORE._store is not owner:
+                    raise ValueError("账号已切换，未保存生成结果")
+                owner.set_lecture(chapter_id, answer, meta)
+                owner.record_usage("tutor", generator.model, prompt_chars, len(answer),
+                                   rag.estimate_tokens(answer), 0,
+                                   int((time.time() - started) * 1000), True)
             self._sse("citations", verification)
-            self._sse("completed", {"status": "completed", "chapter_id": chapter_id})
-        except deepseek.DeepSeekError as exc:
-            self._sse("failed", {"code": exc.status or 0, "message": str(exc),
-                                 "retryable": exc.retryable})
+            self._sse("completed", {"status": "completed", "chapter_id": chapter_id,
+                                    "lecture_meta": meta, "chars": len(answer)})
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except Exception as exc:
+            self._sse("failed", {"code": getattr(exc, "status", 0),
+                                 "message": str(exc) + "；原有讲义仍保留。",
+                                 "retryable": True})
+        finally:
+            with LOCK:
+                TUTOR_JOBS.discard(job)
+
+    def _reference_post(self, path: str, body: dict) -> None:
+        if path == "/api/references/download":
+            folder_id = body.get("folder_id") or ""
+            owner = STORE._store
+            if not STORE.folder(folder_id):
+                raise ValueError("请选择教材要放入的文件夹")
+            if self._core_denied(folder_ids=[folder_id]):
+                return
+            # 网络在数据库锁外进行；完成后重新核对账号和权限。
+            references.get_book(body.get("book_id"), download=True)
+            with LOCK, STORE._lock:
+                if STORE._store is not owner:
+                    raise ValueError("账号已切换，请重试")
+                if self._core_denied(folder_ids=[folder_id]):
+                    return
+                material = references.import_book(owner, body.get("book_id"), folder_id)
+            self._json({"material": material}, 201)
+            return
+        mid = path.split("/")[3]
+        with LOCK, STORE._lock:
+            material = STORE.material(mid)
+            if not material:
+                raise ValueError("资料不存在")
+            if self._core_denied(material_ids=[mid]):
+                return
+            if path.endswith("/chapters"):
+                subject_id = body.get("subject_id") or ""
+                plan = references.chapter_plan(STORE, mid, subject_id, body.get("granularity", "chapter"))
+                if not body.get("apply"):
+                    self._json({"chapters": plan})
+                    return
+                created = []
+                for section in plan:
+                    if section["action"] == "skip":
+                        continue
+                    chapter = STORE.add_chapter(subject_id, section["title"], section["outline"])
+                    STORE.link_chapter_reference(chapter["id"], mid, section["reference_section"])
+                    created.append(chapter)
+                self._json({"created": created, "skipped": len(plan) - len(created)}, 201)
+                return
+            enabled = body.get("enabled", True)
+            if not isinstance(enabled, bool):
+                raise ValueError("enabled必须是布尔值")
+            if enabled and material.get("status") != "approved":
+                raise ValueError("待审核资料需审核通过后才能用作主要参考文献")
+            toc = references.clean_toc(body["toc"]) if "toc" in body else None
+            if toc is None and enabled and not references.stored_toc(material):
+                original = STORE.material_original(mid)
+                toc = references.detect_toc(STORE.get_material_text(mid),
+                                             original.read_bytes() if original else b"")
+            if toc:
+                text = STORE.get_material_text(mid)
+                pages = [int(p) for p in re.findall(r"(?m)^## 第 (\d+) 页", text)]
+                if pages and max(t["page"] for t in toc) > max(pages):
+                    raise ValueError("目录页码超过PDF总页数")
+            STORE.set_reference(mid, enabled, toc)
+            self._json({"material": STORE.material(mid)})
 
     def _generate_questions(self, chapter_id: str, n: int) -> None:
         chapter = STORE.chapter(chapter_id)
@@ -1925,6 +2082,9 @@ class Handler(BaseHTTPRequestHandler):
         original, pages = b"", 0
         if self._core_denied(folder_ids=[body.get("folder_id", "")]):
             return
+        if body.get("is_reference") and (not STORE.folder(body.get("folder_id", "")) or body.get("review")):
+            self._error("主要参考文献需放到文件夹中并审核通过", 400)
+            return
         # 上传了文件就保存原件；.txt/.md 等文本类若同时带了 text（导入框里可能改过），正文以 text 为准
         if body.get("content"):
             if ext not in IMPORT_TYPES:
@@ -1969,6 +2129,9 @@ class Handler(BaseHTTPRequestHandler):
             status=status, original=original, original_ext=ext)
         chunks = rag.chunk_text(text)
         STORE.replace_chunks(material["id"], chunks)
+        if body.get("is_reference"):
+            STORE.set_reference(material["id"], True, references.detect_toc(text, original))
+            material = STORE.material(material["id"])
         if not body.get("review"):
             STORE.touch_activity()
         self._json({"material": material, "chunks": len(chunks), "pages": pages,
@@ -1981,6 +2144,10 @@ class Handler(BaseHTTPRequestHandler):
             self._error("资料不存在", 404)
             return
         item = rows[0]
+        original = STORE.material_original(material_id)
+        if original and original.suffix.lower() == ".pdf":
+            self._error("PDF教材保留本地原版，不使用网页重抓覆盖正文。可重新导入更新的PDF。", 400)
+            return
         url = item.get("source_url") or ""
         if not url:
             self._error("这份资料没有来源链接，无法重新抓取", 400)

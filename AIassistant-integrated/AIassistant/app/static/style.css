@@ -1353,3 +1353,31 @@ html,body { font-family:"Avenir Next","PingFang SC","Microsoft YaHei UI",system-
 @media (max-width: 560px) {
   .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* 教材、章节目录与完整讲义 */
+.reference-panel { margin: 16px 0 24px; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface, #fff); }
+.reference-heading { display: flex; gap: 16px; justify-content: space-between; align-items: center; }
+.reference-heading h3 { margin: 0; }
+.reference-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,320px),1fr)); gap: 14px; }
+.reference-book { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg, #f7f9fc); }
+.reference-book h4 { margin: 12px 0 6px; }
+.reference-book p { line-height: 1.7; }
+.reference-tag { color: #216853; background: #eaf6ee; }
+.reference-catalog { margin-top: 18px; }
+.reference-catalog summary { cursor: pointer; font-weight: 600; }
+.reference-catalog-row, .reference-plan-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.reference-catalog-row > div, .reference-plan-row > span { min-width: 0; overflow-wrap: anywhere; }
+.reference-catalog-row button { flex-shrink: 0; }
+.reference-modal { max-width: 760px; }
+.reference-preview { max-height: 260px; overflow-y: auto; }
+.lecture-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; padding: 14px; background: var(--bg, #f7f9fc); border-radius: 10px; }
+.lecture-nav a { padding: 4px 8px; font-size: 13px; text-decoration: none; }
+.lecture-citations { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+#tutor-body { line-height: 1.85; overflow-wrap: anywhere; }
+#tutor-body h2 { margin-top: 30px; scroll-margin-top: 24px; }
+#tutor-body h3 { margin-top: 20px; }
+@media (max-width: 600px) {
+  .reference-panel { padding: 14px; }
+  .reference-heading, .reference-catalog-row { align-items: flex-start; flex-direction: column; }
+  .reference-modal .modal-actions { flex-wrap: wrap; }
+}

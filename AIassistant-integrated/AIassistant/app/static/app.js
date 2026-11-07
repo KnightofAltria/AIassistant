@@ -679,12 +679,16 @@ async function openChapter(chapter) {
       <h4>${esc(chapter.title)} · 大纲</h4>
       <div class="body">${esc(chapter.outline || '（暂无大纲）')}</div>
       <div class="card-actions">
-        <button id="btn-tutor" class="btn primary">生成讲解</button>
+        <button id="btn-tutor" class="btn primary">生成完整讲义</button>
+        <a id="lecture-export" class="btn hidden" href="/api/chapters/${chapter.id}/lecture" download>下载讲义</a>
         <button id="btn-chap-summary" class="btn">本章小结</button>
         <button id="btn-videos" class="btn">推荐学习视频</button>
         <span id="chap-stats" class="muted small"></span>
       </div>
+      <p id="tutor-status" class="muted small">按知识点逐节生成，包含原理、公式、例题和自测；整章可能需要数分钟。</p>
+      <nav id="lecture-nav" class="lecture-nav hidden" aria-label="讲义目录"></nav>
       <div id="tutor-body" class="body" style="margin-top:12px"></div>
+      <div id="lecture-citations" class="lecture-citations"></div>
       <div id="chapter-summary" class="chapter-summary hidden"></div>
       <div id="chapter-videos" class="chapter-videos hidden"></div>
     </div>
@@ -698,14 +702,15 @@ async function openChapter(chapter) {
     </div>`;
   $('#btn-study-back').classList.remove('hidden');
   $('#study-sub').textContent = chapter.title;
-  if (chapter.outline && chapter.outline.includes('##')) {
-    $('#tutor-body').innerHTML = md(chapter.outline);
-  }
+  if (chapter.lecture) renderLecture(chapter);
   $('.composer.floating').classList.remove('hidden');
 
   $('#btn-tutor').addEventListener('click', () => generateTutor(chapter));
   $('#btn-chap-summary').addEventListener('click', () => generateChapterSummary(chapter.id));
   api(`/api/chapters/${chapter.id}`).then((d) => {
+    if (state.chapter?.id !== chapter.id) return;
+    Object.assign(chapter, d.chapter);
+    if (chapter.lecture && !$('#btn-tutor').disabled) renderLecture(chapter);
     if (d.stats) {
       $('#chap-stats').textContent = d.stats.visited
         ? `已作答 ${d.stats.attempts} 题，正确率 ${d.stats.rate}%`
@@ -721,17 +726,58 @@ async function openChapter(chapter) {
 async function generateTutor(chapter) {
   const body = $('#tutor-body');
   const btn = $('#btn-tutor');
-  btn.disabled = true; btn.textContent = '生成中…';
+  const status = $('#tutor-status');
+  btn.disabled = true; btn.textContent = '逐节生成中…';
+  $('#lecture-nav').classList.add('hidden');
+  $('#lecture-citations').textContent = '';
   body.textContent = '';
-  let acc = '';
+  let acc = '', completed = false, rendered = 0;
   try {
     await streamSSE(`/api/chapters/${chapter.id}/tutor`, {}, {
-      delta(d) { acc += d.text || ''; body.innerHTML = md(acc); },
+      status(d) { status.textContent = `共 ${d.total} 个教学单元，正在生成…（尚未保存）`; },
+      progress(d) { status.textContent = `${d.current}/${d.total} · ${d.title}（尚未保存）`; },
+      delta(d) {
+        acc += d.text || '';
+        if (acc.length - rendered >= 100) { body.innerHTML = md(acc); rendered = acc.length; }
+      },
+      completed(d) {
+        completed = true;
+        chapter.lecture = acc; chapter.lecture_meta = JSON.stringify(d.lecture_meta);
+        if (state.chapter?.id === chapter.id) renderLecture(chapter);
+      },
       failed(d) { throw new Error(d.message || '生成失败'); },
     });
-    chapter.outline = acc;
-  } catch (err) { toast(err.message, true); }
-  finally { btn.disabled = false; btn.textContent = '重新生成讲解'; }
+    if (!completed) throw new Error('连接提前结束，未保存本次讲义');
+  } catch (err) {
+    toast(err.message, true);
+    if (state.chapter?.id === chapter.id) {
+      if (chapter.lecture) renderLecture(chapter);
+      else body.innerHTML = md(acc);
+      status.textContent = `生成失败：${err.message}。${chapter.lecture ? '正在显示已保存讲义。' : '上方为未完成草稿。'}`;
+    }
+  } finally { btn.disabled = false; btn.textContent = '重新生成完整讲义'; }
+}
+
+function renderLecture(chapter) {
+  const body = $('#tutor-body'), nav = $('#lecture-nav');
+  if (!body || !nav) return;
+  body.innerHTML = md(chapter.lecture);
+  nav.innerHTML = '';
+  body.querySelectorAll('h2').forEach((h, i) => {
+    h.id = `lecture-section-${i}`;
+    const a = document.createElement('a');
+    a.href = `#${h.id}`; a.textContent = h.textContent;
+    a.addEventListener('click', (e) => { e.preventDefault(); h.scrollIntoView({ behavior: 'smooth' }); });
+    nav.appendChild(a);
+  });
+  nav.classList.toggle('hidden', !nav.children.length);
+  let meta = {};
+  try { meta = JSON.parse(chapter.lecture_meta || '{}'); } catch (e) {}
+  $('#tutor-status').textContent = `${meta.mock ? '演示讲义 · ' : ''}已保存 ${meta.completed_units || ''} 个单元 · ${chapter.lecture.length} 字符 · ${meta.generated_at || ''}`;
+  $('#lecture-export').classList.remove('hidden');
+  $('#lecture-citations').innerHTML = (meta.citations || []).map((c) =>
+    `<a class="tag" href="/api/materials/${encodeURIComponent(c.material_id)}/source${c.page ? '#page=' + Number(c.page) : ''}" target="_blank" rel="noopener">[${esc(c.citation_id)}] ${esc(c.title)} · ${c.page ? 'PDF ' + Number(c.page) + ' 页' : '正文摘录'}</a>`).join(' ');
+  $('#btn-tutor').textContent = '重新生成完整讲义';
 }
 
 async function loadQuestions(chapter) {
@@ -842,6 +888,7 @@ async function loadMaterials() {
   const ids = new Set(MATERIALS.map((m) => m.id));
   [...SELECTED].forEach((id) => { if (!ids.has(id)) SELECTED.delete(id); });
   renderFolderBar();
+  renderReferencePanel();
   renderSharedWarning();
   renderSubjectFilter();
   if (typeof renderPendingBar === 'function') renderPendingBar(MATERIALS);
@@ -1197,6 +1244,7 @@ function renderMaterialList(materials) {
         ${m.folder_name ? `<span class="tag">${m.folder_shared ? '核心 · ' : ''}${esc(m.folder_name)}</span>` : '<span class="tag">根目录</span>'}
         <span class="tag">${esc(m.subject || '未分类')}</span>
         ${fmt ? `<span class="tag fmt-tag">${fmt}</span>` : ''}
+        ${m.is_reference ? '<span class="tag reference-tag">主要参考文献</span>' : ''}
         <span>${kb} KB</span>
         <span>${esc(m.created_at)}</span>
       </div>
@@ -1207,6 +1255,7 @@ function renderMaterialList(materials) {
         <button class="btn primary small" data-act="open">阅读</button>
         <button class="btn small" data-act="source" title="${ext === 'docx' ? (IS_LOCAL_PAGE ? '用电脑上的 Word 打开' : 'Word 文件浏览器打不开，会下载到本地') : '在浏览器新标签页打开源文件'}">打开源文件</button>
         ${editable ? `<button class="btn small" data-act="edit">编辑</button>
+        <button class="btn small" data-act="reference">${m.is_reference ? '目录与章节' : '设为主要参考文献'}</button>
         <button class="btn small" data-act="move">移动到…</button>
         <button class="btn danger small" data-act="del">删除</button>` : '<span class="muted small locked-tip"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#lock"></use></svg> 只读</span>'}
       </div>`;
@@ -1236,6 +1285,7 @@ function renderMaterialList(materials) {
       el.querySelector('[data-act="down"]').addEventListener('click', () => nudgeMaterial(m, 1));
     }
     if (editable) {
+      el.querySelector('[data-act="reference"]').addEventListener('click', () => setMaterialReference(m));
       el.querySelector('[data-act="edit"]').addEventListener('click', () => openMaterialEdit(m));
       el.querySelector('[data-act="move"]').addEventListener('click', () => openMoveMaterial(m));
       el.querySelector('[data-act="del"]').addEventListener('click', async () => {
@@ -1302,12 +1352,13 @@ $('#btn-import').addEventListener('click', async () => {
   $('#imp-title').value = ''; $('#imp-text').value = ''; $('#imp-msg').textContent = '';
   $('#imp-text').disabled = false;
   PICKED_FILE = null; $('#imp-file').value = ''; $('#imp-review').checked = false;
+  $('#imp-reference').checked = false;
   openModal('#modal-import');
 });
 $('#imp-cancel').addEventListener('click', () => closeModal('#modal-import'));
 $('#imp-pick').addEventListener('click', () => $('#imp-file').click());
 
-const IMPORT_MAX_MB = 20;
+const IMPORT_MAX_MB = 32;
 // 这几类由服务端解析：浏览器只读二进制，按 base64 上传，原文件一并保存
 const isBinaryImport = (name) => /\.(docx|pdf)$/i.test(name || '');
 
@@ -1358,6 +1409,7 @@ $('#imp-save').addEventListener('click', async () => {
       title, subject: $('#imp-subject').value, folder_id: folderId,
       filename: PICKED_FILE ? PICKED_FILE.name : '',
       review: $('#imp-review').checked,
+      is_reference: $('#imp-reference').checked,
     };
     // 选了文本类文件：内容框里的文字（可能被改过）作为正文，原文件仍一并上传保存
     if (PICKED_FILE) payload.content = await readFileBase64(PICKED_FILE);

@@ -217,17 +217,29 @@ class Store:
             have = {row["name"] for row in self.conn.execute(f"PRAGMA table_info({table})")}
             if "is_builtin" not in have:
                 self.conn.execute(f"ALTER TABLE {table} ADD COLUMN is_builtin INTEGER DEFAULT 0")
-        # 历史数据：四个内置科目的章节统一标记为内置
+        chapter_cols = {row["name"] for row in self.conn.execute("PRAGMA table_info(chapters)")}
+        for name, ddl in (("lecture", "TEXT DEFAULT ''"),
+                          ("lecture_meta", "TEXT DEFAULT '{}'"),
+                          ("reference_material_id", "TEXT DEFAULT ''"),
+                          ("reference_section", "TEXT DEFAULT ''")):
+            if name not in chapter_cols:
+                self.conn.execute(f"ALTER TABLE chapters ADD COLUMN {name} {ddl}")
+        # 只标记原有课程章节，不能在重启时把教材新增章节也变成不可删除的内置章节。
+        from curriculum import COVERAGE
         self.conn.execute(
             "UPDATE subjects SET is_builtin=1 WHERE slug IN ('co','cn','os','ds')")
         self.conn.execute(
             "UPDATE chapters SET is_builtin=1 WHERE subject_id IN "
-            "(SELECT id FROM subjects WHERE slug IN ('co','cn','os','ds'))")
+            "(SELECT id FROM subjects WHERE slug IN ('co','cn','os','ds')) "
+            "AND title IN (" + ",".join("?" for _ in COVERAGE) + ")", tuple(COVERAGE))
         mat_cols = {row["name"] for row in self.conn.execute("PRAGMA table_info(materials)")}
         for name, ddl in (("hash", "TEXT DEFAULT ''"),
                           ("status", "TEXT DEFAULT 'approved'"),
                           ("fetched_at", "TEXT DEFAULT ''"),
                           ("original", "TEXT DEFAULT ''"),
+                          ("is_reference", "INTEGER DEFAULT 0"),
+                          ("reference_toc", "TEXT DEFAULT '[]'"),
+                          ("bibliography", "TEXT DEFAULT '{}'"),
                           ("ord", "INTEGER DEFAULT 0")):
             if name not in mat_cols:
                 self.conn.execute(f"ALTER TABLE materials ADD COLUMN {name} {ddl}")
@@ -368,6 +380,26 @@ class Store:
                 "SELECT * FROM materials WHERE folder_id=? ORDER BY ord, created_at DESC",
                 (folder_id,)).fetchall()
         return [dict(r) for r in rows]
+
+    def reference_materials(self, folder_id: str) -> list[dict]:
+        """主要参考文献按文件夹隔离；待审核资料不能作为教材依据。"""
+        return [dict(r) for r in self.conn.execute(
+            "SELECT * FROM materials WHERE folder_id=? AND is_reference=1 "
+            "AND COALESCE(NULLIF(status,''),'approved')='approved' ORDER BY ord,created_at",
+            (folder_id,)).fetchall()]
+
+    def set_reference(self, material_id: str, enabled: bool, toc: list | None = None,
+                      bibliography: dict | None = None) -> None:
+        self.conn.execute("UPDATE materials SET is_reference=? WHERE id=?",
+                          (int(enabled), material_id))
+        if toc is not None:
+            self.conn.execute("UPDATE materials SET reference_toc=? WHERE id=?",
+                              (json.dumps(toc, ensure_ascii=False), material_id))
+        if bibliography is not None:
+            self.conn.execute("UPDATE materials SET bibliography=? WHERE id=?",
+                              (json.dumps(bibliography, ensure_ascii=False), material_id))
+        self.conn.commit()
+        self.bump()
 
     def reorder_materials(self, ids: list[str]) -> int:
         """按给定顺序重写 ord；返回实际更新的条数，不存在的 id 跳过。"""
@@ -659,6 +691,18 @@ class Store:
 
     def set_outline(self, chapter_id: str, outline: str) -> None:
         self.conn.execute("UPDATE chapters SET outline=? WHERE id=?", (outline, chapter_id))
+        self.conn.commit()
+
+    def set_lecture(self, chapter_id: str, lecture: str, meta: dict) -> None:
+        """完整生成后一次性发布讲义；大纲保持独立，失败不会覆盖旧讲义。"""
+        self.conn.execute("UPDATE chapters SET lecture=?,lecture_meta=? WHERE id=?",
+                          (lecture, json.dumps(meta, ensure_ascii=False), chapter_id))
+        self.conn.commit()
+
+    def link_chapter_reference(self, chapter_id: str, material_id: str, section: str) -> None:
+        self.conn.execute(
+            "UPDATE chapters SET reference_material_id=?,reference_section=? WHERE id=?",
+            (material_id, section, chapter_id))
         self.conn.commit()
 
     def questions(self, chapter_id: str) -> list[dict]:
