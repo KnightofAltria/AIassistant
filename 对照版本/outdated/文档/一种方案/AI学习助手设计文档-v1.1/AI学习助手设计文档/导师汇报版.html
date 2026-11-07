@@ -1,0 +1,77 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>AI学习助手 三人八周导师汇报方案</title><style>*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#f5f7fb;color:#182230;font:16px/1.75 "Microsoft YaHei","PingFang SC",sans-serif}header{padding:48px max(28px,calc((100vw - 1380px)/2));background:#122b4b;color:white}header p{color:#d4e2f4;max-width:850px}header h1{font-size:34px;line-height:1.35;margin:10px 0}header small{letter-spacing:2px;color:#a9c6eb}.shell{display:grid;grid-template-columns:260px minmax(0,1fr);max-width:1440px;margin:auto;gap:32px;padding:32px}nav{position:sticky;top:20px;align-self:start;max-height:94vh;overflow:auto}nav a{display:block;color:#37516d;padding:7px 12px;border-radius:6px;text-decoration:none;font-size:14px}nav a:hover{background:#e5edf9}main{min-width:0}article{background:white;padding:38px 44px;margin-bottom:28px;border:1px solid #dce3ed;border-radius:12px;scroll-margin-top:20px}article h1{font-size:27px;line-height:1.5;margin:0 0 22px;color:#112d4e}h2{font-size:21px;margin-top:32px;color:#19375d}h3{font-size:18px}p{margin:12px 0 18px}a{color:#2457b9;text-underline-offset:3px}code{font:14px/1.6 Consolas,monospace;background:#eef2f7;padding:1px 4px;border-radius:3px}pre{background:#11243b;color:#e7effa;padding:20px;overflow:auto;border-radius:8px;font:14px/1.7 Consolas,monospace}pre code{background:none;color:inherit;padding:0}.table-scroll{overflow:auto;margin:20px 0}table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.65}th,td{border:1px solid #d9e1ec;text-align:left;padding:11px 13px;vertical-align:top;min-width:90px}th{background:#edf2f9;color:#19375d;font-weight:600}tbody tr:nth-child(even){background:#fafbfd}details{font-size:14px;color:#475467}summary{cursor:pointer;padding:8px 0}.diagram{margin:20px 0}.diagram svg{width:100%;height:auto;min-width:450px}.diagram{overflow:auto}figcaption{font-size:12px;color:#62718a}footer{text-align:center;padding:28px;color:#667085;font-size:13px}@media(max-width:900px){.shell{display:block;padding:16px}nav{position:static;display:flex;overflow:auto;white-space:nowrap;margin-bottom:16px;gap:8px}nav a{background:white;flex-shrink:0;padding:10px}article{padding:24px 20px}header{padding:30px 24px}header h1{font-size:26px}article h1{font-size:24px}}@media print{header{background:white;color:black;padding:0}header p,header small{color:#333}nav{display:none}.shell{display:block;padding:0}article{padding:0;border:0;border-radius:0;page-break-before:always}article:first-child{page-break-before:auto}pre{white-space:pre-wrap;background:#f4f4f4;color:black}table{font-size:10px}a{color:inherit}details{display:block}footer{display:none}}</style></head><body><header><small>PROJECT PROPOSAL · v1.1</small><h1>AI 学习助手<br>三人八周项目方案</h1><p>导师汇报版 · 约8至10分钟讲解 · 含概览、学习流程、技术路线、三人分工、周计划与常见问答</p><p>2026-10-23 · 立项与方案评审 · 当前为拟实施方案，非已完成成果</p></header><div class="shell"><nav aria-label="汇报目录"><a href="#section-0">项目概览</a><a href="#section-1">第一部分 为什么做这个项目</a><a href="#section-2">第二部分 学生如何使用</a><a href="#section-3">第三部分 技术上如何实现</a><a href="#section-4">第四部分 三人如何分工</a><a href="#section-5">第五部分 八周如何推进</a><a href="#section-6">第六部分 如何判断项目完成</a><a href="#section-7">第七部分 风险与希望导师指导的事项</a><a href="#section-8">导师可能追问的问题</a><a href="#section-9">时间与分段建议</a><a href="阅读版.html">查看完整设计附录 →</a></nav><main><article><h1>AI学习助手项目方案汇报</h1>
+<p>汇报阶段：立项与方案评审｜团队：3人｜周期：8周｜版本：v1.1｜日期：2026-10-23。</p>
+<h2 id="section-0" style="scroll-margin-top:24px">项目概览</h2>
+<p>我们计划开发一个支持多类课程的AI学习助手，让学生能够围绕课程资料提问、通过练习发现误区，并持续获得审核后的知识更新。项目以可运行、可解释、可验证的课程作业成果为目标，使用三门课程的单章样例验证通用性，选择其中一门开展领域微调实验。</p>
+<div class="table-scroll"><table><thead><tr><th>汇报要点</th><th>项目安排</th></tr></thead><tbody>
+<tr><td>要解决的问题</td><td>通用问答缺少课程出处，聊天记录难形成学习反馈，资料更新难以持续维护</td></tr>
+<tr><td>学生使用流程</td><td>选课→带出处提问→练习→查看误区证据→复测与复习→阅读课程更新</td></tr>
+<tr><td>技术路线</td><td>课程RAG＋可选领域微调＋基于作答证据的学习分析</td></tr>
+<tr><td>三人分工</td><td>A前端与手机体验；B后端、资料更新与部署；C模型、学习诊断与微调</td></tr>
+<tr><td>八周成果</td><td>第3周问答可用，第4周学习闭环，第5周资料更新，第6周功能冻结，最后两周测试交付</td></tr>
+<tr><td>验证范围</td><td>三门课程各一个章节；90条问答、30例诊断；一门课程微调四组对照</td></tr>
+<tr><td>当前状态</td><td>已形成设计方案；后续按计划实现，文中指标为目标，尚无实测成绩</td></tr>
+</tbody></table></div>
+<h2 id="section-1" style="scroll-margin-top:24px">第一部分 为什么做这个项目</h2>
+<p>老师好，我们小组有三名成员，计划用八周完成一个面向多类课程的AI学习助手。我们关注的是学生学习过程中三个相互关联的问题。</p>
+<p>第一，学生可以向通用模型提问，但很难判断回答是否依据本课程教材，也不方便回到原文核对。第二，提问和做题往往是一次性的，学生很难从这些记录中看出自己反复混淆了什么。第三，资料会更新，但新增内容与当前课程有什么关系，通常还需要学生自己筛选。</p>
+<p>因此，我们把课程问答、作答记录、误区复测和资料更新组织成一套连续流程。最终希望交付的成果是一个电脑和手机都能使用的学习工具，并能够说明回答来源、分析依据和各项功能的实际效果。</p>
+<h2 id="section-2" style="scroll-margin-top:24px">第二部分 学生如何使用</h2>
+<p>学生进入平台后，先选择一门课程。每门课都有自己的资料、题目和知识点，同一平台可以配置不同课程，学习记录分别保存。</p>
+<p>学生提问时，系统先从当前课程资料中检索相关内容，再让模型生成解释，并显示教材页码或段落出处。资料不足时，系统说明限制并请求补充背景，避免给出看似确定却没有依据的答案。</p>
+<p>学生完成练习后，系统保存作答、提示使用情况和评分依据。若发现可能的概念混淆，先整理成误区候选，并给一道不同题目的复测。只有得到足够证据，才确认需要重点复习的知识点。学生也可以提出异议，查看为什么得出这个建议。</p>
+<p>与此同时，后台按计划检查指定的课程资料来源。新增内容先进入待审核列表，由维护者查看差异和出处，确认后发布。学生会在更新中心看到新增了什么、影响哪个知识点，以及是否值得复习。这样的流程把回答问题与后续学习行动连接起来。</p>
+<h2 id="section-3" style="scroll-margin-top:24px">第三部分 技术上如何实现</h2>
+<p>我们计划采用三个相互配合的部分。</p>
+<p>第一部分是RAG，可以理解为“先查课程资料，再组织回答”。资料导入后按章节和段落拆分，保留文档版本和定位；提问时结合关键词与语义检索查找证据，再生成带出处的回答。每门课程单独限定检索范围。</p>
+<p>第二部分是领域微调。RAG负责提供课程事实，微调主要改善术语使用、讲解顺序和提示方式。八周内我们选择一门课程的一个章节，整理目标500条审核样本，训练一个轻量适配器。随后比较基础模型、基础模型加RAG、微调模型、微调模型加RAG四种情况，验证微调是否真的带来改进。若结果不佳，会保留实验记录并使用效果更好的路由。</p>
+<p>第三部分是学习分析。首版使用透明规则统计作答证据，并根据课程知识点的先修关系提出待验证的问题。例如学生连续混淆相关与因果，系统会给出对应证据和验证题。单纯提问多、阅读久，不会被直接当作已经掌握或没有掌握的依据。</p>
+<p>工程上，前端采用Vue，后端采用FastAPI，使用PostgreSQL保存课程、学习记录和检索数据。问答、学习分析和资料更新在同一个后端中按模块组织，耗时工作交给后台任务。模型通过统一入口接入云端API或本地小模型；手机采用响应式网页与PWA，优先保证核心学习流程完整。</p>
+<h2 id="section-4" style="scroll-margin-top:24px">第四部分 三人如何分工</h2>
+<div class="table-scroll"><table><thead><tr><th>成员</th><th>负责内容</th><th>向导师展示的成果</th></tr></thead><tbody>
+<tr><td>A 前端与体验</td><td>学习首页、问答和出处、练习与面板、维护台、手机适配、试用和汇报</td><td>学生能顺利完成学习流程，手机操作清晰，异常有提示</td></tr>
+<tr><td>B 后端与交付</td><td>账号和课程隔离、资料版本、作答存储、后台任务、定时更新、审核发布、安装恢复</td><td>数据归属正确，资料更新可审核、可撤回，运行包可复现安装</td></tr>
+<tr><td>C AI与学习分析</td><td>检索与引用、模型接入、误区规则、复测建议、微调实验和AI评价</td><td>回答与诊断有证据，云端和本地均可验证，模型实验有真实对照</td></tr>
+</tbody></table></div>
+<p>学习诊断由C主责、B提供记录与任务支撑；网络更新由B主责、A完成审核与更新页面。三人共同整理和交叉审核课程样例，每周检查一次可运行成果。这样每块工作都有明确负责人，也能及时发现接口和数据问题。</p>
+<h2 id="section-5" style="scroll-margin-top:24px">第五部分 八周如何推进</h2>
+<div class="table-scroll"><table><thead><tr><th>周次</th><th>阶段目标</th><th>每周向导师说明的成果</th></tr></thead><tbody>
+<tr><td>第1周</td><td>确定范围并验证技术</td><td>三课单章样例、界面原型、问答小样、模型与微调资源检查</td></tr>
+<tr><td>第2周</td><td>建立多课程基础</td><td>登录选课、资料导入、数据隔离和稳定接口</td></tr>
+<tr><td>第3周</td><td>完成有出处问答</td><td>三门课程可提问、可查看原文、可停止和重试</td></tr>
+<tr><td>第4周</td><td>完成学习闭环</td><td>练习、记录、误区候选、复测和学习面板</td></tr>
+<tr><td>第5周</td><td>完成资料更新与试训</td><td>定时收集、审核发布、学生摘要、撤回，以及微调试验记录</td></tr>
+<tr><td>第6周</td><td>完成功能和实验</td><td>手机核心流程、云与本地验证、四组模型比较，冻结新增功能</td></tr>
+<tr><td>第7周</td><td>集中测试与修复</td><td>问答和诊断评测、安全隔离、安装及备份恢复记录</td></tr>
+<tr><td>第8周</td><td>整理交付与答辩</td><td>固定版本、演示、实验报告、文档和成员贡献说明</td></tr>
+</tbody></table></div>
+<p>为保证三人八周可完成，我们把试点限制在三门课各一个章节，微调只做其中一门。题型先支持单选和短答，网络更新使用指定来源，手机先完成网页和PWA。最后两周用于测试、修复和答辩准备。</p>
+<h2 id="section-6" style="scroll-margin-top:24px">第六部分 如何判断项目完成</h2>
+<p>我们从功能、AI质量和交付三个方面验收。</p>
+<p>功能方面，需要能完整演示选课、带出处问答、练习记录、误区复测、审核更新和手机使用；不同学生、不同课程的数据不能混用；重复提交不能重复计分。</p>
+<p>AI质量方面，准备三门课程共90条问答和30例诊断，检查答案是否正确、引用是否支持结论、误区是否有证据，以及资料不足时是否合理回应。初步目标是可回答问题的正确率达到85%以上、引用支持率达到90%以上；最终按课程分别报告实际计数和失败样例。这些是小样本验收目标，不能据此宣称适用于所有学科。微调另用独立测试集做四组比较，不把模型自评分作为唯一证据。</p>
+<p>交付方面，需要另一台设备能够按说明启动系统，手机能完成核心流程，云端和严格本地模式各完成一次验证，同时提供代码、安装说明、设计文档、测试报告和训练实验记录。最终答辩使用实际实现和实测结果，不把设计中的预期效果写成已达成成果。</p>
+<h2 id="section-7" style="scroll-margin-top:24px">第七部分 风险与希望导师指导的事项</h2>
+<p>当前主要风险是跨学科材料准备、微调资源和三人的联调工作量。我们准备在第1周检查资料与硬件，第2周固定接口，第4周检查学习闭环，第6周冻结功能。如果工时不足，先减少额外题型、来源数量和装饰性图表，同时如实同步受影响的功能和评价范围。</p>
+<p>我们希望老师重点帮助判断：三门单章样例是否适合作为课程通用性的验证；一门课程的微调对照是否符合本作业要求；功能演示、实验结果和软件工程材料在评分中各占多大比重。此外，需要确认可使用的课程资料和训练设备。获得这些意见后，我们会据此确定实际课程、预算和每周交付内容。</p>
+<h2 id="section-8" style="scroll-margin-top:24px">导师可能追问的问题</h2>
+<h3>与通用聊天工具有什么区别</h3>
+<p>区别体现在课程范围和学习流程：回答绑定课程资料并可查出处；练习转化为有证据的误区复测；资料更新经过审核并说明对学习的影响。答辩时应通过完整流程演示这些差异。</p>
+<h3>为什么同时使用RAG和微调</h3>
+<p>两者承担不同任务。RAG让事实可更新、可追溯；微调调整表达和教学行为。我们通过四组比较检验组合是否有收益，也接受实验没有明显改善的结果。</p>
+<h3>支持各类课程是否范围过大</h3>
+<p>平台支持课程配置，但验证只覆盖三门课的单章样例。每门课需要自己的材料、知识点和评价标准，不承诺所有学科开箱即有同样效果。</p>
+<h3>如何避免误判学生</h3>
+<p>先保存可定位作答，区分提示完成和独立完成，先提出候选再用不同题目复测；学生可以提出异议。对没有可靠量规的开放题只提供建议。</p>
+<h3>三人能否在八周内完成</h3>
+<p>计划总量约300个人工小时，对应每人每周约12.5小时，仍需成员核实。我们通过单章样例、单课微调、固定模型路由、指定网络来源和现成界面组件控制工作量，第6周后不再扩功能。若前两周验证显示资源不够，应立即调整并向老师说明。</p>
+<h3>网络更新是否会把错误资料加入知识库</h3>
+<p>新增资料先作为候选，比较内容变化，由维护者审核后发布；发布失败不影响旧资料，已发布内容可以撤回。模型只辅助筛选和摘要，不自行决定知识库发布。</p>
+<h3>手机端和本地模型分别意味着什么</h3>
+<p>手机通过网页或PWA访问系统；本地模型运行在电脑或服务器。严格本地模式要求生成、嵌入和学习分析都在本地，失败时不自动转云；这不等于手机自己运行大模型。</p>
+<h3>项目的创新和贡献如何表述</h3>
+<p>目前适合表述为面向课程学习的应用整合与工程验证，重点是把证据问答、可复测诊断、可审核更新和多端部署串成可演示流程。是否有算法创新，需要新的方法和实验支撑，当前不作这类声明。</p>
+<h3>最后具体交什么</h3>
+<p>可运行系统、三课单章样例、一课微调产物与实验、手机和两类模型模式演示、安装运行包、设计与测试文档、限制说明及三人的贡献记录。各项是否完成以交付证据为准。</p>
+<h2 id="section-9" style="scroll-margin-top:24px">时间与分段建议</h2>
+<p>本稿适合约8至10分钟的方案介绍，首次使用应彩排计时。开场与问题约1分钟，学习流程约1.5分钟，技术路线约2分钟，分工和排期约2分钟，验收及指导事项约1.5分钟。概览表和常见问答用于投屏与追问，不需要逐行朗读。三人轮流汇报时，A讲问题、体验和分工，C讲模型与诊断，B讲排期、更新、部署和验收。</p>
+<p>详细依据：<a href="阅读版.html#doc-01">需求规格</a>、<a href="阅读版.html#doc-02">技术架构</a>、<a href="阅读版.html#doc-04">模型与训练</a>、<a href="阅读版.html#doc-05">学习诊断</a>、<a href="阅读版.html#doc-11">验收标准</a>、<a href="阅读版.html#doc-12">三人八周详细计划</a>。</p></article></main></div><footer>导师汇报版 · 三人 / 八周 · 可离线阅读与打印</footer></body></html>
