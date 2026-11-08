@@ -212,6 +212,10 @@ function renderRadar(d) {
 }
 
 /* ---------------------------------------------------------------- 可视化：知识图谱 */
+const GRAPH_COLORS = ['#2f6fed', '#12a45a', '#c9820a', '#8b5cf6', '#d64545', '#0ea5e9', '#ec4899', '#14b8a6'];
+let graphData = null;
+let graphFullOpen = false;
+
 function setupCanvas(cv, height) {
   if (!cv) return null;
   const dpr = window.devicePixelRatio || 1;
@@ -224,18 +228,430 @@ function setupCanvas(cv, height) {
   return Object.assign(ctx, { w, h: height });
 }
 
-function groupColor(name) {
-  const palette = ['#2f6fed', '#12a45a', '#c9820a', '#8b5cf6', '#d64545', '#0ea5e9', '#ec4899'];
-  let sum = 0;
-  for (let i = 0; i < (name || '').length; i += 1) sum += name.charCodeAt(i);
-  return palette[sum % palette.length];
+function graphSubjects(data) {
+  const list = (data && data.subjects) || [];
+  return list.map((s) => (typeof s === 'string'
+    ? { name: s, chapters: 0, materials: 0 }
+    : { name: s.name, chapters: s.chapters || 0, materials: s.materials || 0 }));
+}
+
+function graphColor(name, subjects) {
+  if (!name || name === '未分类') return '#8a97a8';
+  const idx = subjects.findIndex((s) => s.name === name);
+  return idx >= 0 ? GRAPH_COLORS[idx % GRAPH_COLORS.length] : '#8a97a8';
+}
+
+function hexAlpha(hex, alpha) {
+  const h = String(hex || '').replace('#', '');
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  const n = parseInt(full, 16);
+  if (Number.isNaN(n)) return `rgba(120,140,170,${alpha})`;
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
+async function graphFetch(force) {
+  if (graphData && !force) return graphData;
+  graphData = await api('/api/graph');
+  return graphData;
+}
+
+function graphLegendHtml(data) {
+  const subjects = graphSubjects(data);
+  const parts = subjects.map((s) => `<span class="gl-item"><i style="background:${graphColor(s.name, subjects)}"></i>${esc(s.name)}<em>${s.chapters} 章 · ${s.materials} 份资料</em></span>`);
+  parts.push('<span class="gl-item gl-note"><i class="gl-pill"></i>胶囊=科目，实心圆=章节，浅色小圆=资料；悬停看名称，点击节点跳转，点空白全屏</span>');
+  return parts.join('');
+}
+
+function graphSize(cv, full) {
+  const rect = cv.getBoundingClientRect();
+  const w = Math.max(320, Math.round(rect.width || cv.parentElement.clientWidth || 440));
+  const h = Math.max(260, Math.round(full ? (cv.clientHeight || (window.innerHeight - 150)) : 340));
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(w * dpr);
+  cv.height = Math.round(h * dpr);
+  if (!full) cv.style.height = `${h}px`;
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w, h };
+}
+
+function buildGraph(data, w, h, full) {
+  const subjects = graphSubjects(data);
+  const raw = (data.nodes || []).map((n) => ({ ...n, color: graphColor(n.subject || n.group, subjects) }));
+  if (!raw.length) return null;
+  const anchors = new Map();
+  const count = Math.max(1, subjects.length);
+  subjects.forEach((s, i) => {
+    const angle = -Math.PI / 2 + (i / count) * Math.PI * 2;
+    const rx = full ? Math.max(120, w * 0.23) : Math.max(90, w / 2 - 64);
+    const ry = full ? Math.max(100, h * 0.23) : Math.max(80, h / 2 - 50);
+    anchors.set(s.name, {
+      x: w / 2 + Math.cos(angle) * rx,
+      y: h / 2 + Math.sin(angle) * ry,
+      hw: (String(s.name).length * 12.5 + 26) / 2,
+      hh: 15,
+    });
+  });
+
+  const nodes = raw.map((node, i) => {
+    const anchor = anchors.get(node.subject || node.group) || { x: w / 2, y: h / 2 };
+    const isSubject = node.type === 'subject';
+    const spread = isSubject ? 0 : (full ? 200 : 76);
+    const angle = (i / Math.max(1, raw.length)) * Math.PI * 2 + (node.type === 'material' ? 1.1 : 0);
+    const radius = spread * (0.3 + ((i * 37) % 100) / 140);
+    return { ...node, x: anchor.x + Math.cos(angle) * radius, y: anchor.y + Math.sin(angle) * radius, vx: 0, vy: 0, anchor };
+  });
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const links = (data.links || []).map((l) => ({ ...l, s: byId.get(l.source), t: byId.get(l.target) }))
+    .filter((l) => l.s && l.t);
+  const repulse = full ? 220 : 130;
+  for (let iter = 0; iter < 260; iter += 1) {
+    const cooling = Math.max(0.25, 1 - iter / 300);
+    for (let i = 0; i < nodes.length; i += 1) {
+      for (let j = i + 1; j < nodes.length; j += 1) {
+        const a = nodes[i];
+        const b = nodes[j];
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        const d2 = dx * dx + dy * dy || 0.01;
+        if (d2 > repulse * repulse) continue;
+        const d = Math.sqrt(d2);
+        const f = (repulse * 4) / d2;
+        dx = (dx / d) * f;
+        dy = (dy / d) * f;
+        a.vx -= dx; a.vy -= dy;
+        b.vx += dx; b.vy += dy;
+      }
+    }
+    links.forEach((l) => {
+      const dx = l.t.x - l.s.x;
+      const dy = l.t.y - l.s.y;
+      const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+      const rest = l.kind === 'subject' ? (full ? 110 : 72) : (full ? 90 : 58);
+      const f = (d - rest) * (l.kind === 'subject' ? 0.012 : 0.02);
+      l.s.vx += (dx / d) * f; l.s.vy += (dy / d) * f;
+      l.t.vx -= (dx / d) * f; l.t.vy -= (dy / d) * f;
+    });
+    nodes.forEach((n) => {
+      if (n.type === 'subject') {
+        n.x = n.anchor.x; n.y = n.anchor.y; n.vx = 0; n.vy = 0;
+        return;
+      }
+      n.vx += (n.anchor.x - n.x) * (full ? 0.03 : 0.05);
+      n.vy += (n.anchor.y - n.y) * (full ? 0.03 : 0.05);
+      const adx = n.x - n.anchor.x;
+      const ady = n.y - n.anchor.y;
+      const ad = Math.sqrt(adx * adx + ady * ady) || 0.01;
+      if (ad < 74) {                       // 把节点推离科目胶囊，给标签留出空间
+        n.vx += (adx / ad) * (74 - ad) * 0.05;
+        n.vy += (ady / ad) * (74 - ad) * 0.05;
+      }
+      n.x += Math.max(-10, Math.min(10, n.vx * cooling));
+      n.y += Math.max(-10, Math.min(10, n.vy * cooling));
+      n.vx *= 0.8; n.vy *= 0.8;
+      const pad = n.type === 'material' ? 8 : 14;
+      n.x = Math.max(pad, Math.min(w - pad, n.x));
+      n.y = Math.max(pad, Math.min(h - pad, n.y));
+      // 避免节点压在科目胶囊上：按胶囊矩形做一次硬推离
+      const hw = (n.anchor.hw || 40) + 10;
+      const hh = (n.anchor.hh || 15) + 12;
+      const px = n.x - n.anchor.x;
+      const py = n.y - n.anchor.y;
+      if (Math.abs(px) < hw && Math.abs(py) < hh) {
+        const ox = hw - Math.abs(px);
+        const oy = hh - Math.abs(py);
+        if (oy <= ox) n.y += (py >= 0 ? 1 : -1) * oy;
+        else n.x += (px >= 0 ? 1 : -1) * ox;
+      }
+    });
+  }
+  return { nodes, links, subjects, anchors, w, h, full };
+}
+
+function graphNodeRadius(n, full) {
+  if (n.type === 'subject') return full ? 30 : 24;
+  if (n.type === 'chapter') return full ? 8 : 7;
+  return (full ? 4 : 3.2) + Math.min(3, n.weight || 1);
+}
+
+function paintGraph(ctx, layout, hovered) {
+  const { w, h, nodes, links, subjects, anchors, full } = layout;
+  ctx.clearRect(0, 0, w, h);
+
+  // 每个科目一块淡色区域，先把“科目 → 章节 → 资料”的脉络圈出来
+  subjects.forEach((s) => {
+    const anchor = anchors.get(s.name);
+    const members = nodes.filter((n) => (n.subject || n.group) === s.name && n.type !== 'subject');
+    if (!anchor || members.length < 2) return;
+    let maxR = 34;
+    members.forEach((n) => { maxR = Math.max(maxR, Math.hypot(n.x - anchor.x, n.y - anchor.y)); });
+    ctx.beginPath();
+    ctx.arc(anchor.x, anchor.y, maxR + (full ? 42 : 26), 0, Math.PI * 2);
+    ctx.fillStyle = hexAlpha(graphColor(s.name, subjects), 0.055);
+    ctx.fill();
+    ctx.setLineDash([5, 7]);
+    ctx.strokeStyle = hexAlpha(graphColor(s.name, subjects), 0.22);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  });
+
+  links.forEach((l) => {
+    ctx.beginPath();
+    ctx.moveTo(l.s.x, l.s.y);
+    ctx.lineTo(l.t.x, l.t.y);
+    ctx.strokeStyle = l.kind === 'subject' ? 'rgba(120,145,180,.32)' : 'rgba(120,145,180,.2)';
+    ctx.lineWidth = l.kind === 'subject' ? 1 : 0.6 + (l.weight || 1) * 0.35;
+    ctx.stroke();
+  });
+
+  // 科目节点画成带全称的胶囊，颜色即图例颜色
+  nodes.filter((n) => n.type === 'subject').forEach((n) => {
+    ctx.font = `${full ? 15 : 12.5}px "Microsoft YaHei", sans-serif`;
+    const tw = ctx.measureText(n.label).width;
+    const pw = tw + (full ? 34 : 26);
+    const ph = full ? 38 : 30;
+    const x = n.x - pw / 2;
+    const y = n.y - ph / 2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, pw, ph, ph / 2); else ctx.rect(x, y, pw, ph);
+    ctx.fillStyle = n.color;
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(n.label, n.x, n.y + 1);
+    n._box = [x, y, x + pw, y + ph];
+  });
+
+  nodes.filter((n) => n.type !== 'subject').forEach((n) => {
+    const r = graphNodeRadius(n, full);
+    n._r = r;
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = n.type === 'chapter' ? n.color : hexAlpha(n.color, 0.55);
+    ctx.fill();
+    if (n.type === 'chapter') {
+      ctx.strokeStyle = 'rgba(255,255,255,.85)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+    if (n === hovered) {
+      ctx.strokeStyle = '#1b2430';
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
+    }
+  });
+
+  // 标签：全屏显示所有节点全称；常规视图只标注章节，资料靠悬停
+  // 常规卡片只保留科目胶囊与圆点，名称靠悬停；全屏再显示全部节点全称
+  const labelBoxes = [];
+  const boxes = nodes.filter((n) => n._box).map((n) => [n._box[0] - 6, n._box[1] - 4, n._box[2] + 6, n._box[3] + 4]);
+  const labeled = full ? nodes.filter((n) => n.type !== 'subject') : [];
+  labeled.sort((a, b) => (a.type === b.type ? a.label.length - b.label.length : (a.type === 'chapter' ? -1 : 1)));
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  labeled.forEach((n) => {
+    const text = n.label;
+    ctx.font = `${n.type === 'chapter' ? (full ? 12.5 : 10.5) : (full ? 11.5 : 10)}px "Microsoft YaHei", sans-serif`;
+    const tw = ctx.measureText(text).width;
+    const th = full ? 16 : 13;
+    const r = n._r || 5;
+    const fits = (x, y) => {
+      if (x < 4 || y < 4 || x + tw > w - 4 || y + th > h - 4) return false;
+      const box = [x - 4, y - 3, x + tw + 4, y + th + 3];
+      return !boxes.some((b) => !(box[2] < b[0] || box[0] > b[2] || box[3] < b[1] || box[1] > b[3]));
+    };
+    const draw = (x, y) => {
+      labelBoxes.push([x - 4, y - 3, x + tw + 4, y + th + 3]);
+      boxes.push([x - 4, y - 3, x + tw + 4, y + th + 3]);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(255,255,255,.95)';
+      ctx.strokeText(text, x, y);
+      ctx.fillStyle = n.type === 'chapter' ? '#3c4a5c' : '#6b7a8d';
+      ctx.fillText(text, x, y);
+    };
+    const cx = n.anchor ? n.anchor.x : w / 2;
+    const cy = n.anchor ? n.anchor.y : h / 2;
+    const baseAngle = Math.atan2(n.y - cy, n.x - cx);
+    const candidates = [];
+    // 先沿“科目中心 → 节点”方向往外放，再试左右上下与斜角
+    for (const dist of [r + 8, r + 26, r + 46]) {
+      for (const da of [0, 0.42, -0.42]) {
+        const a = baseAngle + da;
+        const ux = Math.cos(a);
+        const uy = Math.sin(a);
+        candidates.push([n.x + ux * dist - (ux < 0 ? tw : 0), n.y + uy * dist - th / 2]);
+      }
+    }
+    candidates.push(
+      [n.x + r + 6, n.y - th / 2],
+      [n.x - r - 6 - tw, n.y - th / 2],
+      [n.x - tw / 2, n.y - r - th - 4],
+      [n.x - tw / 2, n.y + r + 4],
+    );
+    let placed = false;
+    for (const [x, y] of candidates) {
+      if (!fits(x, y)) continue;
+      draw(x, y);
+      placed = true;
+      break;
+    }
+    if (!placed) {
+      // 兜底：在所有方向里挑“与其他元素重叠面积最小”的位置，尽量不遮挡
+      let bestX = n.x + r + 6;
+      let bestY = Math.max(4, Math.min(h - th - 4, n.y - th / 2));
+      let bestScore = Infinity;
+      for (let dist = r + 24; dist <= r + 150; dist += 22) {
+        for (let k = 0; k < 16; k += 1) {
+          const a = (k / 16) * Math.PI * 2;
+          const ux = Math.cos(a);
+          const uy = Math.sin(a);
+          const x = n.x + ux * dist - (ux < 0 ? tw : 0);
+          const y = n.y + uy * dist - th / 2;
+          if (x < 4 || y < 4 || x + tw > w - 4 || y + th > h - 4) continue;
+          const box = [x - 4, y - 3, x + tw + 4, y + th + 3];
+          let score = 0;
+          boxes.forEach((b) => {
+            const ox = Math.min(box[2], b[2]) - Math.max(box[0], b[0]);
+            const oy = Math.min(box[3], b[3]) - Math.max(box[1], b[1]);
+            if (ox > 0 && oy > 0) score += ox * oy;
+          });
+          if (score < bestScore) { bestScore = score; bestX = x; bestY = y; }
+          if (score === 0) break;
+        }
+        if (bestScore === 0) break;
+      }
+      draw(bestX, bestY);
+    }
+  });
+
+  if (hovered) {
+    const suffix = hovered.type === 'chapter' ? ' · 点击进入章节'
+      : hovered.type === 'material' ? ' · 点击阅读资料'
+        : hovered.type === 'subject' ? ' · 点击查看科目' : '';
+    const text = (hovered.type === 'material' ? `${hovered.label}（资料）` : hovered.label) + suffix;
+    ctx.font = '12px "Microsoft YaHei", sans-serif';
+    const tw = ctx.measureText(text).width + 18;
+    const bx = Math.min(w - tw - 6, Math.max(6, hovered.x - tw / 2));
+    const by = hovered.y - 38 < 6 ? hovered.y + 16 : hovered.y - 38;
+    ctx.fillStyle = 'rgba(27,36,48,.92)';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(bx, by, tw, 24, 7); else ctx.rect(bx, by, tw, 24);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, bx + tw / 2, by + 12);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+  }
+}
+
+function bindGraphHover(cv, getLayout, repaint, onOpen, idleCursor) {
+  let hovered = null;
+  const pick = (ev) => {
+    const layout = getLayout();
+    if (!layout) return null;
+    const rect = cv.getBoundingClientRect();
+    const mx = ev.clientX - rect.left;
+    const my = ev.clientY - rect.top;
+    let best = null;
+    let bestD = 16;
+    layout.nodes.forEach((n) => {
+      if (n.type === 'subject' && n._box) {
+        const b = n._box;
+        if (mx >= b[0] && mx <= b[2] && my >= b[1] && my <= b[3]) { best = n; bestD = 0; return; }
+      }
+      const d = Math.hypot(n.x - mx, n.y - my);
+      if (d < bestD) { best = n; bestD = d; }
+    });
+    return best;
+  };
+  cv.onmousemove = (ev) => {
+    const best = pick(ev);
+    cv.style.cursor = best ? 'pointer' : (idleCursor || 'default');
+    if (best !== hovered) {
+      hovered = best;
+      repaint(hovered);
+    }
+  };
+  cv.onmouseleave = () => {
+    if (hovered) { hovered = null; repaint(null); }
+    cv.style.cursor = idleCursor || 'default';
+  };
+  cv.onclick = (ev) => {
+    // 触屏/直接点击不一定先触发 mousemove，这里按点击坐标重新命中一次
+    const hit = pick(ev) || hovered;
+    if (hit) hovered = hit;
+    if (typeof onOpen === 'function') onOpen(hit);
+  };
+}
+
+async function graphNavigate(node) {
+  if (!node) return;
+  if (node.type === 'chapter') {
+    const cid = String(node.id || '').replace(/^ch:/, '');
+    closeGraphFull();
+    switchView('study');
+    try {
+      const { subjects } = await api('/api/subjects');
+      for (const subject of subjects || []) {
+        const chapter = (subject.chapters || []).find((c) => c.id === cid);
+        if (chapter) {
+          openSubject(subject);
+          await openChapter(chapter);
+          return;
+        }
+      }
+      toast('没有找到对应章节，可能已被删除', true);
+    } catch (err) {
+      toast(`跳转失败：${err.message}`, true);
+    }
+    return;
+  }
+  if (node.type === 'material') {
+    const mid = String(node.id || '').replace(/^mat:/, '');
+    closeGraphFull();
+    openMaterial(mid);
+    return;
+  }
+  if (node.type === 'subject') {
+    closeGraphFull();
+    switchView('study');
+    try {
+      const { subjects } = await api('/api/subjects');
+      const subject = (subjects || []).find((s) => s.name === node.label);
+      if (subject) openSubject(subject);
+      else toast('没有找到对应科目', true);
+    } catch (err) {
+      toast(`跳转失败：${err.message}`, true);
+    }
+  }
 }
 
 async function renderGraph() {
   const cv = $('#graph-canvas');
   if (!cv) return;
   try {
-    await drawGraph(cv);
+    const data = await graphFetch(true);
+    const legend = $('#graph-legend');
+    if (legend) legend.innerHTML = graphLegendHtml(data);
+    const { ctx, w, h } = graphSize(cv, false);
+    const layout = buildGraph(data, w, h, false);
+    if (!layout) {
+      ctx.fillStyle = '#93a1b3';
+      ctx.font = '13px "Microsoft YaHei", sans-serif';
+      ctx.fillText('还没有章节或资料', 16, 28);
+      return;
+    }
+    const repaint = (hover) => paintGraph(ctx, layout, hover);
+    bindGraphHover(cv, () => layout, repaint, (node) => {
+      if (node) graphNavigate(node);
+      else openGraphFull();
+    }, 'zoom-in');
+    cv._graphLayout = layout;
+    repaint(null);
   } catch (err) {
     const ctx = cv.getContext('2d');
     ctx.fillStyle = '#d64545';
@@ -245,125 +661,73 @@ async function renderGraph() {
   }
 }
 
-async function drawGraph(cv) {
-  let data;
-  try { data = await api('/api/graph'); } catch (e) { return; }
-  const ctx = setupCanvas(cv, 340);
-  if (!ctx) return;
-  const { w, h } = ctx;
-  const raw = data.nodes || [];
-  if (!raw.length) {
-    ctx.fillStyle = '#93a1b3';
-    ctx.font = '13px "Microsoft YaHei", sans-serif';
-    ctx.fillText('还没有章节或资料', 16, 28);
-    return;
-  }
-  const nodes = raw.map((n, i) => ({
-    ...n,
-    x: w / 2 + Math.cos((i / raw.length) * Math.PI * 2) * (Math.min(w, h) / 2.8),
-    y: h / 2 + Math.sin((i / raw.length) * Math.PI * 2) * (Math.min(w, h) / 2.8),
-    vx: 0, vy: 0,
-  }));
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const links = (data.links || [])
-    .map((l) => ({ ...l, s: byId.get(l.source), t: byId.get(l.target) }))
-    .filter((l) => l.s && l.t);
-  for (let iter = 0; iter < 340; iter += 1) {
-    const cooling = 1 - iter / 400;
-    for (let i = 0; i < nodes.length; i += 1) {
-      for (let j = i + 1; j < nodes.length; j += 1) {
-        const a = nodes[i];
-        const b = nodes[j];
-        let dx = b.x - a.x;
-        let dy = b.y - a.y;
-        let dist2 = dx * dx + dy * dy || 0.01;
-        if (dist2 > 90000) continue;
-        const force = 700 / dist2;
-        const dist = Math.sqrt(dist2);
-        dx = (dx / dist) * force;
-        dy = (dy / dist) * force;
-        a.vx -= dx; a.vy -= dy;
-        b.vx += dx; b.vy += dy;
-      }
-    }
-    links.forEach((l) => {
-      const dx = l.t.x - l.s.x;
-      const dy = l.t.y - l.s.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-      const force = (dist - 78) * 0.012;
-      l.s.vx += (dx / dist) * force;
-      l.s.vy += (dy / dist) * force;
-      l.t.vx -= (dx / dist) * force;
-      l.t.vy -= (dy / dist) * force;
-    });
-    nodes.forEach((n) => {
-      n.vx += (w / 2 - n.x) * 0.0024;
-      n.vy += (h / 2 - n.y) * 0.0024;
-      n.x += Math.max(-8, Math.min(8, n.vx * cooling));
-      n.y += Math.max(-8, Math.min(8, n.vy * cooling));
-      n.vx *= 0.82; n.vy *= 0.82;
-      n.x = Math.max(16, Math.min(w - 16, n.x));
-      n.y = Math.max(16, Math.min(h - 16, n.y));
-    });
-  }
+let graphFullLayout = null;
 
-  let hovered = null;
-  const draw = () => {
-    ctx.clearRect(0, 0, w, h);
-    links.forEach((l) => {
-      ctx.beginPath();
-      ctx.moveTo(l.s.x, l.s.y);
-      ctx.lineTo(l.t.x, l.t.y);
-      ctx.strokeStyle = 'rgba(120,145,180,.28)';
-      ctx.lineWidth = 0.6 + (l.weight || 1) * 0.4;
-      ctx.stroke();
+async function openGraphFull() {
+  const box = $('#graph-full');
+  const cv = $('#graph-full-canvas');
+  if (!box || !cv) return;
+  box.classList.remove('hidden');
+  document.body.classList.add('graph-lock');
+  graphFullOpen = true;
+  try {
+    const data = await graphFetch();
+    const legend = $('#graph-legend-full');
+    if (legend) legend.innerHTML = graphLegendHtml(data);
+    requestAnimationFrame(() => {
+      const { ctx, w, h } = graphSize(cv, true);
+      graphFullLayout = buildGraph(data, w, h, true);
+      if (!graphFullLayout) return;
+      cv._graphLayout = graphFullLayout;
+      const repaint = (hover) => paintGraph(ctx, graphFullLayout, hover);
+      bindGraphHover(cv, () => graphFullLayout, repaint, (node) => {
+        if (node) graphNavigate(node);
+      }, 'default');
+      repaint(null);
     });
-    nodes.forEach((n) => {
-      const r = n.type === 'chapter' ? 6 : 4 + Math.min(3, n.weight || 1);
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = groupColor(n.group);
-      ctx.globalAlpha = n.type === 'chapter' ? 0.95 : 0.6;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      if (n === hovered) {
-        ctx.strokeStyle = '#1b2430';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.lineWidth = 1;
-      }
-    });
-    if (hovered) {
-      const text = hovered.label || '';
-      ctx.font = '12px "Microsoft YaHei", sans-serif';
-      const tw = ctx.measureText(text).width + 14;
-      const bx = Math.min(w - tw - 4, Math.max(4, hovered.x - tw / 2));
-      const by = hovered.y - 30 < 4 ? hovered.y + 12 : hovered.y - 30;
-      ctx.fillStyle = 'rgba(27,36,48,.9)';
-      ctx.beginPath();
-      if (ctx.roundRect) { ctx.roundRect(bx, by, tw, 22, 6); } else { ctx.rect(bx, by, tw, 22); }
-      ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(text, bx + tw / 2, by + 11);
-    }
-  };
+  } catch (err) {
+    toast(`图谱加载失败：${err.message}`, true);
+  }
+}
 
-  cv.onmousemove = (ev) => {
-    const rect = cv.getBoundingClientRect();
-    const mx = ev.clientX - rect.left;
-    const my = ev.clientY - rect.top;
-    let best = null;
-    let bestD = 18;
-    nodes.forEach((n) => {
-      const d2 = (n.x - mx) ** 2 + (n.y - my) ** 2;
-      if (d2 < bestD * bestD) { best = n; bestD = Math.sqrt(d2); }
-    });
-    if (best !== hovered) { hovered = best; draw(); }
-  };
-  cv.onmouseleave = () => { if (hovered) { hovered = null; draw(); } };
-  draw();
+function closeGraphFull() {
+  const box = $('#graph-full');
+  if (!box) return;
+  box.classList.add('hidden');
+  document.body.classList.remove('graph-lock');
+  graphFullOpen = false;
+  graphFullLayout = null;
+}
+
+window.addEventListener('resize', () => {
+  if (!graphFullOpen || !graphFullLayout) return;
+  const cv = $('#graph-full-canvas');
+  if (!cv) return;
+  clearTimeout(closeGraphFull._timer);
+  closeGraphFull._timer = setTimeout(() => {
+    const { ctx, w, h } = graphSize(cv, true);
+    graphFullLayout = buildGraph(graphData, w, h, true);
+    if (!graphFullLayout) return;
+    bindGraphHover(cv, () => graphFullLayout, (hover) => paintGraph(ctx, graphFullLayout, hover), (node) => {
+      if (node) graphNavigate(node);
+    }, 'default');
+    paintGraph(ctx, graphFullLayout, null);
+  }, 160);
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && graphFullOpen) closeGraphFull();
+});
+
+const graphFullBtn = $('#btn-graph-full');
+if (graphFullBtn) graphFullBtn.addEventListener('click', openGraphFull);
+const graphFullClose = $('#graph-full-close');
+if (graphFullClose) graphFullClose.addEventListener('click', closeGraphFull);
+const graphFullBox = $('#graph-full');
+if (graphFullBox) {
+  graphFullBox.addEventListener('click', (e) => {
+    if (e.target.id === 'graph-full') closeGraphFull();
+  });
 }
 
 function renderKpi(d) {
@@ -469,7 +833,7 @@ async function gradeReview(id, quality, el) {
 
 function renderMastery(mastery) {
   const box = $('#mastery-box');
-  const chapters = (mastery.chapters || []).filter((c) => c.attempts > 0 || c.status === '薄弱');
+  const chapters = (mastery.chapters || []).filter((c) => c.attempts > 0 || c.read > 0 || c.status === '薄弱');
   const shown = chapters.length ? chapters : (mastery.chapters || []).slice(0, 8);
   if (!shown.length) {
     box.innerHTML = `<div class="empty-state"><i><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#book"></use></svg></i><b>还没有练习记录</b>
@@ -480,9 +844,9 @@ function renderMastery(mastery) {
     <div class="mastery-row">
       <div class="mastery-label" title="${esc(c.label)}">${esc(c.label)}</div>
       <div class="mastery-track">
-        <div class="mastery-bar ${statusClass(c.status)}" style="width:${Math.max(2, Math.min(100, c.rate))}%"></div>
+        <div class="mastery-bar ${statusClass(c.status)}" style="width:${Math.max(2, Math.min(100, c.progress || 0))}%"></div>
       </div>
-      <div class="mastery-rate">${c.attempts ? pct(c.rate) : '—'}</div>
+      <div class="mastery-rate">${pct(c.progress || 0)}</div>
       <div class="badge ${statusClass(c.status)}">${esc(c.status)}</div>
     </div>`).join('');
 }

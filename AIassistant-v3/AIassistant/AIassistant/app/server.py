@@ -288,7 +288,7 @@ CLIENT_LOCK = threading.Lock()
 EXIT_ON_CLOSE = False
 IDLE_VISIBLE = 25.0        # 页面可见时的空闲上限（秒）
 IDLE_HIDDEN = 300.0        # 页面切到后台时的空闲上限
-CLOSE_GRACE = 6.0          # 收到"页面关闭"信号后的宽限，用于躲过刷新
+CLOSE_GRACE = 1.0          # 关闭后约1秒退出；留出刷新页面重新报心跳的时间
 
 
 def touch_client(visible: bool | None = None, closing: bool = False) -> None:
@@ -303,7 +303,7 @@ def touch_client(visible: bool | None = None, closing: bool = False) -> None:
 def watchdog(httpd) -> None:
     """没有页面在用了就自动停服，避免留下后台进程。"""
     while True:
-        time.sleep(2.0)
+        time.sleep(0.1)
         with CLIENT_LOCK:
             now = time.time()
             gap = now - CLIENT["last_seen"]
@@ -652,6 +652,7 @@ class Handler(BaseHTTPRequestHandler):
                     chapter = STORE.chapter(chapter['id'])
                 response = {"chapter": chapter, "questions": STORE.questions(chapter["id"]),
                             "stats": STORE.chapter_stats(chapter["id"])}
+                response["chapter"]["learning_progress"] = STORE.learning_progress(chapter["id"])
             self._json(response)
             return
 
@@ -786,6 +787,18 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------ POST API
     def _api_post(self, path: str, body: dict) -> None:
+        if path == '/api/learning/read':
+            if not isinstance(body.get('checked'), bool):
+                self._error('checked必须为布尔值', 400)
+                return
+            try:
+                with LOCK, STORE._lock:
+                    result = STORE.mark_section_read(body.get('chapter_id',''), body.get('section_id',''), body['checked'])
+                self._json(result)
+            except ValueError as exc:
+                self._error(str(exc), 400)
+            return
+
         if path == "/api/references/download" or re.fullmatch(
                 r"/api/materials/[\w-]+/reference(?:/chapters)?", path):
             try:
@@ -982,7 +995,7 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/api/chapters/([\w-]+)/questions/generate", path)
         if m:
             try:
-                self._generate_questions(m.group(1), int(body.get("n") or 3), body.get('section_id'))
+                self._generate_questions(m.group(1), int(body.get("n") or 3), body.get('section_id'), body.get('provider', 'deepseek'))
             except ValueError as exc:
                 self._error(str(exc), 400)
             return
@@ -1585,7 +1598,9 @@ class Handler(BaseHTTPRequestHandler):
             STORE.set_reference(mid, enabled, toc)
             self._json({"material": STORE.material(mid)})
 
-    def _generate_questions(self, chapter_id: str, n: int, section_id=None) -> None:
+    def _generate_questions(self, chapter_id: str, n: int, section_id=None, provider='deepseek') -> None:
+        if provider not in ('deepseek', 'local-qwen'):
+            raise ValueError('不支持的出题方式')
         with LOCK, STORE._lock:
             owner = STORE._store
             chapter = owner.chapter(chapter_id)
@@ -1599,7 +1614,11 @@ class Handler(BaseHTTPRequestHandler):
             # Rotate the source section when no section is explicitly selected.
             section = min(sections, key=lambda u: sum(q.get('source', {}).get('section_id') == u['id'] for q in existing))
             cfg = owner.get_config()
-        generator = deepseek.DeepSeekClient(cfg.get('api_key', ''), cfg.get('model', deepseek.DEFAULT_MODEL))
+        if provider == 'local-qwen':
+            from local_qwen import LocalQwenClient
+            generator = LocalQwenClient()
+        else:
+            generator = deepseek.DeepSeekClient(cfg.get('api_key', ''), cfg.get('model', deepseek.DEFAULT_MODEL))
         items = lessons.practice(generator, chapter, section, existing, max(1, min(n, 5)))
         created = []
         with LOCK, STORE._lock:
@@ -2053,40 +2072,65 @@ class Handler(BaseHTTPRequestHandler):
                 "hits": [h.as_dict() for h in hits]}
 
     def _graph(self) -> dict:
-        """章节—资料关系图：节点是章节与资料，边是"标题/大纲词共现"。
+        """科目—章节—资料关系图：节点是科目、章节与资料，边是归属与关键词共现。
 
-        纯本地计算（分词后取交集），不调模型；节点数控制在上限内，保证前端画得动。
+        纯本地计算（分词后取交集），不调模型；节点过多时只裁掉未连线的资料，
+        始终保留科目与章节，保证“科目 → 章节 → 资料”的结构完整。
         """
         subjects = STORE.subjects()
         materials = STORE.list_materials()
         nodes: list[dict] = []
         links: list[dict] = []
         chapter_tokens: dict[str, set[str]] = {}
+        chapter_subject: dict[str, str] = {}
+        counts: dict[str, dict] = {}
         for sub in subjects:
+            sname = sub.get("name") or "未命名科目"
+            sid = f"sub:{sname}"
+            counts[sname] = {"chapters": len(sub["chapters"]), "materials": 0}
+            nodes.append({"id": sid, "label": sname, "type": "subject",
+                          "group": sname, "subject": sname, "weight": 6})
             for ch in sub["chapters"]:
                 cid = f"ch:{ch['id']}"
                 chapter_tokens[cid] = set(rag.tokenize(
                     f"{ch['title']} {ch.get('outline') or ''}"))
-                nodes.append({"id": cid, "label": ch["title"][:16], "type": "chapter",
-                              "group": sub["name"], "weight": 2})
+                chapter_subject[cid] = sname
+                nodes.append({"id": cid, "label": ch["title"], "type": "chapter",
+                              "group": sname, "subject": sname, "weight": 2})
+                links.append({"source": sid, "target": cid, "weight": 1, "kind": "subject"})
+        subject_names = {n["subject"] for n in nodes if n["type"] == "subject"}
         for m in materials:
             mid = f"mat:{m['id']}"
-            toks = set(rag.tokenize(m["title"]))
-            nodes.append({"id": mid, "label": m["title"][:18], "type": "material",
-                          "group": m.get("subject") or "未分类",
+            sname = m.get("subject") or "未分类"
+            counts.setdefault(sname, {"chapters": 0, "materials": 0})
+            counts[sname]["materials"] += 1
+            if sname not in subject_names:            # 未分类等游离资料也补一个科目节点
+                subject_names.add(sname)
+                nodes.append({"id": f"sub:{sname}", "label": sname, "type": "subject",
+                              "group": sname, "subject": sname, "weight": 5})
+            nodes.append({"id": mid, "label": m["title"], "type": "material",
+                          "group": sname, "subject": sname,
                           "weight": 1 + min(3, (m.get("bytes") or 0) // 8000)})
+            links.append({"source": f"sub:{sname}", "target": mid,
+                          "weight": 1, "kind": "subject"})
+            toks = set(rag.tokenize(m["title"]))
             best, best_n = "", 0
             for cid, ctoks in chapter_tokens.items():
+                if chapter_subject.get(cid) != sname:   # 只在同一科目内连边，避免跨科目长线
+                    continue
                 n = len(toks & ctoks)
                 if n > best_n:
                     best, best_n = cid, n
             if best and best_n >= 2:
-                links.append({"source": best, "target": mid, "weight": min(3, best_n)})
+                links.append({"source": best, "target": mid,
+                              "weight": min(3, best_n), "kind": "material"})
         linked = {x["source"] for x in links} | {x["target"] for x in links}
-        if len(nodes) > 70:                            # 节点太多，只留有连线的
-            nodes = [n for n in nodes if n["id"] in linked]
-        return {"nodes": nodes, "links": links,
-                "subjects": [s["name"] for s in subjects]}
+        if len(nodes) > 90:                            # 节点太多，只留下未连线的资料节点
+            keep = {n["id"] for n in nodes if n["type"] in ("subject", "chapter")} | linked
+            nodes = [n for n in nodes if n["id"] in keep]
+        subject_list = [{"name": name, "chapters": v["chapters"], "materials": v["materials"]}
+                        for name, v in counts.items()]
+        return {"nodes": nodes, "links": links, "subjects": subject_list}
 
     def _download(self, data: bytes, filename: str,
                   ctype: str = "application/vnd.openxmlformats-officedocument"

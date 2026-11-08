@@ -890,6 +890,28 @@ mark { background: #fff3b0; color: inherit; padding: 0 1px; border-radius: 3px; 
 
 /* ---------- 可视化：画布 ---------- */
 .viz-canvas { width: 100%; display: block; border-radius: 10px; background: #fbfcff; }
+.graph-legend {
+  display: flex; flex-wrap: wrap; gap: 7px 16px;
+  margin-top: 10px; font-size: 11.5px; color: var(--ink-2);
+}
+.graph-legend .gl-item { display: inline-flex; align-items: center; gap: 6px; line-height: 1.45; }
+.graph-legend .gl-item > i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.graph-legend .gl-item em { font-style: normal; color: var(--ink-3); font-size: 10.5px; }
+.graph-legend .gl-note > i { width: 13px; height: 7px; border-radius: 4px; background: #b9c6d8; }
+.graph-full {
+  position: fixed; inset: 0; z-index: 10050; background: #f5f7fb;
+  display: flex; flex-direction: column; gap: 10px; padding: 14px 22px 12px;
+}
+.graph-full.hidden { display: none; }
+.graph-full-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.graph-full-head h3 { margin: 0; font-size: 16px; }
+.graph-full canvas {
+  flex: 1; min-height: 0; width: 100%; display: block;
+  border-radius: 12px; background: #fff; border: 1px solid var(--line);
+}
+.graph-full .graph-legend { margin-top: 0; padding: 0 2px; }
+body.graph-lock { overflow: hidden; }
+
 .rh-bar { height: 5px; background: #eef2f8; border-radius: 3px; overflow: hidden; margin: 4px 0 6px; }
 .rh-bar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--brand-2), var(--brand)); }
 
@@ -1420,7 +1442,7 @@ html,body { font-family:"Avenir Next","PingFang SC","Microsoft YaHei UI",system-
 .question-toolbar .btn {font-size:12px;padding:5px 10px}
 .large-reading .section-body,.large-reading .detailed-answer,.large-reading .quiz-item,.large-reading .bubble,.large-reading #reader-body {font-size:17px}
 .wrap-code pre.code {white-space:pre-wrap;overflow-wrap:anywhere}
-.preferences-grid {grid-template-columns:repeat(2,minmax(0,1fr));max-width:1100px;gap:20px;align-items:stretch}
+.preferences-grid {grid-template-columns:minmax(0,1fr);max-width:720px;gap:16px;align-items:start}
 .preference-panel {margin:0;padding:22px 24px}
 .preference-panel h3 {margin:0;font-size:17px}
 .preference-caption {font-size:12px;color:#8493a8;margin:0 0 14px}
@@ -1458,3 +1480,29 @@ html,body { font-family:"Avenir Next","PingFang SC","Microsoft YaHei UI",system-
 /* 透明CS标志使用浅色底，确保深蓝笔画清晰。 */
 .gate-logo,.brand-logo,.landing-logo {background:#f4f8ff;box-shadow:0 5px 18px rgba(34,72,132,.10)}
 img.brand-mark {object-fit:contain;width:92%;height:92%}
+
+/* 生成方式与移动端设置：单列、整行触控。 */
+.provider-picker{border:0;padding:0;margin:20px 0;min-width:0;text-align:left;width:100%;max-width:680px}
+.home-hero .provider-picker,.landing-inner .provider-picker{margin:24px auto}
+.provider-picker legend{font-size:15px;font-weight:600;color:var(--text);margin-bottom:12px}
+.provider-options{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
+.provider-option{position:relative;cursor:pointer;min-width:0}
+.provider-option input{position:absolute;opacity:0;width:1px;height:1px}
+.provider-card{display:flex;align-items:center;gap:12px;padding:14px 16px;border:1px solid #dbe5f1;border-radius:14px;background:rgba(255,255,255,.8);transition:border-color .18s,background .18s,box-shadow .18s}
+.provider-card b{display:block;font-size:14px;color:#294e7b}.provider-card small{display:block;font-size:12px;color:#788da7;margin-top:4px}
+.provider-icon{display:grid;place-items:center;flex:0 0 36px;height:36px;border-radius:10px;background:#edf3fb;color:#527ebd;font-size:22px}
+.provider-check{margin-left:auto;color:#477cbf;opacity:0;font-weight:bold}
+.provider-option input:checked+.provider-card{background:#edf4ff;border-color:#739bd0;box-shadow:0 3px 12px #497dbd14}
+.provider-option input:checked+.provider-card .provider-check{opacity:1}
+.provider-option input:focus-visible+.provider-card{outline:2px solid #497dbd;outline-offset:3px}
+.provider-hint{font-size:12px;line-height:1.7;color:#8294a9;margin:10px 0 0}
+.question-timing{margin:12px 0;padding:12px 14px;border:1px solid #dce7f5;border-radius:10px;background:#f1f6fd;color:#4c6e99;font-size:13px;line-height:1.7;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+#question-count{min-height:42px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card,#fff);color:var(--text)}
+@media(max-width:600px){.preferences-grid{width:100%;min-width:0}.preference-panel{padding:16px;min-width:0}.preference-action{flex-wrap:wrap}.provider-card{padding:12px;gap:10px}.qa-box .card-actions{display:flex;flex-direction:column;align-items:stretch;gap:8px}#question-section,#question-count{width:100%;max-width:100%;min-height:44px}.qa-box .card-actions .btn{min-height:44px}}
+
+/* 出题方式选择器已移入卡片区，紧跟六张卡片之后。 */
+.home-primary{display:flex;flex:0 0 auto;min-height:100%;width:100%;position:relative;z-index:1}
+.home-hero .provider-picker{flex-shrink:0;position:relative;z-index:1;width:100%;max-width:860px;margin:26px auto 0}
+.home-hero .provider-options{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.home-hero .provider-card{padding:12px 14px}
+@media (max-width:800px){.home-hero .provider-picker{max-width:100%}.home-hero .provider-options{grid-template-columns:1fr}}

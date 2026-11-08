@@ -60,7 +60,7 @@
   <div class="gate-card">
     <div class="gate-logo"><img class="brand-mark" src="/assets/cs-logo-concept.png" alt="CS课程学习助手" /></div>
     <h1>计算机课程学习助手</h1>
-    <p class="gate-sub">本地运行 · 资料不出本机 · 模型走 DeepSeek API</p>
+    <p class="gate-sub">配置 DeepSeek，或先用本地 Qwen 出题</p>
     <label class="field">
       <span>DeepSeek API Key</span>
       <input id="gate-key" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false" />
@@ -73,6 +73,7 @@
       </select>
     </label>
     <button id="gate-submit" class="btn primary wide">进入</button>
+    <button id="gate-local" class="btn wide">暂不配置 API，使用本地 Qwen 出题</button>
     <p id="gate-msg" class="gate-msg"></p>
     <p class="gate-hint">Key 只保存在本机 <code>app/data/config.json</code>，不会上传到任何第三方。可在 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">platform.deepseek.com</a> 申请。</p>
   </div>
@@ -85,8 +86,9 @@
     <div class="landing-logo"><img class="brand-mark" src="/assets/cs-logo-concept.png" alt="CS课程学习助手" /></div>
     <h1>计算机课程学习助手</h1>
     <p class="landing-sub">组成原理 · 计算机网络 · 操作系统 · 数据结构</p>
+    <fieldset class="provider-picker"><legend>你想用哪种方式出题？</legend><div class="provider-options"><label class="provider-option"><input type="radio" class="question-provider" name="question-provider-0" value="deepseek"><span class="provider-card"><span class="provider-icon" aria-hidden="true">☁</span><span><b>DeepSeek API</b><small>云端生成 · 需要 API Key</small></span><span class="provider-check" aria-hidden="true">✓</span></span></label><label class="provider-option"><input type="radio" class="question-provider" name="question-provider-0" value="local-qwen"><span class="provider-card"><span class="provider-icon" aria-hidden="true">⌘</span><span><b>本地 Qwen 4B · 4-bit</b><small>本机生成 · 无需 API Key</small></span><span class="provider-check" aria-hidden="true">✓</span></span></label></div><p class="provider-hint">可随时切换。当前仅出题支持本地模型，聊天、讲解和详细解答仍用 DeepSeek。</p></fieldset>
     <button id="btn-start" class="btn-start">开始学习</button>
-    <p class="landing-tip">本地运行 · 资料不出本机</p>
+    <p class="landing-tip">自由选择云端或本地出题</p>
   </div>
 </div>
 
@@ -143,9 +145,10 @@
     <!-- ---------------- 主界面（今天学点什么） ---------------- -->
     <section id="view-home" class="view">
       <canvas id="home-particles" class="home-canvas"></canvas>
-      <div class="home-hero">
+      <div class="home-primary"><div class="home-hero">
         <span class="eyebrow home-kicker"><img class="brand-mark" src="/assets/cs-logo-concept.png" alt="CS课程学习助手" /> LEARNING SPACE <span> / </span> 你的学习空间</span>
         <h1 class="home-title">今天学点什么？</h1>
+        
         <p class="muted" id="home-sub">四个科目、27 份资料已就绪</p>
         <div class="home-actions">
           <button class="home-card" data-goto="profile"><span class="hc-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#person"></use></svg></span><b>个人信息</b><small>记录你的学习与成长</small></button>
@@ -155,6 +158,9 @@
           <button class="home-card" data-goto="study"><span class="hc-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#book"></use></svg></span><b>科目学习</b><small>按章节探索与练习</small></button>
           <button class="home-card" data-goto="materials"><span class="hc-icon"><svg class="line-icon" aria-hidden="true"><use href="/icons.svg#folder"></use></svg></span><b>资料管理</b><small>让资料井然有序</small></button>
         </div>
+        <fieldset class="provider-picker"><legend>你想用哪种方式出题？</legend><div class="provider-options"><label class="provider-option"><input type="radio" class="question-provider" name="question-provider-1" value="deepseek"><span class="provider-card"><span class="provider-icon" aria-hidden="true">☁</span><span><b>DeepSeek API</b><small>云端生成 · 需要 API Key</small></span><span class="provider-check" aria-hidden="true">✓</span></span></label><label class="provider-option"><input type="radio" class="question-provider" name="question-provider-1" value="local-qwen"><span class="provider-card"><span class="provider-icon" aria-hidden="true">⌘</span><span><b>本地 Qwen 4B · 4-bit</b><small>本机生成 · 无需 API Key</small></span><span class="provider-check" aria-hidden="true">✓</span></span></label></div><p class="provider-hint">可随时切换。当前仅出题支持本地模型，聊天、讲解和详细解答仍用 DeepSeek。</p></fieldset>
+        
+      </div>
       </div>
     </section>
 
@@ -224,7 +230,7 @@
 
     <section id="view-preferences" class="view">
       <header class="view-head"><div><span class="eyebrow">MAKE IT YOURS</span><h2>设置</h2><p class="muted">调整适合你的学习体验</p></div></header>
-<div class="preferences-grid"><section class="panel preference-panel"><div class="panel-head"><h3>视觉与动效</h3></div><p class="preference-caption">舒适的学习氛围</p><label class="preference-row"><span><b>动态效果总开关</b><small>关闭后停止背景和标语动画</small></span><input type="checkbox" role="switch" id="pref-motion" data-pref="motion" /></label><label class="preference-row"><span><b>鼠标互动</b><small>主界面粒子随指针轻轻散开</small></span><input type="checkbox" role="switch" id="pref-pointer" data-pref="pointer" /></label><label class="preference-row"><span><b>侧栏鲸鱼娘</b><small>显示半透明蓝色线稿</small></span><input type="checkbox" role="switch" id="pref-mascot" data-pref="mascot" /></label></section><section class="panel preference-panel"><div class="panel-head"><h3>阅读与学习</h3></div><p class="preference-caption">按你的习惯显示内容</p><label class="preference-row"><span><b>数学公式排版</b><small>分数、矩阵与上下标；重新打开内容后生效</small></span><input type="checkbox" role="switch" id="pref-math" data-pref="math" /></label><label class="preference-row"><span><b>放大学习正文</b><small>讲解、练习和回答使用较大字号</small></span><input type="checkbox" role="switch" id="pref-largeText" data-pref="largeText" /></label><label class="preference-row"><span><b>代码自动换行</b><small>长代码不再超出阅读区域</small></span><input type="checkbox" role="switch" id="pref-wrapCode" data-pref="wrapCode" /></label><label class="preference-row"><span><b>默认展开大纲</b><small>下次首次打开章节时展开全部小节</small></span><input type="checkbox" role="switch" id="pref-outlineExpanded" data-pref="outlineExpanded" /></label></section><section class="panel preference-panel"><div class="panel-head"><h3>操作与提示</h3></div><p class="preference-caption">减少误操作</p><label class="preference-row"><span><b>功能提示</b><small>悬停或聚焦时显示功能介绍</small></span><input type="checkbox" role="switch" id="pref-tooltips" data-pref="tooltips" /></label><label class="preference-row"><span><b>删题前确认</b><small>删除已有习题前再确认一次</small></span><input type="checkbox" role="switch" id="pref-confirmDelete" data-pref="confirmDelete" /></label></section><section class="panel preference-panel"><div class="panel-head"><h3>模型与偏好</h3></div><p class="preference-caption">偏好保存在当前浏览器，即改即生效</p><div class="preference-action"><div><b>模型连接</b><p class="muted small">管理 DeepSeek 模型与 API Key</p></div><button id="pref-api" class="btn">API 设置</button></div><div class="preference-action"><div><b>恢复界面默认值</b><p class="muted small">不改变账号、资料和模型配置</p></div><button id="pref-reset" class="btn">恢复默认</button></div></section></div>
+<div class="preferences-grid"><section class="panel preference-panel"><div class="panel-head"><h3>视觉与动效</h3></div><p class="preference-caption">舒适的学习氛围</p><label class="preference-row"><span><b>动态效果总开关</b><small>关闭后停止背景和标语动画</small></span><input type="checkbox" role="switch" id="pref-motion" data-pref="motion" /></label><label class="preference-row"><span><b>鼠标互动</b><small>主界面粒子随指针轻轻散开</small></span><input type="checkbox" role="switch" id="pref-pointer" data-pref="pointer" /></label><label class="preference-row"><span><b>侧栏鲸鱼娘</b><small>显示半透明蓝色线稿</small></span><input type="checkbox" role="switch" id="pref-mascot" data-pref="mascot" /></label></section><section class="panel preference-panel"><div class="panel-head"><h3>阅读与学习</h3></div><p class="preference-caption">按你的习惯显示内容</p><label class="preference-row"><span><b>数学公式排版</b><small>分数、矩阵与上下标；重新打开内容后生效</small></span><input type="checkbox" role="switch" id="pref-math" data-pref="math" /></label><label class="preference-row"><span><b>放大学习正文</b><small>讲解、练习和回答使用较大字号</small></span><input type="checkbox" role="switch" id="pref-largeText" data-pref="largeText" /></label><label class="preference-row"><span><b>代码自动换行</b><small>长代码不再超出阅读区域</small></span><input type="checkbox" role="switch" id="pref-wrapCode" data-pref="wrapCode" /></label><label class="preference-row"><span><b>默认展开大纲</b><small>下次首次打开章节时展开全部小节</small></span><input type="checkbox" role="switch" id="pref-outlineExpanded" data-pref="outlineExpanded" /></label></section><section class="panel preference-panel"><div class="panel-head"><h3>操作与提示</h3></div><p class="preference-caption">减少误操作</p><label class="preference-row"><span><b>功能提示</b><small>悬停或聚焦时显示功能介绍</small></span><input type="checkbox" role="switch" id="pref-tooltips" data-pref="tooltips" /></label><label class="preference-row"><span><b>删题前确认</b><small>删除已有习题前再确认一次</small></span><input type="checkbox" role="switch" id="pref-confirmDelete" data-pref="confirmDelete" /></label></section><section class="panel preference-panel"><div class="panel-head"><h3>模型与偏好</h3></div><fieldset class="provider-picker"><legend>你想用哪种方式出题？</legend><div class="provider-options"><label class="provider-option"><input type="radio" class="question-provider" name="question-provider-2" value="deepseek"><span class="provider-card"><span class="provider-icon" aria-hidden="true">☁</span><span><b>DeepSeek API</b><small>云端生成 · 需要 API Key</small></span><span class="provider-check" aria-hidden="true">✓</span></span></label><label class="provider-option"><input type="radio" class="question-provider" name="question-provider-2" value="local-qwen"><span class="provider-card"><span class="provider-icon" aria-hidden="true">⌘</span><span><b>本地 Qwen 4B · 4-bit</b><small>本机生成 · 无需 API Key</small></span><span class="provider-check" aria-hidden="true">✓</span></span></label></div><p class="provider-hint">可随时切换。当前仅出题支持本地模型，聊天、讲解和详细解答仍用 DeepSeek。</p></fieldset><p class="preference-caption">偏好保存在当前浏览器，即改即生效</p><div class="preference-action"><div><b>模型连接</b><p class="muted small">管理 DeepSeek 模型与 API Key</p></div><button id="pref-api" class="btn">API 设置</button></div><div class="preference-action"><div><b>恢复界面默认值</b><p class="muted small">不改变账号、资料和模型配置</p></div><button id="pref-reset" class="btn">恢复默认</button></div></section></div>
     </section>
 
     <!-- ---------------- AI 聊天 ---------------- -->
@@ -302,8 +308,12 @@
 
         <section class="panel dash-cell c-graph">
           <div class="panel-head"><h3>知识图谱</h3>
-            <span class="muted small">章节与资料的关键词关联</span></div>
-          <div class="panel-body"><canvas id="graph-canvas" class="viz-canvas"></canvas></div>
+            <span class="muted small">科目 → 章节 → 资料</span>
+            <button id="btn-graph-full" class="btn small" type="button" title="全屏查看知识图谱">全屏</button></div>
+          <div class="panel-body">
+            <canvas id="graph-canvas" class="viz-canvas"></canvas>
+            <div id="graph-legend" class="graph-legend"></div>
+          </div>
         </section>
 
         <section class="panel dash-cell c-mastery">
@@ -729,6 +739,16 @@
     </div>
   </div>
 </div>
+<div id="graph-full" class="graph-full hidden" role="dialog" aria-modal="true" aria-label="知识图谱全屏">
+  <div class="graph-full-head">
+    <h3>知识图谱</h3>
+    <span class="muted small">科目 → 章节 → 资料；同一颜色的节点属于同一科目，Esc 退出</span>
+    <span class="spacer"></span>
+    <button id="graph-full-close" class="btn small" type="button">退出全屏</button>
+  </div>
+  <canvas id="graph-full-canvas"></canvas>
+  <div id="graph-legend-full" class="graph-legend"></div>
+</div>
 <script src="/vendor/katex/katex.min.js"></script>
 <script src="/ui.js?v=20261108-no-gold"></script>
 <script src="/app.js"></script>
@@ -739,5 +759,6 @@
 <script src="/landing.js?v=20261108-no-gold"></script>
 <script src="/avatar-crop.js"></script>
 <script src="/keepalive.js"></script>
+<script src="/question-provider.js"></script>
 </body>
 </html>

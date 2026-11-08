@@ -101,7 +101,7 @@ def practice(generator, chapter, section, existing, count):
     for attempt in range(3):
         if len(result) >= count:
             break
-        if deepseek.MOCK:
+        if deepseek.MOCK and getattr(generator, 'model', '') != 'Qwen3-4B-Instruct-2507-local':
             candidates = [{'stem': f"[演示模式] {section['title']}：{angle}",
                            'options': ['A. 示例一', 'B. 示例二', 'C. 示例三', 'D. 示例四'],
                            'answer': 'B', 'explanation': '演示用占位解析，不代表正式题目。',

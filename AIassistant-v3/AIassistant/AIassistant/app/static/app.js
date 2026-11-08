@@ -25,6 +25,23 @@ function toast(msg, isError) {
 }
 
 async function api(path, options) {
+  if (path.endsWith('/questions/generate') && options?.method === 'POST') {
+    const body = JSON.parse(options.body || '{}');
+    body.provider = localStorage.getItem('csla-question-provider') === 'local-qwen' ? 'local-qwen' : 'deepseek';
+    options = {...options, body: JSON.stringify(body)};
+    if (body.provider === 'local-qwen') toast('本地模型正在加载并出题，可能需要数分钟，请保持页面打开');
+    const finishTiming = window.beginQuestionTiming?.(body.provider, Number(body.n) || 3);
+    try {
+      const result = await rawApi(path, options);
+      finishTiming?.(true, result.questions?.length || 0);
+      return result;
+    } catch (error) { finishTiming?.(false, 0); throw error; }
+  }
+
+  return rawApi(path, options);
+}
+
+async function rawApi(path, options) {
   const res = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } },
     options || {}));
   const text = await res.text();
@@ -263,7 +280,7 @@ async function boot() {
   if (st.auth && st.auth.enabled && !st.auth.logged_in) { showAuth(st.auth); return; }
   $('#auth').classList.add('hidden');
   renderAccount(st.auth);
-  if (!st.configured) {
+  if (!st.configured && localStorage.getItem('csla-question-provider') !== 'local-qwen') {
     $('#gate').classList.remove('hidden');
     $('#app').classList.add('hidden');
     if (st.mock) { $('#gate-msg').textContent = '当前服务以 --mock 离线演示模式启动，可直接进入。'; $('#gate-msg').classList.add('ok'); }
@@ -733,10 +750,11 @@ async function openChapter(chapter) {
     <div class="qa-box"><h4>章节练习</h4>
       <div class="card-actions">
         <label for="question-section">出题范围</label><select id="question-section" aria-label="出题小节"></select>
+        <label for="question-count">题目数量</label><select id="question-count" aria-label="生成题目数量"><option value="1">1 道（适合测试）</option><option value="2">2 道</option><option value="3" selected>3 道</option><option value="4">4 道</option><option value="5">5 道</option></select>
         <button id="btn-gen-q" class="btn">生成 3 道题</button>
         <button id="btn-reload-q" class="btn">刷新</button>
         <span id="chap-stats" class="muted small"></span>
-      </div><div id="quiz" class="quiz"></div>
+      </div><div id="question-timing" class="question-timing" role="status"></div><div id="quiz" class="quiz"></div>
     </div>`;
   $('#btn-study-back').classList.remove('hidden');
   $('#study-sub').textContent = chapter.title;
@@ -748,6 +766,8 @@ async function openChapter(chapter) {
   };
   $('#btn-tutor').onclick = () => generateTutor(chapter);
   $('#btn-chap-summary').onclick = () => generateChapterSummary(chapter.id);
+  $('#question-count').onchange = () => { $('#btn-gen-q').textContent = `生成 ${$('#question-count').value} 道题`; window.showQuestionTimingAverage?.(); };
+  window.showQuestionTimingAverage?.();
   $('#btn-gen-q').onclick = () => generateQuestions(chapter);
   $('#btn-reload-q').onclick = () => loadQuestions(chapter);
   try {
@@ -792,6 +812,7 @@ function renderLecture(chapter) {
     <details class="lesson-card" id="lesson-${esc(s.id)}" data-section="${esc(s.id)}" ${opened.has(s.id) ? 'open' : ''}>
       <summary><span class="lesson-number">${i+1}</span><strong>${esc(s.title)}</strong><span class="lesson-badge ${s.content ? 'saved' : ''}">${s.content ? '已保存到本地' : '待生成'}</span></summary>
       <div class="lesson-inner"><div class="card-actions"><button class="btn section-generate" data-section="${esc(s.id)}" ${chapter.generating ? 'disabled' : ''}>${s.content ? '重新生成本节' : '生成本节讲解'}</button><span class="muted small">${esc(s.generated_at || '')}</span></div>
+      <label class="small"><input type="checkbox" class="section-read" data-section="${esc(s.id)}" ${chapter.learning_progress?.read_ids?.includes(s.id) ? 'checked' : ''} ${!s.content || chapter.generating ? 'disabled' : ''}> 我已阅读并理解本节</label>
       <div class="section-body">${s.content ? md(s.content) : '<p class="muted">本节尚未生成。可以单独生成，也可以依次生成所有未完成小节。</p>'}</div>
       <div class="section-draft hidden" aria-live="polite"></div>
       <div class="lecture-citations">${s.content ? (sourceLinks(s.citations) || '<span class="muted small">补充讲解：暂无原资料引用。</span>') : ''}</div></div>
@@ -800,6 +821,13 @@ function renderLecture(chapter) {
   const archived = (meta.archived_sections || []).filter(s => s.content);
   if (archived.length) $('#tutor-body').insertAdjacentHTML('beforeend', `<details class="lesson-card"><summary>旧大纲讲义（${archived.length} 节，仅供对照）</summary><div class="lesson-inner">${archived.map(s => `<details><summary>${esc(s.title)}</summary>${md(s.content)}</details>`).join('')}</div></details>`);
   $('#tutor-body').querySelectorAll('.section-generate').forEach(b => b.onclick = () => generateTutor(chapter, {section_id: b.dataset.section}));
+  $('#tutor-body').querySelectorAll('.section-read').forEach(box => box.onchange = async () => {
+    box.disabled = true;
+    try {
+      chapter.learning_progress = await api('/api/learning/read', {method:'POST', body:JSON.stringify({chapter_id:chapter.id,section_id:box.dataset.section,checked:box.checked})});
+    } catch(e) {box.checked = !box.checked; toast(e.message, true);}
+    finally {box.disabled = false;}
+  });
   const saved = sections.filter(s => s.content);
   $('#question-section').innerHTML = '<option value="">自动选择已保存小节</option>' + saved.map(s => `<option value="${esc(s.id)}">${esc(s.title)}</option>`).join('');
   if (saved.some(s => s.id === selected)) $('#question-section').value = selected;
@@ -920,12 +948,15 @@ async function loadQuestions(chapter) {
 }
 
 async function generateQuestions(chapter) {
-  const btn = $('#btn-gen-q'); btn.disabled = true; btn.textContent = '按讲解出题中…';
+  const countSelect = $('#question-count');
+  const count = Math.max(1, Math.min(5, Number(countSelect.value) || 3));
+  countSelect.disabled = true;
+  const btn = $('#btn-gen-q'); btn.disabled = true; btn.textContent = `正在生成 ${count} 道题…`;
   try {
-    const d = await api(`/api/chapters/${chapter.id}/questions/generate`, {method:'POST', body:JSON.stringify({n:3, section_id:$('#question-section').value})});
+    const d = await api(`/api/chapters/${chapter.id}/questions/generate`, {method:'POST', body:JSON.stringify({n:count, section_id:$('#question-section').value})});
     await loadQuestions(chapter); toast(d.message || '题目已生成');
   } catch (err) { toast(err.message, true); }
-  finally { if (state.chapter === chapter) { btn.disabled = false; btn.textContent = '生成 3 道题'; } }
+  finally { if (state.chapter === chapter) { countSelect.disabled = false; btn.disabled = false; btn.textContent = `生成 ${countSelect.value} 道题`; } }
 }
 
 

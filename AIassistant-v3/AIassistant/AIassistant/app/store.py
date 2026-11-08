@@ -1116,6 +1116,47 @@ class Store:
         return {"days": count, "today": today.isoformat(), "total_days": len(days)}
 
     # ---------------------------------------------------------------- 掌握度
+    def reading_marks(self, chapter_id):
+        row = self.conn.execute("SELECT value FROM config WHERE key=?", ('reading:'+chapter_id,)).fetchone()
+        return json.loads(row[0]) if row else {}
+
+    def mark_section_read(self, chapter_id, section_id, checked):
+        chapter = self.chapter(chapter_id)
+        if not chapter:
+            raise ValueError('章节不存在')
+        meta = json.loads(chapter.get('lecture_meta') or '{}')
+        section = next((s for s in meta.get('sections', []) if s['id'] == section_id), None)
+        if not section or not section.get('content'):
+            raise ValueError('小节尚未生成，不能勾选')
+        marks = self.reading_marks(chapter_id)
+        if checked:
+            marks[section_id] = hashlib.sha256(section['content'].encode()).hexdigest()
+        else:
+            marks.pop(section_id, None)
+        self.set_config('reading:'+chapter_id, json.dumps(marks))
+        return self.learning_progress(chapter_id)
+
+    def learning_progress(self, chapter_id):
+        chapter = self.chapter(chapter_id)
+        sections = json.loads(chapter.get('lecture_meta') or '{}').get('sections', []) if chapter else []
+        marks = self.reading_marks(chapter_id)
+        read_ids = [s['id'] for s in sections if s.get('content') and marks.get(s['id']) == hashlib.sha256(s['content'].encode()).hexdigest()]
+        questions = self.questions(chapter_id)
+        answered = {r[0] for r in self.conn.execute('SELECT DISTINCT question_id FROM attempts WHERE chapter_id=?', (chapter_id,))}
+        done = sum(q['id'] in answered for q in questions)
+        wrong = self.conn.execute('SELECT question_id, MAX(created_at) AS last_wrong FROM attempts WHERE chapter_id=? AND correct=0 GROUP BY question_id', (chapter_id,)).fetchall()
+        reviewed = 0
+        for r in wrong:
+            review = self.conn.execute("SELECT 1 FROM reviews WHERE kind='mistake' AND ref_id=? AND reps>0 AND stage>0 AND last_at>=?", (r['question_id'],r['last_wrong'])).fetchone()
+            reviewed += bool(review)
+        full = bool(sections) and len(read_ids)==len(sections) and bool(questions) and done==len(questions) and reviewed==len(wrong)
+        # 阅读与作答各占一半；未完成错题复习时最高99%。空章节不得满分。
+        progress = 50*len(read_ids)/len(sections) if sections else 0
+        progress += 50*done/len(questions) if questions else 0
+        return dict(read_ids=read_ids, read=len(read_ids), sections=len(sections), answered=done,
+                    questions=len(questions), reviewed=reviewed, wrong=len(wrong),
+                    progress=100 if full else min(99,round(progress,1)), mastered=full)
+
     def mastery(self) -> dict:
         rows = self.conn.execute(
             "SELECT c.id, c.title, s.name AS subject, s.slug AS subject_slug, "
@@ -1136,12 +1177,14 @@ class Store:
                 status = "巩固中"
             else:
                 status = "已掌握"
+            progress = self.learning_progress(r["id"])
+            status = "已掌握" if progress["mastered"] else ("巩固中" if total or progress["read"] else "未练习")
             chapters.append({
                 "chapter_id": r["id"], "title": r["title"],
                 "label": f"{r['subject']} · {r['title']}",
                 "subject": r["subject"], "subject_slug": r["subject_slug"],
                 "attempts": total, "correct": right, "rate": rate,
-                "status": status, "last_at": r["last_at"] or "",
+                "status": status, "last_at": r["last_at"] or "", **progress,
             })
         subjects: dict[str, dict] = {}
         for c in chapters:

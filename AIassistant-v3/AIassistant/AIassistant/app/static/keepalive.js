@@ -18,7 +18,7 @@
 
   send();
   // 5 秒一次；页面切到后台时浏览器会降频，所以服务端对"后台"用了更长的空闲上限
-  const timer = setInterval(send, 5000);
+  let timer = setInterval(send, 5000);
   document.addEventListener('visibilitychange', send);
 
   const bye = () => {
@@ -26,5 +26,10 @@
     try { navigator.sendBeacon('/api/client-closed', 'bye'); } catch (e) { /* ignore */ }
   };
   window.addEventListener('pagehide', bye);
-  window.addEventListener('beforeunload', bye);
+  // pagehide 在确实离开页面后触发，避免用户取消关闭时误停服务。
+  window.addEventListener('pageshow', () => {
+    clearInterval(timer);
+    timer = setInterval(send, 5000);
+    send();
+  });
 })();
