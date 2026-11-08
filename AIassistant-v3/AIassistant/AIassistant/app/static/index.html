@@ -302,8 +302,12 @@
 
         <section class="panel dash-cell c-graph">
           <div class="panel-head"><h3>知识图谱</h3>
-            <span class="muted small">章节与资料的关键词关联</span></div>
-          <div class="panel-body"><canvas id="graph-canvas" class="viz-canvas"></canvas></div>
+            <span class="muted small">科目 → 章节 → 资料</span>
+            <button id="btn-graph-full" class="btn small" type="button" title="全屏查看知识图谱">全屏</button></div>
+          <div class="panel-body">
+            <canvas id="graph-canvas" class="viz-canvas"></canvas>
+            <div id="graph-legend" class="graph-legend"></div>
+          </div>
         </section>
 
         <section class="panel dash-cell c-mastery">
@@ -728,6 +732,16 @@
       <button id="ref-apply" class="btn primary" disabled>添加章节</button>
     </div>
   </div>
+</div>
+<div id="graph-full" class="graph-full hidden" role="dialog" aria-modal="true" aria-label="知识图谱全屏">
+  <div class="graph-full-head">
+    <h3>知识图谱</h3>
+    <span class="muted small">科目 → 章节 → 资料；同一颜色的节点属于同一科目，Esc 退出</span>
+    <span class="spacer"></span>
+    <button id="graph-full-close" class="btn small" type="button">退出全屏</button>
+  </div>
+  <canvas id="graph-full-canvas"></canvas>
+  <div id="graph-legend-full" class="graph-legend"></div>
 </div>
 <script src="/vendor/katex/katex.min.js"></script>
 <script src="/ui.js?v=20261108-no-gold"></script>

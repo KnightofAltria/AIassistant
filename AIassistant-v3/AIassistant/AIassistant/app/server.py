@@ -2053,40 +2053,65 @@ class Handler(BaseHTTPRequestHandler):
                 "hits": [h.as_dict() for h in hits]}
 
     def _graph(self) -> dict:
-        """章节—资料关系图：节点是章节与资料，边是"标题/大纲词共现"。
+        """科目—章节—资料关系图：节点是科目、章节与资料，边是归属与关键词共现。
 
-        纯本地计算（分词后取交集），不调模型；节点数控制在上限内，保证前端画得动。
+        纯本地计算（分词后取交集），不调模型；节点过多时只裁掉未连线的资料，
+        始终保留科目与章节，保证“科目 → 章节 → 资料”的结构完整。
         """
         subjects = STORE.subjects()
         materials = STORE.list_materials()
         nodes: list[dict] = []
         links: list[dict] = []
         chapter_tokens: dict[str, set[str]] = {}
+        chapter_subject: dict[str, str] = {}
+        counts: dict[str, dict] = {}
         for sub in subjects:
+            sname = sub.get("name") or "未命名科目"
+            sid = f"sub:{sname}"
+            counts[sname] = {"chapters": len(sub["chapters"]), "materials": 0}
+            nodes.append({"id": sid, "label": sname, "type": "subject",
+                          "group": sname, "subject": sname, "weight": 6})
             for ch in sub["chapters"]:
                 cid = f"ch:{ch['id']}"
                 chapter_tokens[cid] = set(rag.tokenize(
                     f"{ch['title']} {ch.get('outline') or ''}"))
-                nodes.append({"id": cid, "label": ch["title"][:16], "type": "chapter",
-                              "group": sub["name"], "weight": 2})
+                chapter_subject[cid] = sname
+                nodes.append({"id": cid, "label": ch["title"], "type": "chapter",
+                              "group": sname, "subject": sname, "weight": 2})
+                links.append({"source": sid, "target": cid, "weight": 1, "kind": "subject"})
+        subject_names = {n["subject"] for n in nodes if n["type"] == "subject"}
         for m in materials:
             mid = f"mat:{m['id']}"
-            toks = set(rag.tokenize(m["title"]))
-            nodes.append({"id": mid, "label": m["title"][:18], "type": "material",
-                          "group": m.get("subject") or "未分类",
+            sname = m.get("subject") or "未分类"
+            counts.setdefault(sname, {"chapters": 0, "materials": 0})
+            counts[sname]["materials"] += 1
+            if sname not in subject_names:            # 未分类等游离资料也补一个科目节点
+                subject_names.add(sname)
+                nodes.append({"id": f"sub:{sname}", "label": sname, "type": "subject",
+                              "group": sname, "subject": sname, "weight": 5})
+            nodes.append({"id": mid, "label": m["title"], "type": "material",
+                          "group": sname, "subject": sname,
                           "weight": 1 + min(3, (m.get("bytes") or 0) // 8000)})
+            links.append({"source": f"sub:{sname}", "target": mid,
+                          "weight": 1, "kind": "subject"})
+            toks = set(rag.tokenize(m["title"]))
             best, best_n = "", 0
             for cid, ctoks in chapter_tokens.items():
+                if chapter_subject.get(cid) != sname:   # 只在同一科目内连边，避免跨科目长线
+                    continue
                 n = len(toks & ctoks)
                 if n > best_n:
                     best, best_n = cid, n
             if best and best_n >= 2:
-                links.append({"source": best, "target": mid, "weight": min(3, best_n)})
+                links.append({"source": best, "target": mid,
+                              "weight": min(3, best_n), "kind": "material"})
         linked = {x["source"] for x in links} | {x["target"] for x in links}
-        if len(nodes) > 70:                            # 节点太多，只留有连线的
-            nodes = [n for n in nodes if n["id"] in linked]
-        return {"nodes": nodes, "links": links,
-                "subjects": [s["name"] for s in subjects]}
+        if len(nodes) > 90:                            # 节点太多，只留下未连线的资料节点
+            keep = {n["id"] for n in nodes if n["type"] in ("subject", "chapter")} | linked
+            nodes = [n for n in nodes if n["id"] in keep]
+        subject_list = [{"name": name, "chapters": v["chapters"], "materials": v["materials"]}
+                        for name, v in counts.items()]
+        return {"nodes": nodes, "links": links, "subjects": subject_list}
 
     def _download(self, data: bytes, filename: str,
                   ctype: str = "application/vnd.openxmlformats-officedocument"
