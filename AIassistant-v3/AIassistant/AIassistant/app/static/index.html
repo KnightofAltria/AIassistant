@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>计算机课程学习助手</title>
 <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
-<link rel="stylesheet" href="/style.css?v=20261108-gold-visible" />
+<link rel="stylesheet" href="/style.css?v=20261108-no-gold" />
 </head>
 <body>
 
@@ -223,7 +223,7 @@
 
     <section id="view-preferences" class="view">
       <header class="view-head"><div><span class="eyebrow">MAKE IT YOURS</span><h2>设置</h2><p class="muted">调整适合你的学习体验</p></div></header>
-<div class="preferences-grid"><section class="panel preference-panel"><div class="panel-head"><h3>视觉与动效</h3></div><p class="preference-caption">舒适的学习氛围</p><label class="preference-row"><span><b>动态效果总开关</b><small>关闭后停止背景和标语动画</small></span><input type="checkbox" role="switch" id="pref-motion" data-pref="motion" /></label><label class="preference-row"><span><b>鼠标互动</b><small>主界面粒子随指针轻轻散开</small></span><input type="checkbox" role="switch" id="pref-pointer" data-pref="pointer" /></label><label class="preference-row"><span><b>金色光纹</b><small>两侧金色细线缓缓闪现</small></span><input type="checkbox" role="switch" id="pref-gold" data-pref="gold" /></label><label class="preference-row"><span><b>侧栏鲸鱼娘</b><small>显示半透明蓝色线稿</small></span><input type="checkbox" role="switch" id="pref-mascot" data-pref="mascot" /></label></section><section class="panel preference-panel"><div class="panel-head"><h3>阅读与学习</h3></div><p class="preference-caption">按你的习惯显示内容</p><label class="preference-row"><span><b>数学公式排版</b><small>分数、矩阵与上下标；重新打开内容后生效</small></span><input type="checkbox" role="switch" id="pref-math" data-pref="math" /></label><label class="preference-row"><span><b>放大学习正文</b><small>讲解、练习和回答使用较大字号</small></span><input type="checkbox" role="switch" id="pref-largeText" data-pref="largeText" /></label><label class="preference-row"><span><b>代码自动换行</b><small>长代码不再超出阅读区域</small></span><input type="checkbox" role="switch" id="pref-wrapCode" data-pref="wrapCode" /></label><label class="preference-row"><span><b>默认展开大纲</b><small>下次首次打开章节时展开全部小节</small></span><input type="checkbox" role="switch" id="pref-outlineExpanded" data-pref="outlineExpanded" /></label></section><section class="panel preference-panel"><div class="panel-head"><h3>操作与提示</h3></div><p class="preference-caption">减少误操作</p><label class="preference-row"><span><b>功能提示</b><small>悬停或聚焦时显示功能介绍</small></span><input type="checkbox" role="switch" id="pref-tooltips" data-pref="tooltips" /></label><label class="preference-row"><span><b>删题前确认</b><small>删除已有习题前再确认一次</small></span><input type="checkbox" role="switch" id="pref-confirmDelete" data-pref="confirmDelete" /></label></section><section class="panel preference-panel"><div class="panel-head"><h3>模型与偏好</h3></div><p class="preference-caption">偏好保存在当前浏览器，即改即生效</p><div class="preference-action"><div><b>模型连接</b><p class="muted small">管理 DeepSeek 模型与 API Key</p></div><button id="pref-api" class="btn">API 设置</button></div><div class="preference-action"><div><b>恢复界面默认值</b><p class="muted small">不改变账号、资料和模型配置</p></div><button id="pref-reset" class="btn">恢复默认</button></div></section></div>
+<div class="preferences-grid"><section class="panel preference-panel"><div class="panel-head"><h3>视觉与动效</h3></div><p class="preference-caption">舒适的学习氛围</p><label class="preference-row"><span><b>动态效果总开关</b><small>关闭后停止背景和标语动画</small></span><input type="checkbox" role="switch" id="pref-motion" data-pref="motion" /></label><label class="preference-row"><span><b>鼠标互动</b><small>主界面粒子随指针轻轻散开</small></span><input type="checkbox" role="switch" id="pref-pointer" data-pref="pointer" /></label><label class="preference-row"><span><b>侧栏鲸鱼娘</b><small>显示半透明蓝色线稿</small></span><input type="checkbox" role="switch" id="pref-mascot" data-pref="mascot" /></label></section><section class="panel preference-panel"><div class="panel-head"><h3>阅读与学习</h3></div><p class="preference-caption">按你的习惯显示内容</p><label class="preference-row"><span><b>数学公式排版</b><small>分数、矩阵与上下标；重新打开内容后生效</small></span><input type="checkbox" role="switch" id="pref-math" data-pref="math" /></label><label class="preference-row"><span><b>放大学习正文</b><small>讲解、练习和回答使用较大字号</small></span><input type="checkbox" role="switch" id="pref-largeText" data-pref="largeText" /></label><label class="preference-row"><span><b>代码自动换行</b><small>长代码不再超出阅读区域</small></span><input type="checkbox" role="switch" id="pref-wrapCode" data-pref="wrapCode" /></label><label class="preference-row"><span><b>默认展开大纲</b><small>下次首次打开章节时展开全部小节</small></span><input type="checkbox" role="switch" id="pref-outlineExpanded" data-pref="outlineExpanded" /></label></section><section class="panel preference-panel"><div class="panel-head"><h3>操作与提示</h3></div><p class="preference-caption">减少误操作</p><label class="preference-row"><span><b>功能提示</b><small>悬停或聚焦时显示功能介绍</small></span><input type="checkbox" role="switch" id="pref-tooltips" data-pref="tooltips" /></label><label class="preference-row"><span><b>删题前确认</b><small>删除已有习题前再确认一次</small></span><input type="checkbox" role="switch" id="pref-confirmDelete" data-pref="confirmDelete" /></label></section><section class="panel preference-panel"><div class="panel-head"><h3>模型与偏好</h3></div><p class="preference-caption">偏好保存在当前浏览器，即改即生效</p><div class="preference-action"><div><b>模型连接</b><p class="muted small">管理 DeepSeek 模型与 API Key</p></div><button id="pref-api" class="btn">API 设置</button></div><div class="preference-action"><div><b>恢复界面默认值</b><p class="muted small">不改变账号、资料和模型配置</p></div><button id="pref-reset" class="btn">恢复默认</button></div></section></div>
     </section>
 
     <!-- ---------------- AI 聊天 ---------------- -->
@@ -729,13 +729,13 @@
   </div>
 </div>
 <script src="/vendor/katex/katex.min.js"></script>
-<script src="/ui.js"></script>
+<script src="/ui.js?v=20261108-no-gold"></script>
 <script src="/app.js"></script>
 <script src="/auth.js"></script>
 <script src="/extras.js"></script>
 <script src="/agent.js"></script>
 <script src="/references.js"></script>
-<script src="/landing.js?v=20261108-gold-visible"></script>
+<script src="/landing.js?v=20261108-no-gold"></script>
 <script src="/avatar-crop.js"></script>
 <script src="/keepalive.js"></script>
 </body>

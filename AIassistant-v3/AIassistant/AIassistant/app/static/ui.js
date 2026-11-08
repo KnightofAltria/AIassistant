@@ -1,7 +1,7 @@
 /* 轻量的视觉偏好与首页氛围；不读取或上传用户资料。 */
 (() => {
   const key = 'csla.interface.preferences.v1';
-  const defaults = {tooltips:true,motion:true,pointer:true,gold:true,mascot:true,math:true,
+  const defaults = {tooltips:true,motion:true,pointer:true,mascot:true,math:true,
     largeText:false,wrapCode:true,outlineExpanded:false,confirmDelete:true};
   let prefs = {...defaults};
   try { const saved = JSON.parse(localStorage.getItem(key) || '{}');
