@@ -1441,8 +1441,8 @@ html,body { font-family:"Avenir Next","PingFang SC","Microsoft YaHei UI",system-
 @keyframes title-reveal {from{mask-position:100% 0}to{mask-position:0 0}}
 @keyframes title-float {0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
 @media(prefers-reduced-motion:reduce){.home-title,.title-reveal,.title-text{animation:none!important;transform:none}}
-.sidebar-mascot {display:flex;align-items:center;justify-content:center;flex:1 1 120px;min-height:70px;max-height:210px;overflow:hidden;pointer-events:none;padding:10px 15px}
-.sidebar-mascot img {width:auto;max-width:170px;height:100%;max-height:190px;object-fit:contain;opacity:.65;user-select:none}
+.sidebar-mascot {display:flex;align-items:center;justify-content:center;position:relative;flex:1 1 0;min-height:90px;overflow:hidden;pointer-events:none;padding:10px 15px}
+.sidebar-mascot img {position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:80%;max-width:170px;height:auto;max-height:calc(100% - 16px);object-fit:contain;opacity:.65;user-select:none}
 .hide-mascot .sidebar-mascot,.sidebar.collapsed .sidebar-mascot {display:none}
 .crop-card {max-width:440px;width:calc(100vw - 28px);padding:24px}
 .crop-card h3 {margin-top:0}
@@ -1451,7 +1451,7 @@ html,body { font-family:"Avenir Next","PingFang SC","Microsoft YaHei UI",system-
 .crop-zoom {display:flex;align-items:center;gap:10px;font-size:13px}
 .crop-zoom input {flex:1;min-width:0;accent-color:#4b78b8}.crop-zoom output {min-width:40px;text-align:right}
 @media(max-width:900px){.sidebar-mascot{display:none}}
-@media(max-height:760px){.sidebar-mascot{max-height:100px;min-height:40px;padding:2px}.sidebar-mascot img{max-height:95px}}
+@media(max-height:760px){.sidebar-mascot{min-height:40px;padding:2px}.sidebar-mascot img{max-height:95px}}
 @media(max-width:800px){.preferences-grid{grid-template-columns:1fr}.preference-panel{padding:18px}.preference-row{min-height:68px}}
 @media(max-width:480px){.question-toolbar{align-items:flex-start;gap:6px}.question-toolbar .btn{padding:5px 7px}.crop-card{padding:18px}.crop-card .modal-actions{gap:6px;flex-wrap:wrap}}
 
