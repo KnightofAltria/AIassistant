@@ -49,6 +49,12 @@ echo       关掉最后一个页面约 25 秒后，服务会自动停止，本窗口随之退出。
 echo       想立刻停止：本窗口按 Ctrl+C，或直接关闭本窗口。
 echo ----------------------------------------------
 
+rem ---- 启动前清理旧进程：避免重复开出多份服务 ----
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /c:":8737" ^| findstr "LISTENING"') do taskkill /f /pid %%P >nul 2>nul
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /c:":8740" ^| findstr "LISTENING"') do taskkill /f /pid %%P >nul 2>nul
+timeout /t 1 /nobreak >nul
+echo 已清理旧的服务进程（如有）
+
 rem 本机账号认证服务（单独的最小化窗口；已在运行时新窗口会因端口占用自行退出）
 start "" /b %PY% "%~dp0auth_server\auth_server.py"
 
