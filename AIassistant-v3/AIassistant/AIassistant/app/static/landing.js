@@ -31,23 +31,45 @@ function createField(canvas, opts = {}) {
   function gold() {
     if (!window.UIPrefs.get('gold')) return;
     ctx.save();
-    for(let i=0;i<16;i++) {
-      const pulse=Math.pow((1+Math.sin(t*.85+i*1.9))/2,2);
-      const inset=18+(Math.floor(i/2)%4)*Math.min(32,w*.045);
-      const right=i%2, x=right?w-inset:inset;
-      const y=((Math.floor(i/2)*.137*h+t*(5+i%3))%(h+240))-100;
-      const length=100+(i%4)*42;
-      const gradient=ctx.createLinearGradient(x,y,x,y+length);
-      gradient.addColorStop(0,'rgba(208,166,74,0)');
-      gradient.addColorStop(.4,`rgba(175,119,26,${.85*pulse})`);
-      gradient.addColorStop(.65,`rgba(224,170,48,${pulse})`);
-      gradient.addColorStop(1,'rgba(232,198,115,0)');
-      ctx.strokeStyle=gradient;ctx.lineWidth=i%3===0?2.4:1.5;
-      ctx.shadowColor=`rgba(224,173,57,${.65*pulse})`;ctx.shadowBlur=8;
-      ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+(right?-12:12),y+length*.3);
-      ctx.lineTo(x+(right?-12:12),y+length);ctx.stroke();
-      ctx.fillStyle=`rgba(220,175,67,${pulse*.65})`;
-      ctx.fillRect(x+(right?-13:11),y+length*.65,3,3);
+    ctx.lineCap='round';ctx.lineJoin='round';
+    // 两侧丝带以连续曲线铺开；高光沿曲线游走，避免硬折线与方形闪点。
+    const band=Math.min(160,w*.18), segments=64;
+    for(let side=0;side<2;side++)for(let strand=0;strand<6;strand++){
+      const phase=side*2.1+strand*.32;
+      const breathe=.32+.68*Math.pow((1+Math.sin(t*.36+phase))/2,2);
+      const sheen=.22+.56*(1+Math.sin(t*.22+phase))/2;
+      function point(u){
+        const wave=Math.sin(u*Math.PI*2.1+t*.12+side*.8);
+        const fan=Math.sin(u*Math.PI);
+        const inset=band*(.23+.30*wave)+strand*band*.075*fan;
+        return {x:side?w-inset:inset,y:-h*.1+u*h*1.2};
+      }
+      const gradient=ctx.createLinearGradient(0,-h*.1,0,h*1.1);
+      gradient.addColorStop(0,'rgba(125,85,30,0)');
+      gradient.addColorStop(Math.max(.01,sheen-.2),`rgba(145,104,42,${.23*breathe})`);
+      gradient.addColorStop(sheen,`rgba(240,202,124,${.92*breathe})`);
+      gradient.addColorStop(Math.min(.99,sheen+.19),`rgba(170,120,42,${.45*breathe})`);
+      gradient.addColorStop(1,'rgba(191,149,65,0)');
+      const points=Array.from({length:segments+1},(_,i)=>point(i/segments));
+      // 薄纱般的金色带面，边缘收尖，中间渐宽。
+      ctx.fillStyle=gradient;ctx.globalAlpha=.13;
+      ctx.beginPath();
+      points.forEach((p,i)=>{const edge=Math.sin(i/segments*Math.PI)*4;
+        if(i===0)ctx.moveTo(p.x-edge,p.y);else ctx.lineTo(p.x-edge,p.y);});
+      for(let i=segments;i>=0;i--){const p=points[i];ctx.lineTo(p.x+Math.sin(i/segments*Math.PI)*4,p.y);}
+      ctx.closePath();ctx.fill();
+      ctx.beginPath();points.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));
+      ctx.strokeStyle=gradient;ctx.globalAlpha=.12;ctx.lineWidth=8;ctx.stroke();
+      ctx.globalAlpha=1;ctx.lineWidth=strand%3===0?1.5:.75;ctx.stroke();
+      // 小范围柔光随高光位置滑动，无直角、无硬边闪烁。
+      if(strand%2===0){
+        const p=point(sheen),r=7;
+        const glow=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,r);
+        glow.addColorStop(0,`rgba(255,227,169,${.8*breathe})`);
+        glow.addColorStop(.25,`rgba(224,175,85,${.4*breathe})`);
+        glow.addColorStop(1,'rgba(224,175,85,0)');
+        ctx.fillStyle=glow;ctx.fillRect(p.x-r,p.y-r,r*2,r*2);
+      }
     }
     ctx.restore();
   }
