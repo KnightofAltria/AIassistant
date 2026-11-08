@@ -1238,8 +1238,10 @@ html,body { font-family:"Avenir Next","PingFang SC","Microsoft YaHei UI",system-
 #view-home { background:radial-gradient(ellipse at 15% 15%,#e7f0fc 0,transparent 40%),linear-gradient(135deg,#f7f9fd,#edf4fb); }
 #view-home[data-ambience="1"] { background:radial-gradient(ellipse at 80% 18%,#e8eefc 0,transparent 45%),linear-gradient(135deg,#f9faff,#eef5f8); }
 #view-home[data-ambience="2"] { background:radial-gradient(ellipse at 18% 80%,#e5f3f2 0,transparent 42%),linear-gradient(135deg,#f8fafe,#eff4fb); }
-#view-home::before,#view-home::after { content:""; position:absolute; width:44vw; height:44vw; border:1px solid rgba(106,144,193,.16); border-radius:50%; top:-23vw; right:-7vw; pointer-events:none; }
-#view-home::after { width:36vw; height:36vw; top:auto; right:auto; bottom:-23vw; left:-9vw; }
+.home-bg { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:0; }
+.home-bg::before,.home-bg::after { content:""; position:absolute; width:44vw; height:44vw; border:1px solid rgba(106,144,193,.16); border-radius:50%; top:-23vw; right:-7vw; pointer-events:none; }
+.home-bg::after { width:36vw; height:36vw; top:auto; right:auto; bottom:-23vw; left:-9vw; }
+#view-home::before,#view-home::after { content:none; }
 #home-particles { opacity:.8; }
 .home-hero { width:min(1020px,100%); max-width:1020px; text-align:left; padding:clamp(36px,7vh,84px) 24px; }
 .home-kicker { margin-bottom:19px; }.home-kicker span { color:#bac9db; padding:0 5px; }
