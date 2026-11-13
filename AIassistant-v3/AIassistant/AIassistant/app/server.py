@@ -38,6 +38,7 @@ import auth_client
 import curriculum
 import lessons
 import deepseek
+import textbooks
 import extras
 import pdftext
 import prompts
@@ -647,7 +648,12 @@ class Handler(BaseHTTPRequestHandler):
                     self._error("章节不存在", 404)
                     return
                 meta = lessons.plan(chapter)
+                publish = False
                 if 'sections' not in json.loads(chapter.get('lecture_meta') or '{}'):
+                    publish = True
+                if lessons.backfill_citations(STORE, chapter, meta):
+                    publish = True
+                if publish:
                     lessons.publish(STORE, chapter['id'], meta)
                     chapter = STORE.chapter(chapter['id'])
                 response = {"chapter": chapter, "questions": STORE.questions(chapter["id"]),
@@ -870,7 +876,28 @@ class Handler(BaseHTTPRequestHandler):
                     folder_id=folder["id"], source_url=url, ext=".md")
                 STORE.replace_chunks(material["id"], rag.chunk_text(text))
                 saved.append(url)
-            self._json({"subject": subject, "folder": folder, "videos": len(saved)}, 201)
+            # 新科目：从 Open Textbook Library 自动下载开放教材（网络在数据库锁外）。
+            owner_store = STORE._store
+            refs, ref_query, ref_error = [], "", ""
+            if body.get("fetch_references"):
+                try:
+                    cfg = STORE.get_config()
+                    generator = deepseek.DeepSeekClient(
+                        cfg.get("api_key", ""), cfg.get("model", deepseek.DEFAULT_MODEL))
+                    ref_query = textbooks.english_query(name, generator)
+                    papers = textbooks.prefetch(ref_query, limit=1) if ref_query else []
+                    if papers:
+                        with LOCK, STORE._lock:
+                            if STORE._store is owner_store:
+                                refs = textbooks.import_books(STORE, papers, name, folder)
+                    else:
+                        ref_error = ("Open Textbook Library 没有返回可下载的教材" if ref_query
+                                     else "无法把科目名转成英文检索词")
+                except Exception as exc:               # noqa: BLE001
+                    ref_error = f"参考文献下载失败：{str(exc)[:140]}"
+            self._json({"subject": subject, "folder": folder, "videos": len(saved),
+                        "references": refs, "reference_query": ref_query,
+                        "reference_error": ref_error}, 201)
             return
 
         m = re.fullmatch(r"/api/subjects/([\w-]+)/chapters", path)
@@ -1523,8 +1550,13 @@ class Handler(BaseHTTPRequestHandler):
                 verification = rag.validate_citations(section, allowed)
                 if not verification['passed']:
                     raise ValueError('引用校验失败，未替换本节')
+                used = [c for c in allowed if c['citation_id'] in verification['used']]
+                if not used and allowed:
+                    # 模型正文没写编号，但本节确实基于这些原文：标为“本节参考”，
+                    # 不丢出处，也不冒充模型逐句引用。
+                    used = [dict(c, auto=True) for c in allowed[:2]]
                 unit.update(content=section, revision=lessons.uid(),
-                            citations=[c for c in allowed if c['citation_id'] in verification['used']],
+                            citations=used,
                             generated_at=time.strftime('%Y-%m-%d %H:%M:%S'))
                 meta.update(mock=deepseek.MOCK, model=generator.model)
                 save()  # Each validated section is durable before notifying the browser.

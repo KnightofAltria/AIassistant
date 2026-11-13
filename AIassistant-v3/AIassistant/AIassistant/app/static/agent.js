@@ -89,6 +89,7 @@ document.querySelectorAll('[data-agent-preset]').forEach((btn) => {
 function openCreateSubject() {
   $('#subj-name').value = '';
   $('#subj-videos').value = '';
+  if ($('#subj-refs')) $('#subj-refs').checked = true;
   $('#subj-msg').textContent = '';
   $('#modal-subject').classList.remove('hidden');
   setTimeout(() => $('#subj-name').focus(), 60);
@@ -97,16 +98,22 @@ function openCreateSubject() {
 async function submitCreateSubject() {
   const name = $('#subj-name').value.trim();
   const videos = $('#subj-videos').value.split(/\n+/).map((v) => v.trim()).filter(Boolean);
+  const fetchRefs = !!$('#subj-refs')?.checked;
   if (!name) { $('#subj-msg').textContent = '请填写科目名称'; return; }
   const btn = $('#subj-ok');
   btn.disabled = true; btn.textContent = '创建中…';
-  $('#subj-msg').textContent = '正在创建科目、整理资料文件夹…';
+  $('#subj-msg').textContent = fetchRefs
+    ? '正在创建科目、从开放教材库下载教材…（约 10–40 秒，视网络而定）'
+    : '正在创建科目、整理资料文件夹…';
   try {
     const res = await api('/api/subjects', {
-      method: 'POST', body: JSON.stringify({ name, videos }),
+      method: 'POST', body: JSON.stringify({ name, videos, fetch_references: fetchRefs }),
     });
     $('#modal-subject').classList.add('hidden');
-    toast(`科目「${name}」已创建${res.videos ? `，已收录 ${res.videos} 个视频链接` : ''}，正在生成章节…`);
+    const got = (res.references || []).filter((r) => r.ok && !r.skipped).length;
+    const refNote = got ? `，已下载 ${got} 本开放教材`
+      : (res.reference_error ? `（${res.reference_error}）` : '');
+    toast(`科目「${name}」已创建${refNote}${res.videos ? `，已收录 ${res.videos} 个视频链接` : ''}，正在生成章节…`);
     // 关掉弹窗后交给 AI 生成章节与例题
     await sendAgent('study',
       `我刚创建了科目「${name}」（资料文件夹也已建好）。请调用 list_subjects 确认，`
