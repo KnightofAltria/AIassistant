@@ -312,6 +312,8 @@ def evidence(store, chapter: dict, query: str, unit_index: int) -> tuple[str, li
     # 中文标题通常是连续长句，直接整句匹配会漏掉仅措辞不同的相关内容。
     # 使用项目已有的中文二字词和英文词；单字过于宽泛，不作为独立证据。
     terms = {t for t in rag.tokenize(query.lower()) if len(t) >= 2 and not t.isdigit()}
+    topic = re.split(r"[：:，,、与和]", query.lower(), maxsplit=1)[0]
+    topic_terms = {t for t in rag.tokenize(topic) if len(t) >= 2 and not t.isdigit()}
     snippets, citations, books = [], [], []
     for mat in materials:
         local_terms = set(terms)
@@ -349,13 +351,22 @@ def evidence(store, chapter: dict, query: str, unit_index: int) -> tuple[str, li
         for page, content in candidates:
             # 500字符窗口防止长页把真正相关内容挤出上下文。
             content = rag.strip_meta(content)
-            for start in range(0, len(content), 500):
-                snippet = content[start:start + 1000]
+            # 以原文标题划分专题，避免相邻概念被同一个滑动窗口混在一起。
+            passages = re.split(r"(?m)(?=^#{1,6}[ \t]+)", content)
+            windows = []
+            for passage in passages:
+                heading = passage.split('\n', 1)[0] if passage.startswith('#') else ''
+                for start in range(0, len(passage), 500):
+                    windows.append((heading, passage[start:start + 1000]))
+            for heading, snippet in windows:
                 matched = {t for t in local_terms if t in snippet.lower()}
                 # 多词查询至少命中两个不同词，避免凭一个常见字词误判相关。
-                score = len(matched)
+                heading_hits = {t for t in local_terms if t in heading.lower()}
+                score = len(matched) + 3 * len(heading_hits)
                 minimum = 2 if len(local_terms) >= 3 and not section else 1
-                if score >= minimum:
+                topic_hits = sum(t in snippet.lower() for t in topic_terms)
+                topic_ok = section or not topic_terms or topic_hits >= min(2, len(topic_terms))
+                if len(matched) >= minimum and topic_ok:
                     ranked.append((score, page, snippet))
         if ranked:
             books.append((mat["id"] == bound, max(r[0] for r in ranked), mat, ranked))

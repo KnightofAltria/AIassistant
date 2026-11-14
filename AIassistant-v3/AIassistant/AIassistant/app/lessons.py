@@ -83,18 +83,26 @@ def new_outline(generator, chapter, meta, evidence):
 
 
 def backfill_citations(store, chapter, meta):
-    """给已保存但没有出处的小节补上参考来源（只补空，不改已有引用）。"""
+    """补充缺失来源并清理旧的未命中摘录；保留已有正常引用。"""
     changed = False
     for index, section in enumerate(meta.get('sections', [])):
-        if not section.get('content') or section.get('citations'):
+        if not section.get('content'):
+            continue
+        previous = section.get('citations') or []
+        kept = [c for c in previous if not c.get('fallback')]
+        if kept:
+            if kept != previous:
+                section['citations'] = kept
+                changed = True
             continue
         try:
             _, allowed = references.evidence(store, chapter,
                                              section.get('query') or section['title'], index)
         except Exception:
             allowed = []
-        if allowed:
-            section['citations'] = [dict(c, auto=True) for c in allowed[:2]]
+        replacement = [dict(c, auto=True, backfilled=True) for c in allowed[:2]]
+        if replacement != previous:
+            section['citations'] = replacement
             changed = True
     return changed
 

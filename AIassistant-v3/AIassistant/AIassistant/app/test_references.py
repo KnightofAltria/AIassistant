@@ -16,6 +16,7 @@ from unittest.mock import patch
 import curriculum
 import deepseek
 import references
+import lessons
 import seed
 import server
 from store import Store
@@ -192,6 +193,38 @@ class ReferenceTests(unittest.TestCase):
                                       folder_id=self.folder["id"])
         self.store.set_reference(mat["id"], True, [])
         self.assertEqual(references.evidence(self.store, self.chapter, "虚拟内存分页机制", 0), ("", []))
+
+    def test_backfill_cleans_legacy_fallback_and_marks_provenance(self):
+        legacy = {"citation_id": "c1", "fallback": True}
+        good = {"citation_id": "c2", "material_id": "valid"}
+        meta = {"sections": [{"title": "旧小节", "content": "旧讲解", "citations": [legacy]}]}
+        with patch.object(references, "evidence", return_value=("", [good])):
+            self.assertTrue(lessons.backfill_citations(self.store, self.chapter, meta))
+        self.assertTrue(meta['sections'][0]['citations'][0]['backfilled'])
+        self.assertEqual(meta['sections'][0]['content'], '旧讲解')
+        meta['sections'][0]['citations'] = [legacy, good]
+        with patch.object(references, "evidence") as lookup:
+            self.assertTrue(lessons.backfill_citations(self.store, self.chapter, meta))
+            lookup.assert_not_called()
+        self.assertEqual(meta['sections'][0]['citations'], [good])
+        meta['sections'][0]['citations'] = [legacy]
+        with patch.object(references, "evidence", return_value=("", [])):
+            self.assertTrue(lessons.backfill_citations(self.store, self.chapter, meta))
+        self.assertEqual(meta['sections'][0]['citations'], [])
+
+    def test_topic_heading_outranks_incidental_keyword_mentions(self):
+        mat = self.store.add_material('专题', '## 除法\n计算结果的表示范围。\n'
+                                      '## 整数进制转换\n除基取余，倒序排列。', folder_id=self.folder['id'])
+        self.store.set_reference(mat['id'], True, [])
+        _, cites = references.evidence(self.store, self.chapter, '整数进制转换与表示范围', 0)
+        self.assertIn('整数进制转换', cites[0]['quote'])
+        self.assertNotIn('## 除法', cites[0]['quote'])
+
+    def test_secondary_terms_cannot_replace_main_topic(self):
+        mat = self.store.add_material('浮点数', '### 解码与数值范围\n浮点数的表示范围由指数和尾数决定。',
+                                      folder_id=self.folder['id'])
+        self.store.set_reference(mat['id'], True, [])
+        self.assertEqual(references.evidence(self.store, self.chapter, '整数进制转换与表示范围', 0), ('', []))
 
     @staticmethod
     def full_section():
