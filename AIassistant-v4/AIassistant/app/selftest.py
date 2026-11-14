@@ -1,0 +1,436 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""端到端自检：对着已经启动的服务跑一遍全部主链路。
+
+    # 终端 1
+    python server.py --mock
+    # 终端 2
+    python selftest.py
+    python selftest.py --base http://127.0.0.1:8737
+
+不依赖第三方库。--mock 模式下不需要真实 API Key，用来验证
+「界面后端链路是否通」，不代表模型质量。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+PASS, FAIL = "PASS", "FAIL"
+results: list[tuple[str, str, str]] = []
+
+
+def call(base: str, path: str, method: str = "GET", payload: dict | None = None,
+         timeout: float = 60.0) -> tuple[int, dict]:
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(base + path, data=data, method=method)
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, json.loads(resp.read().decode("utf-8") or "{}")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", "replace")
+        try:
+            return exc.code, json.loads(body)
+        except json.JSONDecodeError:
+            return exc.code, {"raw": body}
+
+
+def sse(base: str, path: str, payload: dict, timeout: float = 120.0) -> list[tuple[str, dict]]:
+    req = urllib.request.Request(base + path, data=json.dumps(payload).encode("utf-8"), method="POST")
+    req.add_header("Content-Type", "application/json")
+    events: list[tuple[str, dict]] = []
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        buf = ""
+        for raw in resp:
+            buf += raw.decode("utf-8", "replace")
+            while "\n\n" in buf:
+                block, buf = buf.split("\n\n", 1)
+                name, data = "message", []
+                for line in block.split("\n"):
+                    if line.startswith("event:"):
+                        name = line[6:].strip()
+                    elif line.startswith("data:"):
+                        data.append(line[5:].strip())
+                if data:
+                    try:
+                        events.append((name, json.loads("\n".join(data))))
+                    except json.JSONDecodeError:
+                        events.append((name, {"raw": "\n".join(data)}))
+    return events
+
+
+def check(name: str, ok: bool, detail: str = "") -> None:
+    results.append((name, PASS if ok else FAIL, detail))
+    print(f"[{PASS if ok else FAIL}] {name} {detail}")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--base", default="http://127.0.0.1:8737")
+    args = ap.parse_args()
+    base = args.base.rstrip("/")
+
+    import time                                   # 仅用于记录自检起始时刻
+    started = time.strftime("%Y-%m-%d %H:%M:%S")
+    activity_before = _activity_today()
+
+    # 1. 状态
+    status, st = call(base, "/api/state")
+    check("GET /api/state", status == 200 and "configured" in st,
+          f"configured={st.get('configured')} mock={st.get('mock')}")
+
+    # 2. 首页与静态资源
+    for asset in ("/", "/style.css", "/app.js", "/agent.js", "/landing.js", "/keepalive.js"):
+        req = urllib.request.Request(base + asset)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                body = resp.read()
+                check(f"GET {asset}", resp.status == 200 and len(body) > 100,
+                      f"{len(body)} bytes")
+        except Exception as exc:                       # noqa: BLE001
+            check(f"GET {asset}", False, str(exc))
+
+    # 2.5 前端脚本完整性：曾经因为打补丁把 app.js 写重复，导致语法错误、整页空白。
+    #     这里检查关键声明只出现一次，能挡住"重复粘贴"这类事故。
+    with urllib.request.urlopen(base + "/app.js", timeout=15) as resp:
+        js = resp.read().decode("utf-8", "replace")
+    for extra in ("/agent.js", "/landing.js"):
+        with urllib.request.urlopen(base + extra, timeout=15) as resp:
+            body = resp.read().decode("utf-8", "replace")
+        check(f"{extra} 可加载且非空", len(body) > 500, f"{len(body)} 字节")
+    dup = {name: js.count(name) for name in ("async function boot(", "const chatInput",
+                                             "function renderMaterialList", "async function loadMaterials")
+           if js.count(name) != 1}
+    check("app.js 无重复声明", not dup, "全部唯一" if not dup else f"重复：{dup}")
+    check("app.js 尾部完整", js.rstrip().endswith("});"),
+          js.rstrip()[-20:].replace("\n", " "))
+
+    # 3. 科目树
+    status, subs = call(base, "/api/subjects")
+    subjects = subs.get("subjects", [])
+    check("GET /api/subjects", status == 200 and len(subjects) >= 4,
+          f"{len(subjects)} 个科目，共 {sum(len(s['chapters']) for s in subjects)} 章")
+
+    # 3.4 浏览器心跳（配合 --exit-on-close 自动停服）
+    status, res = call(base, "/api/heartbeat", "POST", {"visible": True})
+    check("POST /api/heartbeat", status == 200 and res.get("ok") is True, "")
+
+    # 3.5 工具化 AI：资料与科目的自然语言指令接口
+    try:
+        events = sse(base, "/api/agent/stream",
+                     {"scope": "materials", "text": "看看有哪些文件夹"}, timeout=90)
+        names = [e[0] for e in events]
+        ok = ("completed" in names) or ("failed" in names)
+        check("POST /api/agent/stream", ok, " -> ".join(names[:6]))
+    except Exception as exc:                            # noqa: BLE001
+        check("POST /api/agent/stream", False, str(exc)[:80])
+
+    # 3.6 科目与章节增删改（用完即删，保持库干净）
+    status, res = call(base, "/api/subjects", "POST", {"name": "自检临时科目"})
+    sid = (res.get("subject") or {}).get("id", "")
+    check("POST /api/subjects", status == 201 and bool(sid), sid[:8])
+    if sid:
+        status, res = call(base, f"/api/subjects/{sid}/chapters", "POST",
+                           {"title": "自检临时章节", "outline": "- 要点"})
+        cid = (res.get("chapter") or {}).get("id", "")
+        check("POST /api/subjects/{id}/chapters", status == 201 and bool(cid), cid[:8])
+        if cid:
+            status, _ = call(base, f"/api/chapters/{cid}", "PATCH",
+                             {"title": "自检临时章节改"})
+            check("PATCH /api/chapters/{id}", status == 200, "")
+            status, _ = call(base, f"/api/chapters/{cid}", "DELETE")
+            check("DELETE /api/chapters/{id}", status == 200, "")
+        status, _ = call(base, f"/api/subjects/{sid}", "DELETE")
+        check("DELETE /api/subjects/{id}", status == 200, "")
+
+    # 3.7 内置科目保护
+    status, subs = call(base, "/api/subjects")
+    builtin = [x for x in subs.get("subjects", []) if x.get("is_builtin")]
+    if builtin:
+        status, err = call(base, f"/api/subjects/{builtin[0]['id']}", "DELETE")
+        check("内置科目不可删除", status == 403, err.get("error", {}).get("message", ""))
+
+    # 3.8 推荐学习视频（mock 下返回空列表也算通过，只验证接口通）
+    if subjects and subjects[0]["chapters"]:
+        cid0 = subjects[0]["chapters"][0]["id"]
+        status, res = call(base, f"/api/chapters/{cid0}/videos", "POST", {})
+        check("POST /api/chapters/{id}/videos", status == 200 and "videos" in res,
+              f"{len(res.get('videos', []))} 条推荐")
+
+    # 3.9 总结按会话过滤
+    status, res = call(base, "/api/summaries")
+    all_n = len(res.get("summaries", []))
+    status, convs2 = call(base, "/api/conversations")
+    if convs2.get("conversations"):
+        cid2 = convs2["conversations"][0]["id"]
+        status, res = call(base, f"/api/summaries?conversation={cid2}")
+        check("GET /api/summaries?conversation=", status == 200,
+              f"全部 {all_n} 条，该会话 {len(res.get('summaries', []))} 条")
+
+    # 4. 导入资料
+    material_text = (
+        "TCP 建立连接需要三次握手。第一次客户端发送 SYN；第二次服务端回复 SYN+ACK；"
+        "第三次客户端发送 ACK，连接建立。三次握手是为了防止已失效的连接请求报文"
+        "突然又传送到服务端，造成资源浪费。\n\n"
+        "TCP 断开连接需要四次挥手：FIN、ACK、FIN、ACK。因为 TCP 是全双工的，"
+        "两个方向需要分别关闭。\n\n"
+        "UDP 是无连接协议，不保证顺序与可靠，适合实时音视频与 DNS 查询。\n\n"
+        "操作系统中的进程是资源分配的基本单位，线程是调度的基本单位。线程共享进程的"
+        "地址空间与文件描述符，但每个线程有独立的栈和寄存器上下文。"
+    )
+    status, res = call(base, "/api/materials", "POST", {
+        "title": "自检用资料 · 网络与操作系统",
+        "text": material_text,
+        "subject": "计算机网络",
+    })
+    material_id = (res.get("material") or {}).get("id", "")
+    chunks = res.get("chunks", 0)
+    check("POST /api/materials", status == 201 and chunks > 0,
+          f"切分 {chunks} 片，id={material_id[:8]}")
+
+    # 5. 检索
+    status, rag = call(base, "/api/rag/search?q=" + urllib.parse.quote("为什么三次握手"))
+    hits = rag.get("hits", [])
+    top_is_relevant = bool(hits) and "三次握手" in (hits[0].get("snippet") or "")
+    check("GET /api/rag/search", status == 200 and top_is_relevant,
+          f"命中 {len(hits)} 条，首位相关={top_is_relevant}")
+
+    # 6. 聊天流（SSE）
+    events = sse(base, "/api/chat/stream", {"text": "TCP 为什么需要三次握手？"})
+    names = [e[0] for e in events]
+    delta_text = "".join(d.get("text", "") for n, d in events if n == "delta")
+    cite_event = next((d for n, d in events if n == "citations"), {})
+    check("POST /api/chat/stream", "completed" in names and bool(delta_text),
+          f"{len(events)} 个事件，文本 {len(delta_text)} 字")
+    check("SSE 引用校验事件", "citations" in names,
+          f"verification={cite_event.get('verification')}")
+    # 顺序断言按"首 status、末 completed、中间必须有 retrieval 与 delta"来判，
+    # 不再写死前两个事件名——新增 retrieval 事件时这里不会误报。
+    order_ok = (names[:1] == ["status"] and names[-1] == "completed"
+                and "retrieval" in names and "delta" in names)
+    check("SSE 事件顺序", order_ok, " -> ".join(names))
+
+    # 7. 会话与消息落库
+    status, convs = call(base, "/api/conversations")
+    conv_list = convs.get("conversations", [])
+    check("GET /api/conversations", status == 200 and len(conv_list) >= 1,
+          f"{len(conv_list)} 个会话")
+    if conv_list:
+        status, msgs = call(base, f"/api/conversations/{conv_list[0]['id']}/messages")
+        check("GET /api/conversations/{id}/messages", status == 200 and len(msgs.get("messages", [])) >= 2,
+              f"{len(msgs.get('messages', []))} 条消息")
+
+        # 8. 生成总结
+        status, summ = call(base, "/api/summaries/generate", "POST",
+                            {"conversation_id": conv_list[0]["id"]})
+        check("POST /api/summaries/generate", status == 201 and bool(summ.get("summary")),
+              f"总结长度 {len((summ.get('summary') or {}).get('content', ''))}")
+
+    # 9. 章节 + 出题 + 判分
+    if subjects:
+        chapter = subjects[0]["chapters"][0]
+        status, detail = call(base, f"/api/chapters/{chapter['id']}")
+        check("GET /api/chapters/{id}", status == 200 and "outline" in detail.get("chapter", {}),
+              chapter["title"])
+
+        status, qres = call(base, f"/api/chapters/{chapter['id']}/questions/generate",
+                            "POST", {"n": 2})
+        questions = qres.get("questions", [])
+        check("POST /questions/generate", status == 201 and len(questions) >= 1,
+              f"生成 {len(questions)} 题")
+
+        if questions:
+            q = questions[0]
+            status, attempt = call(base, "/api/attempts", "POST", {
+                "chapter_id": chapter["id"], "question_id": q["id"], "answer": "Z",
+            })
+            check("POST /api/attempts", status == 200 and "correct" in attempt,
+                  f"correct={attempt.get('correct')}")
+            # 自检出的题用完就删，别留在用户题库里
+            for qq in questions:
+                call(base, f"/api/questions/{qq['id']}", "DELETE")
+
+        # 章节讲解（SSE）
+        events = sse(base, f"/api/chapters/{chapter['id']}/tutor", {})
+        names = [e[0] for e in events]
+        text = "".join(d.get("text", "") for n, d in events if n == "delta")
+        check("POST /chapters/{id}/tutor", "completed" in names and bool(text),
+              f"{len(text)} 字")
+
+    # 10. 易错本
+    status, mistakes = call(base, "/api/mistakes")
+    ok = status == 200 and len(mistakes.get("mistakes", [])) >= 1
+    check("GET /api/mistakes（答错即入本）", ok,
+          f"{len(mistakes.get('mistakes', []))} 条")
+
+    # 11. 文件夹体系：共识 + 四学科
+    status, data = call(base, "/api/materials")
+    folders = data.get("folders", [])
+    shared = [f for f in folders if f.get("is_shared")]
+    check("文件夹体系", status == 200 and len(folders) >= 5 and len(shared) == 1,
+          f"{len(folders)} 个文件夹，共识 {len(shared)} 个")
+
+    # 12. 资料详情与源文件
+    if data.get("materials"):
+        mid = data["materials"][0]["id"]
+        status, detail = call(base, f"/api/materials/{mid}")
+        check("GET /api/materials/{id}", status == 200 and bool(detail.get("content")),
+              f"路径 {detail.get('path', '')[-28:]}")
+        req = urllib.request.Request(f"{base}/api/materials/{mid}/raw")
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read()
+            check("GET /api/materials/{id}/raw", resp.status == 200 and len(raw) > 50,
+                  f"源文件 {len(raw)} 字节，Content-Type={resp.headers.get('Content-Type')}")
+
+    # 13. 文件夹删除的两种模式
+    status, folder = call(base, "/api/folders", "POST", {"name": "自检文件夹"})
+    folder_id = (folder.get("folder") or {}).get("id", "")
+    check("POST /api/folders", status == 201 and bool(folder_id), folder_id[:8])
+    if folder_id:
+        call(base, "/api/materials", "POST",
+             {"title": "自检临时资料", "text": "临时资料内容，用于验证文件夹删除。",
+              "folder_id": folder_id})
+        status, res = call(base, f"/api/folders/{folder_id}?mode=move", "DELETE")
+        check("DELETE 文件夹（保留资料）", status == 200 and res.get("mode") == "move",
+              f"移出 {res.get('moved')} 份")
+        # 收拾测试资料，避免每次自检在库里留垃圾
+        status, listing = call(base, "/api/materials")
+        for m in listing.get("materials", []):
+            if m["title"] == "自检临时资料":
+                call(base, f"/api/materials/{m['id']}", "DELETE")
+
+    status, folder2 = call(base, "/api/folders", "POST", {"name": "自检文件夹2"})
+    fid2 = (folder2.get("folder") or {}).get("id", "")
+    if fid2:
+        status, res = call(base, f"/api/folders/{fid2}?mode=purge", "DELETE")
+        check("DELETE 文件夹（连资料删除）", status == 200 and res.get("mode") == "purge", "")
+
+    # 12. 删除链路
+    if material_id:
+        status, _ = call(base, f"/api/materials/{material_id}", "DELETE")
+        check("DELETE /api/materials/{id}", status == 200, "已删除并清理切片")
+
+    # 13. 错误处理
+    status, err = call(base, "/api/materials", "POST", {"title": "", "text": ""})
+    check("空资料返回 400", status == 400 and "error" in err, str(err.get("error", {}))[:60])
+
+    # 14. 收尾：把自检自己造出来的数据全部删掉，避免污染用户库
+    cleaned = cleanup_artifacts(base) + cleanup_local_stats(started, activity_before)
+    check("自检数据已清理", True, cleaned)
+
+    # 汇总
+    total = len(results)
+    passed = sum(1 for _, r, _ in results if r == PASS)
+    print("\n" + "=" * 56)
+    print(f"自检结果：{passed}/{total} 通过")
+    if passed != total:
+        print("失败项：")
+        for name, r, detail in results:
+            if r == FAIL:
+                print(f"  - {name}: {detail}")
+    print("=" * 56)
+    return 0 if passed == total else 1
+
+
+TEST_QUESTION_PREFIX = "TCP 为什么需要三次握手"
+
+
+def cleanup_artifacts(base: str) -> str:
+    """删掉自检过程中产生的会话、总结、科目、文件夹、错题与占位题。"""
+    removed = []
+
+    status, data = call(base, "/api/conversations")
+    for c in data.get("conversations", []):
+        if c["title"].startswith(TEST_QUESTION_PREFIX) or c["title"].startswith("自检"):
+            call(base, f"/api/conversations/{c['id']}", "DELETE")
+            removed.append("会话")
+
+    status, data = call(base, "/api/summaries")
+    for sm in data.get("summaries", []):
+        if sm["title"].startswith(TEST_QUESTION_PREFIX):
+            call(base, f"/api/summaries/{sm['id']}", "DELETE")
+            removed.append("总结")
+
+    status, data = call(base, "/api/subjects")
+    for sub in data.get("subjects", []):
+        if sub["name"].startswith("自检") and not sub.get("is_builtin"):
+            call(base, f"/api/subjects/{sub['id']}", "DELETE")
+            removed.append("科目")
+        else:
+            for ch in sub.get("chapters", []):
+                if ch["title"].startswith("自检"):
+                    call(base, f"/api/chapters/{ch['id']}", "DELETE")
+                    removed.append("章节")
+                else:
+                    for q in call(base, f"/api/chapters/{ch['id']}")[1].get("questions", []):
+                        if "[演示模式]" in q["stem"] or "本知识点的说法" in q["stem"]:
+                            call(base, f"/api/questions/{q['id']}", "DELETE")
+                            removed.append("占位题")
+
+    status, data = call(base, "/api/materials")
+    for f in data.get("folders", []):
+        if f["name"].startswith("自检"):
+            call(base, f"/api/folders/{f['id']}?mode=purge", "DELETE")
+            removed.append("文件夹")
+
+    status, data = call(base, "/api/mistakes")
+    for mk in data.get("mistakes", []):
+        if (mk.get("my_answer") or "").strip().upper() not in ("A", "B", "C", "D"):
+            call(base, f"/api/mistakes/{mk['id']}", "DELETE")
+            removed.append("错题")
+
+    return f"清理 {len(removed)} 项：{'/'.join(sorted(set(removed))) or '无'}"
+
+
+def _activity_today() -> int | None:
+    """自检前今天的打卡事件数；没有记录返回 None。读不到库时也返回 None。"""
+    try:
+        import time
+
+        import store as store_mod
+        st = store_mod.Store()
+        row = st.conn.execute("SELECT events FROM activity WHERE day=?",
+                              (time.strftime("%Y-%m-%d"),)).fetchone()
+        return int(row["events"]) if row else None
+    except Exception:                              # noqa: BLE001
+        return None
+
+
+def cleanup_local_stats(started: str, activity_before: int | None) -> str:
+    """回滚自检期间产生的作答、复习条目、调用日志与打卡记录。
+
+    这些是本次扩展新增的副作用，老的 cleanup_artifacts 走接口删不到，
+    所以这里直接对本机库做时间窗清理；--base 指向远端时读不到库就跳过。
+    """
+    try:
+        import time
+
+        import store as store_mod
+        st = store_mod.Store()
+    except Exception as exc:                       # noqa: BLE001
+        return f"；统计清理跳过（{exc}）"
+    today = time.strftime("%Y-%m-%d")
+    removed: list[str] = []
+    for table, label in (("attempts", "作答"), ("reviews", "复习条目"),
+                         ("usage_log", "调用日志")):
+        count = st.conn.execute(
+            f"DELETE FROM {table} WHERE created_at >= ?", (started,)).rowcount
+        if count:
+            removed.append(f"{label}{count}")
+    if activity_before is None:
+        st.conn.execute("DELETE FROM activity WHERE day=?", (today,))
+    else:
+        st.conn.execute("UPDATE activity SET events=? WHERE day=?", (activity_before, today))
+    st.conn.commit()
+    return ("；回滚 " + "/".join(removed)) if removed else ""
+
+
+if __name__ == "__main__":
+    import urllib.parse       # noqa: E402  (仅在自检里用到)
+    raise SystemExit(main())
