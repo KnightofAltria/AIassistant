@@ -1,0 +1,76 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'com.chaquo.python'
+}
+
+// Only tracked application sources and distributable seed assets enter the APK.
+// Never point Chaquopy at the workspace root or any data/ directory.
+def sharedApp = file("../../AIassistant-v4/AIassistant/app")
+def stagePython = tasks.register('stagePython', Sync) {
+    from(sharedApp) {
+        include "*.py", "static/**", "samples/**", "study_guides/**", "reference_catalog.json"
+        exclude "test_*.py", "check.py", "selftest.py", "eval_retrieval.py", "reindex.py",
+                "**/__pycache__/**", "**/.DS_Store", "**/data/**"
+    }
+    from("src/main/python")
+    into(layout.buildDirectory.dir("generated/python"))
+}
+
+android {
+    namespace 'cn.csla.mobile'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+    defaultConfig {
+        applicationId 'cn.csla.mobile'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0'
+        ndk { abiFilters 'arm64-v8a', 'x86_64' }
+    }
+    buildTypes {
+        debug { debuggable true }
+        release { minifyEnabled false }
+    }
+    signingConfigs {
+        debug {
+            storeFile file("${buildDir}/debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+}
+
+chaquopy {
+    defaultConfig {
+        version = "3.11"
+        pyc { src = false }
+    }
+    sourceSets {
+        main { srcDirs = [layout.buildDirectory.dir("generated/python").get().asFile] }
+    }
+}
+tasks.named("preBuild").configure { dependsOn(stagePython) }
+def debugKey = tasks.register("createDebugKey", Exec) {
+    def target = file("${buildDir}/debug.keystore")
+    outputs.file(target)
+    onlyIf { !target.exists() }
+    doFirst { target.parentFile.mkdirs() }
+    commandLine "${System.getProperty('java.home')}/bin/keytool", "-genkeypair",
+        "-keystore", target, "-storepass", "android", "-keypass", "android",
+        "-alias", "androiddebugkey", "-keyalg", "RSA", "-keysize", "2048",
+        "-validity", "10000", "-dname", "CN=Android Debug,O=CSLA,C=CN"
+}
+tasks.named("preBuild").configure { dependsOn(debugKey) }
+tasks.configureEach { task ->
+    if (task.name != "stagePython" && task.name.contains("Python")) {
+        task.dependsOn(stagePython)
+    }
+}
