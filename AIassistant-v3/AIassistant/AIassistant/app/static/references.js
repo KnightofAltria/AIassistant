@@ -25,7 +25,34 @@ async function renderReferencePanel() {
           <button class="btn small" data-ref-remove="${m.id}">移出参考文献</button>` : '<span class="muted small">核心资料 · 只读</span>'}
         </div></article>`;
     }).join('') : '<p class="muted">这个文件夹还没有主要参考文献。上传教材，或从下方官方开放教材中选择。</p>'}</div>
-    ${editable ? '<details class="reference-catalog"><summary id="ref-catalog-summary">添加官方教材与专题PDF</summary><p class="muted small">完整教材、官方单章、作者讲义和协议规范分别标注，可配合中文专题资料学习。已下载文件会直接导入。</p><label class="field"><span>筛选科目</span><select id="ref-catalog-subject"><option value="">全部科目</option><option value="co">计算机组成原理</option><option value="cn">计算机网络</option><option value="os">操作系统</option><option value="ds">数据结构</option></select></label><div id="ref-catalog-list"></div><p id="ref-download-msg" class="small"></p></details>' : ''}`;
+    ${editable ? '<details class="reference-catalog"><summary id="ref-catalog-summary">添加官方教材与专题PDF</summary><p class="muted small">完整教材、官方单章、作者讲义和协议规范分别标注，可配合中文专题资料学习。已下载文件会直接导入。</p><label class="field"><span>筛选科目</span><select id="ref-catalog-subject"><option value="">全部科目</option><option value="co">计算机组成原理</option><option value="cn">计算机网络</option><option value="os">操作系统</option><option value="ds">数据结构</option></select></label><div id="ref-catalog-list"></div><p id="ref-download-msg" class="small"></p></details><details class="reference-catalog" id="ref-open-box"><summary>从 Open Textbook Library 搜索教材</summary><p class="muted small">按英文关键词检索开放教材，下载后自动识别目录。例如 database、operating system、data structures。</p><div class="ref-open-row"><input id="ref-open-q" placeholder="输入关键词" /><button id="ref-open-search" class="btn small">搜索</button></div><div id="ref-open-list"></div><p id="ref-open-msg" class="small"></p></details>' : ''}`;
+  const openMsg = () => $('#ref-open-msg');
+  $('#ref-open-search')?.addEventListener('click', async () => {
+    const q = ($('#ref-open-q')?.value || '').trim();
+    if (!q) { openMsg().textContent = '请输入关键词，例如 database'; return; }
+    const btn = $('#ref-open-search');
+    btn.disabled = true; openMsg().textContent = '正在检索开放教材…';
+    try {
+      const { books } = await api(`/api/references/open/search?q=${encodeURIComponent(q)}`);
+      const list = $('#ref-open-list');
+      list.innerHTML = books.length ? books.map((b) => `<div class="reference-catalog-row"><div>
+        <b>${esc(b.title)}</b><p class="muted small">${esc(b.language || '')} · ${esc(b.license || '开放许可')}</p></div>
+        <button class="btn small" data-open-url="${esc(b.url)}">下载并导入</button></div>`).join('')
+        : '<p class="muted small">没有找到匹配的教材，换个英文关键词试试，或手动上传。</p>';
+      openMsg().textContent = books.length ? `找到 ${books.length} 本，下载后会自动识别目录。` : '';
+      list.querySelectorAll('[data-open-url]').forEach((b) => b.addEventListener('click', async () => {
+        b.disabled = true; b.textContent = '下载中…'; openMsg().textContent = '正在下载并解析教材，可能需要 10–30 秒…';
+        try {
+          const res = await api('/api/references/open/download', { method: 'POST', body: JSON.stringify({
+            folder_id: state.folderId, query: q, url: b.dataset.openUrl,
+          }) });
+          toast(res.ok ? '教材已导入，目录已识别' : '教材导入失败');
+          await loadMaterials();
+        } catch (err) { toast(err.message, true); b.disabled = false; b.textContent = '下载并导入'; }
+      }));
+    } catch (err) { openMsg().textContent = err.message; }
+    finally { btn.disabled = false; }
+  });
   box.querySelectorAll('[data-ref-read]').forEach((b) => b.addEventListener('click', () => openMaterial(b.dataset.refRead)));
   box.querySelectorAll('[data-ref-edit]').forEach((b) => b.addEventListener('click', () => editReference(MATERIALS.find((m) => m.id === b.dataset.refEdit))));
   box.querySelectorAll('[data-ref-toc]').forEach((b) => b.addEventListener('click', async () => {

@@ -222,6 +222,22 @@ def resolve_pdf(url: str, depth: int = 0) -> bytes:
     raise ValueError("下载页没有找到可用的 PDF")
 
 
+def fetch_book(book: dict) -> dict:
+    """下载并解析一本已检索到的教材。"""
+    last = None
+    for pdf_url in book.get("pdf_urls", []):
+        try:
+            raw = resolve_pdf(pdf_url)
+            text, info = pdftext.pdf_to_text(raw)
+            if not text.strip():
+                continue
+            return dict(book, pdf_url=pdf_url, raw=raw, text=text,
+                        pages=info.get("pages", 0))
+        except Exception as exc:                 # noqa: BLE001
+            last = exc
+    raise ValueError(f"教材 PDF 下载失败：{last}" if last else "没有可用的 PDF 下载地址")
+
+
 def prefetch(query: str, limit: int = 1) -> list[dict]:
     """检索并下载教材，返回正文已解析的教材。单本失败会尝试下一本。"""
     books, seen = [], set()
@@ -231,17 +247,10 @@ def prefetch(query: str, limit: int = 1) -> list[dict]:
         if book["title"] in seen:
             continue
         seen.add(book["title"])
-        for pdf_url in book["pdf_urls"]:
-            try:
-                raw = resolve_pdf(pdf_url)
-                text, info = pdftext.pdf_to_text(raw)
-                if not text.strip():
-                    continue
-                books.append(dict(book, pdf_url=pdf_url, raw=raw, text=text,
-                                  pages=info.get("pages", 0)))
-                break
-            except Exception:
-                continue
+        try:
+            books.append(fetch_book(book))
+        except Exception:
+            continue
         time.sleep(0.5)
     return books
 
