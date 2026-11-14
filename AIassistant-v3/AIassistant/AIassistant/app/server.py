@@ -38,6 +38,7 @@ import auth_client
 import curriculum
 import lessons
 import deepseek
+import textbooks
 import extras
 import pdftext
 import prompts
@@ -548,6 +549,20 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/references/catalog":
             self._json({"books": references.catalog()})
             return
+        if path == "/api/references/open/search":
+            q = (query.get("q") or [""])[0].strip()
+            if not q:
+                self._error("请输入教材关键词", 400)
+                return
+            try:
+                books = textbooks.search(textbooks.english_query(q), 10)
+            except Exception as exc:               # noqa: BLE001
+                self._error(f"开放教材检索失败：{exc}", 502)
+                return
+            self._json({"query": q, "books": [
+                {"title": b["title"], "url": b["url"], "license": b["license"],
+                 "language": b.get("language", "")} for b in books]})
+            return
         m = re.fullmatch(r"/api/folders/([\w-]+)/references", path)
         if m:
             folder = STORE.folder(m.group(1))
@@ -647,7 +662,12 @@ class Handler(BaseHTTPRequestHandler):
                     self._error("章节不存在", 404)
                     return
                 meta = lessons.plan(chapter)
+                publish = False
                 if 'sections' not in json.loads(chapter.get('lecture_meta') or '{}'):
+                    publish = True
+                if lessons.backfill_citations(STORE, chapter, meta):
+                    publish = True
+                if publish:
                     lessons.publish(STORE, chapter['id'], meta)
                     chapter = STORE.chapter(chapter['id'])
                 response = {"chapter": chapter, "questions": STORE.questions(chapter["id"]),
@@ -799,7 +819,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._error(str(exc), 400)
             return
 
-        if path == "/api/references/download" or re.fullmatch(
+        if path in ("/api/references/download", "/api/references/open/download") or re.fullmatch(
+                r"/api/references/[\w-]+/toc", path) or re.fullmatch(
                 r"/api/materials/[\w-]+/reference(?:/chapters)?", path):
             try:
                 self._reference_post(path, body)
@@ -870,7 +891,28 @@ class Handler(BaseHTTPRequestHandler):
                     folder_id=folder["id"], source_url=url, ext=".md")
                 STORE.replace_chunks(material["id"], rag.chunk_text(text))
                 saved.append(url)
-            self._json({"subject": subject, "folder": folder, "videos": len(saved)}, 201)
+            # 新科目：从 Open Textbook Library 自动下载开放教材（网络在数据库锁外）。
+            owner_store = STORE._store
+            refs, ref_query, ref_error = [], "", ""
+            if body.get("fetch_references"):
+                try:
+                    cfg = STORE.get_config()
+                    generator = deepseek.DeepSeekClient(
+                        cfg.get("api_key", ""), cfg.get("model", deepseek.DEFAULT_MODEL))
+                    ref_query = textbooks.english_query(name, generator)
+                    papers = textbooks.prefetch(ref_query, limit=1) if ref_query else []
+                    if papers:
+                        with LOCK, STORE._lock:
+                            if STORE._store is owner_store:
+                                refs = textbooks.import_books(STORE, papers, name, folder)
+                    else:
+                        ref_error = (f"没有找到匹配“{ref_query}”的开放教材，可手动上传教材"
+                                     if ref_query else "无法生成英文检索词，可手动上传教材")
+                except Exception as exc:               # noqa: BLE001
+                    ref_error = f"参考文献下载失败：{str(exc)[:140]}"
+            self._json({"subject": subject, "folder": folder, "videos": len(saved),
+                        "references": refs, "reference_query": ref_query,
+                        "reference_error": ref_error}, 201)
             return
 
         m = re.fullmatch(r"/api/subjects/([\w-]+)/chapters", path)
@@ -1523,8 +1565,13 @@ class Handler(BaseHTTPRequestHandler):
                 verification = rag.validate_citations(section, allowed)
                 if not verification['passed']:
                     raise ValueError('引用校验失败，未替换本节')
+                used = [c for c in allowed if c['citation_id'] in verification['used']]
+                if not used and allowed:
+                    # 模型正文没写编号，但本节确实基于这些原文：标为“本节参考”，
+                    # 不丢出处，也不冒充模型逐句引用。
+                    used = [dict(c, auto=True) for c in allowed[:2]]
                 unit.update(content=section, revision=lessons.uid(),
-                            citations=[c for c in allowed if c['citation_id'] in verification['used']],
+                            citations=used,
                             generated_at=time.strftime('%Y-%m-%d %H:%M:%S'))
                 meta.update(mock=deepseek.MOCK, model=generator.model)
                 save()  # Each validated section is durable before notifying the browser.
@@ -1541,6 +1588,45 @@ class Handler(BaseHTTPRequestHandler):
                 TUTOR_JOBS.discard(job)
 
     def _reference_post(self, path: str, body: dict) -> None:
+        if path == "/api/references/open/download":
+            folder_id = body.get("folder_id") or ""
+            query_text = (body.get("query") or "").strip()
+            book_url = (body.get("url") or "").strip()
+            folder = STORE.folder(folder_id)
+            if not folder:
+                raise ValueError("请选择教材要放入的文件夹")
+            if self._core_denied(folder_ids=[folder_id]):
+                return
+            books = textbooks.search(textbooks.english_query(query_text), 12)
+            book = next((b for b in books if b["url"] == book_url), None)
+            if not book:
+                raise ValueError("教材不在当前检索结果中，请重新搜索")
+            fetched = textbooks.fetch_book(book)
+            owner = STORE._store
+            with LOCK, STORE._lock:
+                if STORE._store is not owner:
+                    raise ValueError("账号已切换，请重试")
+                if self._core_denied(folder_ids=[folder_id]):
+                    return
+                results = textbooks.import_books(STORE, [fetched], folder["name"], folder)
+            self._json({"ok": bool(results and results[0].get("ok")), "result": results[0] if results else {}})
+            return
+        m_toc = re.fullmatch(r"/api/references/([\w-]+)/toc", path)
+        if m_toc:
+            material = STORE.material(m_toc.group(1))
+            if not material or not material.get("is_reference"):
+                raise ValueError("这份资料不是主要参考文献")
+            original = STORE.material_original(material["id"])
+            raw = b""
+            if original and original.suffix.lower() == ".pdf":
+                raw = original.read_bytes()
+            toc = references.detect_toc(STORE.get_material_text(material["id"]), raw)
+            if not toc:
+                raise ValueError("没有识别到目录，请用「目录与生成章节」手动填写")
+            bib = json.loads(material.get("bibliography") or "{}")
+            STORE.set_reference(material["id"], True, toc, bib)
+            self._json({"material": STORE.material(material["id"]), "toc": len(toc)})
+            return
         if path == "/api/references/download":
             folder_id = body.get("folder_id") or ""
             owner = STORE._store

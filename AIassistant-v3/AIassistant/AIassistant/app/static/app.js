@@ -785,7 +785,7 @@ function lessonMeta(chapter) {
 }
 
 function sourceLinks(citations) {
-  return (citations || []).map(c => `<a class="tag" href="/api/materials/${encodeURIComponent(c.material_id)}/source${c.page ? '#page=' + Number(c.page) : ''}" target="_blank" rel="noopener">[${esc(c.citation_id)}] ${esc(c.title)} · ${c.page ? 'PDF ' + Number(c.page) + ' 页' : '正文摘录'}</a>`).join(' ');
+  return (citations || []).map(c => `<a class="tag" href="/api/materials/${encodeURIComponent(c.material_id)}/source${c.page ? '#page=' + Number(c.page) : ''}" target="_blank" rel="noopener">[${esc(c.citation_id)}] ${esc(c.title)}${c.auto ? '（本节参考）' : ''}${c.fallback ? '（参考摘录）' : ''} · ${c.page ? 'PDF ' + Number(c.page) + ' 页' : '正文摘录'}</a>`).join(' ');
 }
 
 function renderOutlineVisibility(chapter) {

@@ -67,6 +67,15 @@ def section_paths(toc: list[dict]) -> list[str]:
     return paths
 
 
+def _plausible_toc(items: list[dict]) -> bool:
+    """PDF 书签可能是页码占位符；没有文字或没有页码时改用正文标题。"""
+    if len(items) < 3:
+        return False
+    readable = [t for t in items if re.search(r"[A-Za-z\u4e00-\u9fff]", t["title"])]
+    paged = [t for t in items if t["page"]]
+    return len(readable) >= len(items) * 0.7 and len(paged) >= max(2, len(items) * 0.5)
+
+
 def detect_toc(text: str, raw: bytes = b"") -> list[dict]:
     """优先PDF书签，缺少书签时使用文本标题；扫描件需用户手工填目录。"""
     out = []
@@ -97,18 +106,24 @@ def detect_toc(text: str, raw: bytes = b"") -> list[dict]:
             walk(node.get("First"))
         except Exception:
             out = []
-    if not out:
+    if not _plausible_toc(out):
+        out = []
         page = 0
         for line in text.splitlines():
             pm = re.match(r"## 第 (\d+) 页", line)
             if pm:
                 page = int(pm.group(1))
                 continue
-            hm = re.match(r"^(#{1,3})\s+(.+)", line)
-            cm = re.match(r"^(第[一二三四五六七八九十百\d]+章\s*.+)$", line.strip())
-            if hm or cm:
-                out.append({"title": (hm.group(2) if hm else cm.group(1))[:180],
-                            "page": page, "level": len(hm.group(1)) if hm else 1})
+            s = line.strip()
+            if not s:
+                continue
+            hm = re.match(r"^(#{1,3})\s+(.+)", s)
+            cm = re.match(r"^(第[一二三四五六七八九十百\d]+章(?:\s+.*)?)$", s)
+            en = re.match(r"^(Chapter\s+\d+)\s*$", s)
+            if hm or cm or en:
+                title = hm.group(2) if hm else (cm.group(1) if cm else en.group(1))
+                out.append({"title": title[:180], "page": page,
+                            "level": len(hm.group(1)) if hm else 1})
                 if len(out) >= 512:
                     break
     return clean_toc(out)
@@ -289,6 +304,10 @@ def evidence(store, chapter: dict, query: str, unit_index: int) -> tuple[str, li
     """只检索同文件夹已审核教材。优先绑定章节页区间；编号全章唯一。"""
     folder = store.folder_by_name(chapter["subject_name"])
     materials = store.reference_materials(folder["id"]) if folder else []
+    if not materials and folder:
+        # 没有标记“主要参考文献”时退回该文件夹的已审核资料，避免整节完全没有出处。
+        materials = [m for m in store.list_materials(folder["id"])
+                     if (m.get("status") or "approved") == "approved"]
     bound = chapter.get("reference_material_id")
     terms = set(re.findall(r"[a-z]{2,}|[\u4e00-\u9fff]{2,}", query.lower()))
     snippets, citations, books = [], [], []
@@ -353,4 +372,21 @@ def evidence(store, chapter: dict, query: str, unit_index: int) -> tuple[str, li
                               "source_url": mat.get("source_url", ""), "page": page,
                               "quote": snippet, "score": 1.0})
             snippets.append(block)
+    if not citations and materials:
+        # 本节关键词和原文没有命中时，至少给出该科目参考资料的定位摘录，
+        # 避免整节显示“暂无原资料引用”；明确标注未匹配到关键词。
+        mat = next((m for m in materials if m["id"] == bound), materials[0])
+        text = store.get_material_text(mat["id"])
+        page_match = re.search(r"(?m)^## 第 (\d+) 页", text)
+        page = int(page_match.group(1)) if page_match else 0
+        snippet = re.sub(r"(?m)^## 第 \d+ 页\s*", "", text)[:900].strip()
+        if snippet:
+            cid = f"c{unit_index * 20 + 1}"
+            label = f"PDF第{page}页" if page else "正文摘录"
+            citations.append({"citation_id": cid, "material_id": mat["id"],
+                              "title": mat["title"], "source_url": mat.get("source_url", ""),
+                              "page": page, "quote": snippet, "score": 0.0,
+                              "fallback": True})
+            snippets.append(f"[{cid}] 来源：{mat['title']}，{label}（未匹配到本节关键词，"
+                            f"提供参考摘录）\n{snippet}")
     return "\n\n".join(snippets), citations

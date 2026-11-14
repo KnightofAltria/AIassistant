@@ -82,6 +82,23 @@ def new_outline(generator, chapter, meta, evidence):
                 archived_sections=meta.get('archived_sections', []) + meta['sections'])
 
 
+def backfill_citations(store, chapter, meta):
+    """给已保存但没有出处的小节补上参考来源（只补空，不改已有引用）。"""
+    changed = False
+    for index, section in enumerate(meta.get('sections', [])):
+        if not section.get('content') or section.get('citations'):
+            continue
+        try:
+            _, allowed = references.evidence(store, chapter,
+                                             section.get('query') or section['title'], index)
+        except Exception:
+            allowed = []
+        if allowed:
+            section['citations'] = [dict(c, auto=True) for c in allowed[:2]]
+            changed = True
+    return changed
+
+
 def question_source(question, meta):
     source = json.loads(question.get('source_meta') or '{}')
     section = next((s for s in meta['sections'] if s['id'] == source.get('section_id')), None)
