@@ -31,8 +31,15 @@
 ## 二、仓库约定
 
 - 远程：`git@github.com:KnightofAltria/AIassistant.git`，**只走 SSH**。本机直连 `github.com:443` 被阻断（`Connection was reset` / 21 秒超时），HTTPS + PAT 走不通，别再尝试。
+- 本项目在 Mac 上已有可用的专用 SSH 身份：`~/.local/share/csla-ssh/id_ed25519`。系统默认 `~/.ssh/id_ed25519` 不是本项目身份；不要因默认密钥失败就要求用户重新配置。先用专用密钥验证和推送，例如：
+
+  ```sh
+  git -c core.sshCommand='ssh -i /Users/bytedance/.local/share/csla-ssh/id_ed25519 -o IdentityAgent=none -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=10' push git@github.com:KnightofAltria/AIassistant.git HEAD:refs/heads/feat/android-local
+  ```
+
+  将示例中的 `feat/android-local` 替换为当次目标分支。不修改持久 Git 配置，不读取或提交私钥；推送后用同一身份 `ls-remote` 核对目标分支。
 - 推送偶发 `Connection reset by ... port 22`，**重试 2–3 次即可**，不是权限问题。
-- Git 身份：`KnightofAltria <2356925182@qq.com>`。
+- 仓库所有者是 `KnightofAltria`；用户已明确后续提交使用协作者身份 `MinazukiHotaru <3331908788@qq.com>`。沿用当前仓库身份，不为了推送改成仓库所有者，也不改写已有历史。
 - `main` 保持可交付状态；新改动走分支 + Pull Request，合并前至少一人 Review。
 
 ## 三、目录结构与提交规范
