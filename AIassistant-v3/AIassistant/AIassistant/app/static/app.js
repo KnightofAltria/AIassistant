@@ -785,7 +785,7 @@ function lessonMeta(chapter) {
 }
 
 function sourceLinks(citations) {
-  return (citations || []).map(c => `<a class="tag" href="/api/materials/${encodeURIComponent(c.material_id)}/source${c.page ? '#page=' + Number(c.page) : ''}" target="_blank" rel="noopener">[${esc(c.citation_id)}] ${esc(c.title)}${c.auto ? '（本节参考）' : ''}${c.fallback ? '（参考摘录）' : ''} · ${c.page ? 'PDF ' + Number(c.page) + ' 页' : '正文摘录'}</a>`).join(' ');
+  return (citations || []).map(c => `<a class="tag" href="/api/materials/${encodeURIComponent(c.material_id)}/source${c.page ? '#page=' + Number(c.page) : ''}" target="_blank" rel="noopener">[${esc(c.citation_id)}] ${esc(c.title)}${c.auto ? '（自动补充，需核对）' : ''}${c.fallback ? '（旧参考摘录，未匹配主题）' : ''} · ${c.page ? 'PDF ' + Number(c.page) + ' 页' : '正文摘录'}</a>`).join(' ');
 }
 
 function renderOutlineVisibility(chapter) {
@@ -815,7 +815,7 @@ function renderLecture(chapter) {
       <label class="small"><input type="checkbox" class="section-read" data-section="${esc(s.id)}" ${chapter.learning_progress?.read_ids?.includes(s.id) ? 'checked' : ''} ${!s.content || chapter.generating ? 'disabled' : ''}> 我已阅读并理解本节</label>
       <div class="section-body">${s.content ? md(s.content) : '<p class="muted">本节尚未生成。可以单独生成，也可以依次生成所有未完成小节。</p>'}</div>
       <div class="section-draft hidden" aria-live="polite"></div>
-      <div class="lecture-citations">${s.content ? (sourceLinks(s.citations) || '<span class="muted small">补充讲解：暂无原资料引用。</span>') : ''}</div></div>
+      <div class="lecture-citations">${s.content ? (sourceLinks(s.citations) || '<span class="muted small">暂未找到相关资料，请补充教材或调整小节关键词。</span>') : ''}</div></div>
     </details>`).join('');
   if (meta.legacy_lecture) $('#tutor-body').insertAdjacentHTML('beforeend', `<details class="lesson-card"><summary>升级前的原有讲义（保留）</summary><div class="lesson-inner">${md(meta.legacy_lecture)}</div></details>`);
   const archived = (meta.archived_sections || []).filter(s => s.content);

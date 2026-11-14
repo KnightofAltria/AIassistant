@@ -1510,5 +1510,6 @@ img.brand-mark {object-fit:contain;width:92%;height:92%}
 .home-hero .provider-card{padding:12px 14px}
 @media (max-width:800px){.home-hero .provider-picker{max-width:100%}.home-hero .provider-options{grid-template-columns:1fr}}
 
-.ref-open-row { display: flex; gap: 8px; margin: 8px 0; }
-.ref-open-row input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: #fbfcfe; }
+.ref-open-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.ref-open-row select { flex: 1 1 180px; min-width: 0; max-width: 100%; }
+.ref-open-row input { flex: 2 1 180px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: #fbfcfe; }

@@ -176,6 +176,23 @@ class ReferenceTests(unittest.TestCase):
         self.assertEqual(references.evidence(self.store, self.store.chapter(self.chapter["id"]), "binary", 0),
                          ("", []))
 
+    def test_chinese_partial_match_finds_relevant_page(self):
+        mat = self.store.add_material("教材", "## 第 1 页\n浮点数编码使用指数与尾数。\n"
+                                      "## 第 2 页\n整数进制转换可以用除基取余的方法。",
+                                      folder_id=self.folder["id"])
+        self.store.set_reference(mat["id"], True, [])
+        evidence, cites = references.evidence(self.store, self.chapter, "整数进制转换与表示范围", 0)
+        self.assertTrue(cites)
+        self.assertEqual(cites[0]["page"], 2)
+        self.assertIn("整数进制转换", evidence)
+        self.assertNotIn("浮点数编码", evidence)
+
+    def test_unrelated_material_is_not_presented_as_citation(self):
+        mat = self.store.add_material("教材", "## 第 1 页\n这里介绍植物光合作用与叶绿素。",
+                                      folder_id=self.folder["id"])
+        self.store.set_reference(mat["id"], True, [])
+        self.assertEqual(references.evidence(self.store, self.chapter, "虚拟内存分页机制", 0), ("", []))
+
     @staticmethod
     def full_section():
         return "\n\n".join("### " + h + "\n" +

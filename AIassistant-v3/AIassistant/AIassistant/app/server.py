@@ -549,15 +549,22 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/references/catalog":
             self._json({"books": references.catalog()})
             return
+        if path == "/api/references/sources":
+            self._json({"sources": textbooks.list_sources()})
+            return
         if path == "/api/references/open/search":
             q = (query.get("q") or [""])[0].strip()
+            source = (query.get("source") or ["open"])[0]
             if not q:
                 self._error("请输入教材关键词", 400)
                 return
             try:
-                books = textbooks.search(textbooks.english_query(q), 10)
+                books = textbooks.search_source(source, q, 10)
+            except ValueError as exc:
+                self._error(str(exc), 400)
+                return
             except Exception as exc:               # noqa: BLE001
-                self._error(f"开放教材检索失败：{exc}", 502)
+                self._error(f"教材检索失败：{exc}", 502)
                 return
             self._json({"query": q, "books": [
                 {"title": b["title"], "url": b["url"], "license": b["license"],
@@ -1592,12 +1599,13 @@ class Handler(BaseHTTPRequestHandler):
             folder_id = body.get("folder_id") or ""
             query_text = (body.get("query") or "").strip()
             book_url = (body.get("url") or "").strip()
+            source = body.get("source") or "open"
             folder = STORE.folder(folder_id)
             if not folder:
                 raise ValueError("请选择教材要放入的文件夹")
             if self._core_denied(folder_ids=[folder_id]):
                 return
-            books = textbooks.search(textbooks.english_query(query_text), 12)
+            books = textbooks.search_source(source, query_text, 12)
             book = next((b for b in books if b["url"] == book_url), None)
             if not book:
                 raise ValueError("教材不在当前检索结果中，请重新搜索")

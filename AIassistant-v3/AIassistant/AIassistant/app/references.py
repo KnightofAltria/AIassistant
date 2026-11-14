@@ -309,7 +309,9 @@ def evidence(store, chapter: dict, query: str, unit_index: int) -> tuple[str, li
         materials = [m for m in store.list_materials(folder["id"])
                      if (m.get("status") or "approved") == "approved"]
     bound = chapter.get("reference_material_id")
-    terms = set(re.findall(r"[a-z]{2,}|[\u4e00-\u9fff]{2,}", query.lower()))
+    # 中文标题通常是连续长句，直接整句匹配会漏掉仅措辞不同的相关内容。
+    # 使用项目已有的中文二字词和英文词；单字过于宽泛，不作为独立证据。
+    terms = {t for t in rag.tokenize(query.lower()) if len(t) >= 2 and not t.isdigit()}
     snippets, citations, books = [], [], []
     for mat in materials:
         local_terms = set(terms)
@@ -346,10 +348,14 @@ def evidence(store, chapter: dict, query: str, unit_index: int) -> tuple[str, li
         ranked = []
         for page, content in candidates:
             # 500字符窗口防止长页把真正相关内容挤出上下文。
+            content = rag.strip_meta(content)
             for start in range(0, len(content), 500):
                 snippet = content[start:start + 1000]
-                score = sum(min(4, snippet.lower().count(t)) for t in local_terms)
-                if score:
+                matched = {t for t in local_terms if t in snippet.lower()}
+                # 多词查询至少命中两个不同词，避免凭一个常见字词误判相关。
+                score = len(matched)
+                minimum = 2 if len(local_terms) >= 3 and not section else 1
+                if score >= minimum:
                     ranked.append((score, page, snippet))
         if ranked:
             books.append((mat["id"] == bound, max(r[0] for r in ranked), mat, ranked))
@@ -370,23 +376,6 @@ def evidence(store, chapter: dict, query: str, unit_index: int) -> tuple[str, li
             cid = f"c{unit_index * 20 + len(citations) + 1}"
             citations.append({"citation_id": cid, "material_id": mat["id"], "title": mat["title"],
                               "source_url": mat.get("source_url", ""), "page": page,
-                              "quote": snippet, "score": 1.0})
+                              "quote": snippet, "score": float(score)})
             snippets.append(block)
-    if not citations and materials:
-        # 本节关键词和原文没有命中时，至少给出该科目参考资料的定位摘录，
-        # 避免整节显示“暂无原资料引用”；明确标注未匹配到关键词。
-        mat = next((m for m in materials if m["id"] == bound), materials[0])
-        text = store.get_material_text(mat["id"])
-        page_match = re.search(r"(?m)^## 第 (\d+) 页", text)
-        page = int(page_match.group(1)) if page_match else 0
-        snippet = re.sub(r"(?m)^## 第 \d+ 页\s*", "", text)[:900].strip()
-        if snippet:
-            cid = f"c{unit_index * 20 + 1}"
-            label = f"PDF第{page}页" if page else "正文摘录"
-            citations.append({"citation_id": cid, "material_id": mat["id"],
-                              "title": mat["title"], "source_url": mat.get("source_url", ""),
-                              "page": page, "quote": snippet, "score": 0.0,
-                              "fallback": True})
-            snippets.append(f"[{cid}] 来源：{mat['title']}，{label}（未匹配到本节关键词，"
-                            f"提供参考摘录）\n{snippet}")
     return "\n\n".join(snippets), citations

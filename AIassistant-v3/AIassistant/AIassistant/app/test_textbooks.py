@@ -4,6 +4,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import references
 import textbooks
@@ -25,6 +26,21 @@ class TextbookTests(unittest.TestCase):
     def test_common_subject_maps_to_english(self):
         self.assertEqual(textbooks.english_query("操作系统"), "operating system")
         self.assertEqual(textbooks.english_query("Data Structures"), "Data Structures")
+
+    def test_openstax_selected_catalog_and_unknown_source(self):
+        books = textbooks.search_source("openstax", "计算机导论")
+        self.assertEqual(len(books), 1)
+        self.assertEqual(books[0]["license"], "CC BY-NC-SA 4.0")
+        self.assertEqual(textbooks.search_source("openstax", "operating system"), [])
+        with self.assertRaises(ValueError):
+            textbooks.search_source("unknown", "computer science")
+
+    def test_registered_provider_is_discoverable_and_receives_query(self):
+        provider = {"name": "测试来源", "search": lambda query, limit: [{"title": query, "limit": limit}]}
+        with patch.dict(textbooks.TEXTBOOK_SOURCES, {"example": provider}):
+            self.assertIn({"id": "example", "name": "测试来源"}, textbooks.list_sources())
+            self.assertEqual(textbooks.search_source("example", "算法", 3), [{"title": "算法", "limit": 3}])
+            self.assertNotIn("search", textbooks.list_sources()[-1])
 
     def test_relevance_rejects_unrelated_titles(self):
         book = {"title": "Introduction to Systems Biology", "description": "cells"}

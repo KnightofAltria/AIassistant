@@ -20,8 +20,47 @@ import references
 SOURCE_NAME = "Open Textbook Library"
 SOURCE_HOME = "https://open.umn.edu/opentextbooks"
 API = "https://open.umn.edu/opentextbooks/textbooks.json"
-MAX_BYTES = 40 * 1024 * 1024
+MAX_BYTES = 80 * 1024 * 1024
 USER_AGENT = "Mozilla/5.0 (compatible; CSLA/1.0; educational use)"
+
+# 来源由项目维护，不接受前端传来的任意下载地址。
+OPENSTAX_BOOKS = [{
+    "title": "Introduction to Computer Science",
+    "url": "https://openstax.org/details/books/introduction-computer-science",
+    "pdf_urls": ["https://assets.openstax.org/oscms-prodcms/media/documents/Introduction_To_Computer_Science_-_WEB.pdf"],
+    "license": "CC BY-NC-SA 4.0", "language": "English",
+    "description": "OpenStax 计算机科学导论开放教材。",
+    "publishers": ["OpenStax, Rice University"], "contributors": [],
+}]
+
+
+def _search_open_library(query: str, limit: int) -> list[dict]:
+    return search(english_query(query), limit)
+
+
+def _search_openstax(query: str, limit: int) -> list[dict]:
+    terms = _terms(english_query(query))
+    return [dict(book) for book in OPENSTAX_BOOKS
+            if terms and all(term in book["title"].lower() for term in terms)][:limit]
+
+
+# 新来源在这里注册：搜索函数返回教材记录，下载仍通过对应来源的搜索结果校验。
+TEXTBOOK_SOURCES = {
+    "open": {"name": "Open Textbook Library", "search": _search_open_library},
+    "openstax": {"name": "OpenStax（精选）", "search": _search_openstax},
+}
+
+
+def list_sources() -> list[dict]:
+    return [{"id": key, "name": value["name"]} for key, value in TEXTBOOK_SOURCES.items()]
+
+
+def search_source(source: str, query: str, max_results: int = 8) -> list[dict]:
+    """仅调用项目注册的来源；不接受前端指定任意网站或下载地址。"""
+    provider = TEXTBOOK_SOURCES.get(source)
+    if provider is None:
+        raise ValueError("未知教材来源")
+    return provider["search"](query, max_results)
 
 COMMON_QUERIES = {
     "操作系统": "operating system",
