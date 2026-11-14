@@ -858,7 +858,8 @@ mark { background: #fff3b0; color: inherit; padding: 0 1px; border-radius: 3px; 
 .fey-result { margin-top: 14px; font-size: 13.5px; line-height: 1.8; }
 .fey-result h2 { font-size: 15px; margin: 14px 0 6px; }
 .fey-result ul { margin: 6px 0 6px 20px; }
-.checkbox-field span { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.checkbox-field span { display: flex; align-items: flex-start; justify-content: flex-start; gap: 8px; font-size: 13px; text-align: left; }
+.checkbox-field input[type="checkbox"] { width: auto; flex: 0 0 auto; padding: 0; margin: 3px 0 0; accent-color: var(--brand); }
 .composer.inline { flex-direction: row; align-items: center; gap: 10px; }
 .composer.inline input { flex: 1; }
 
