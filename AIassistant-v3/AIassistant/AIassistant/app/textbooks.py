@@ -29,14 +29,19 @@ COMMON_QUERIES = {
     "数据结构": "data structures",
     "计算机组成原理": "computer organization",
     "计组": "computer organization",
-    "数据库": "database systems",
-    "数据库系统概论": "database systems",
+    "数据库": "database",
+    "数据库系统": "database systems",
+    "数据库系统概论": "database",
+    "编译原理": "compiler",
+    "计算机导论": "computer science",
+    "计算机基础": "computer science",
+    "数字电路": "digital circuit",
+    "单片机": "microcontroller",
     "算法": "algorithms",
     "算法设计与分析": "algorithms",
     "机器学习": "machine learning",
     "深度学习": "deep learning",
     "人工智能": "artificial intelligence",
-    "编译原理": "compilers",
     "软件工程": "software engineering",
     "网络安全": "network security",
     "信息安全": "information security",
@@ -107,7 +112,10 @@ def english_query(name: str, generator=None) -> str:
 
 
 STOPWORDS = {"introduction", "to", "and", "the", "of", "for", "with", "a", "an",
-             "using", "from", "in", "on", "practice", "principles"}
+             "using", "from", "in", "on", "practice"}
+# 这些词太泛，不能单独证明教材对题（例如“系统生物学”不能被当成“操作系统”）。
+GENERIC = {"system", "network", "structure", "organization", "computer", "data",
+           "design", "principles", "programming", "science", "engineering"}
 
 
 def _stem(word: str) -> str:
@@ -121,16 +129,16 @@ def _terms(query: str) -> list[str]:
 
 
 def _relevant(book: dict, query: str) -> int:
-    """只看标题里的命中词，避免把“系统生物学”当成“操作系统”教材。"""
+    """标题必须命中“有区分度”的词；系统/网络/数据这类泛词不能单独过关。"""
     terms = _terms(query)
     if not terms:
         return 0
+    required = [t for t in terms if t not in GENERIC] or terms
     title = (book.get("title") or "").lower()
     title = title.replace("systems", "system").replace("structures", "structure")
-    score = sum(1 for term in terms if term in title)
-    if len(terms) >= 2:
-        return score if score >= 2 else 0
-    return score
+    if all(term in title for term in required):
+        return len(required) * 2 + sum(1 for t in terms if t in title)
+    return 0
 
 
 def search(query: str, max_results: int = 8) -> list[dict]:

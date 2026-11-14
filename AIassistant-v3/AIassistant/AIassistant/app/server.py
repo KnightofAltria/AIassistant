@@ -891,8 +891,8 @@ class Handler(BaseHTTPRequestHandler):
                             if STORE._store is owner_store:
                                 refs = textbooks.import_books(STORE, papers, name, folder)
                     else:
-                        ref_error = ("Open Textbook Library 没有返回可下载的教材" if ref_query
-                                     else "无法把科目名转成英文检索词")
+                        ref_error = (f"没有找到匹配“{ref_query}”的开放教材，可手动上传教材"
+                                     if ref_query else "无法生成英文检索词，可手动上传教材")
                 except Exception as exc:               # noqa: BLE001
                     ref_error = f"参考文献下载失败：{str(exc)[:140]}"
             self._json({"subject": subject, "folder": folder, "videos": len(saved),
