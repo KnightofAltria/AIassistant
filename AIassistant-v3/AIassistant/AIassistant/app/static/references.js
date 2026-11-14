@@ -16,7 +16,8 @@ async function renderReferencePanel() {
         <span class="tag reference-tag">主要参考文献${bib.pages ? ' · ' + Number(bib.pages) + '页PDF' : ''}</span>
         <h4>${esc(m.title)}</h4><p class="muted small">${esc(bib.author || '')} ${esc(bib.institution || '')}</p>
         ${bib.description ? `<p class="small">${esc(bib.description)}</p>` : ''}
-        <p class="muted small">${esc(bib.language || '')} · ${toc.length} 个目录条目</p>
+        <p class="muted small">${esc(bib.language || '')} · ${toc.length} 个目录条目
+          ${(!toc.length && canEditMaterial(m)) ? `<button class="btn small" data-ref-toc="${m.id}">识别目录</button>` : ''}</p>
         <div class="card-actions">
           <button class="btn small" data-ref-read="${m.id}">阅读教材</button>
           <a class="btn small" href="/api/materials/${m.id}/source" target="_blank" rel="noopener">原版PDF / 源文件</a>
@@ -27,6 +28,17 @@ async function renderReferencePanel() {
     ${editable ? '<details class="reference-catalog"><summary id="ref-catalog-summary">添加官方教材与专题PDF</summary><p class="muted small">完整教材、官方单章、作者讲义和协议规范分别标注，可配合中文专题资料学习。已下载文件会直接导入。</p><label class="field"><span>筛选科目</span><select id="ref-catalog-subject"><option value="">全部科目</option><option value="co">计算机组成原理</option><option value="cn">计算机网络</option><option value="os">操作系统</option><option value="ds">数据结构</option></select></label><div id="ref-catalog-list"></div><p id="ref-download-msg" class="small"></p></details>' : ''}`;
   box.querySelectorAll('[data-ref-read]').forEach((b) => b.addEventListener('click', () => openMaterial(b.dataset.refRead)));
   box.querySelectorAll('[data-ref-edit]').forEach((b) => b.addEventListener('click', () => editReference(MATERIALS.find((m) => m.id === b.dataset.refEdit))));
+  box.querySelectorAll('[data-ref-toc]').forEach((b) => b.addEventListener('click', async () => {
+    b.disabled = true; b.textContent = '识别中…';
+    try {
+      const res = await api(`/api/references/${b.dataset.refToc}/toc`, { method: 'POST', body: '{}' });
+      toast(`已识别 ${res.toc} 个目录条目`);
+      await loadMaterials();
+    } catch (err) {
+      toast(err.message, true);
+      b.disabled = false; b.textContent = '识别目录';
+    }
+  }));
   box.querySelectorAll('[data-ref-remove]').forEach((b) => b.addEventListener('click', async () => {
     try {
       await api(`/api/materials/${b.dataset.refRemove}/reference`, { method: 'POST', body: JSON.stringify({ enabled: false }) });

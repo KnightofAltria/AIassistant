@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import references
 import textbooks
 from store import Store
 
@@ -30,6 +31,14 @@ class TextbookTests(unittest.TestCase):
         self.assertEqual(textbooks._relevant(book, "operating system"), 0)
         self.assertGreaterEqual(textbooks._relevant(
             {"title": "Operating Systems and Middleware", "description": ""}, "operating system"), 2)
+
+    def test_toc_falls_back_to_chapter_headings(self):
+        text = ("## 第 1 页\nChapter 1\nintro\n"
+                "## 第 5 页\nChapter 2\nbody\n"
+                "## 第 9 页\nChapter 3\nmore")
+        toc = references.detect_toc(text, b"")
+        self.assertEqual([(x["title"], x["page"]) for x in toc],
+                         [("Chapter 1", 1), ("Chapter 2", 5), ("Chapter 3", 9)])
 
     def test_import_book_as_reference(self):
         book = {"title": "A Test Textbook", "url": "https://open.umn.edu/test",

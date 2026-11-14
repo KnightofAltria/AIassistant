@@ -15,6 +15,7 @@ from html.parser import HTMLParser
 import deepseek
 import pdftext
 import rag
+import references
 
 SOURCE_NAME = "Open Textbook Library"
 SOURCE_HOME = "https://open.umn.edu/opentextbooks"
@@ -157,7 +158,12 @@ def search(query: str, max_results: int = 8) -> list[dict]:
             continue
         out.append({"title": book.get("title") or "", "url": book.get("url") or "",
                     "pdf_urls": pdfs[:2], "license": book.get("license") or "",
-                    "description": book.get("description") or ""})
+                    "description": book.get("description") or "",
+                    "language": book.get("language") or "",
+                    "publishers": [x.get("name") for x in book.get("publishers", [])
+                                   if isinstance(x, dict) and x.get("name")],
+                    "contributors": [x.get("name") for x in book.get("contributors", [])
+                                     if isinstance(x, dict) and x.get("name")]})
     return out
 
 
@@ -256,9 +262,17 @@ def import_books(store, books: list[dict], subject: str, folder: dict) -> list[d
                 folder_id=folder["id"], source_url=book["url"],
                 ext=".md", original=book["raw"], original_ext=".pdf")
             store.replace_chunks(material["id"], rag.chunk_text(book["text"]))
-            store.set_reference(material["id"], True, [])
+            toc = references.detect_toc(book["text"], book["raw"])
+            bib = {"pages": book.get("pages", 0), "license": book.get("license", ""),
+                   "description": (book.get("description") or "")[:600],
+                   "language": book.get("language", ""),
+                   "author": "、".join(book.get("contributors", [])[:3]),
+                   "institution": " / ".join(book.get("publishers", [])[:2]),
+                   "source": book.get("url", "")}
+            store.set_reference(material["id"], True, toc, bib)
             results.append({"title": title, "ok": True, "pages": book.get("pages", 0),
-                            "url": book["url"], "license": book.get("license", "")})
+                            "toc": len(toc), "url": book["url"],
+                            "license": book.get("license", "")})
         except Exception as exc:             # noqa: BLE001
             results.append({"title": title, "ok": False, "reason": str(exc)[:160]})
         existing.add(title)

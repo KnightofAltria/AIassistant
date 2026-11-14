@@ -67,6 +67,15 @@ def section_paths(toc: list[dict]) -> list[str]:
     return paths
 
 
+def _plausible_toc(items: list[dict]) -> bool:
+    """PDF 书签可能是页码占位符；没有文字或没有页码时改用正文标题。"""
+    if len(items) < 3:
+        return False
+    readable = [t for t in items if re.search(r"[A-Za-z\u4e00-\u9fff]", t["title"])]
+    paged = [t for t in items if t["page"]]
+    return len(readable) >= len(items) * 0.7 and len(paged) >= max(2, len(items) * 0.5)
+
+
 def detect_toc(text: str, raw: bytes = b"") -> list[dict]:
     """优先PDF书签，缺少书签时使用文本标题；扫描件需用户手工填目录。"""
     out = []
@@ -97,18 +106,24 @@ def detect_toc(text: str, raw: bytes = b"") -> list[dict]:
             walk(node.get("First"))
         except Exception:
             out = []
-    if not out:
+    if not _plausible_toc(out):
+        out = []
         page = 0
         for line in text.splitlines():
             pm = re.match(r"## 第 (\d+) 页", line)
             if pm:
                 page = int(pm.group(1))
                 continue
-            hm = re.match(r"^(#{1,3})\s+(.+)", line)
-            cm = re.match(r"^(第[一二三四五六七八九十百\d]+章\s*.+)$", line.strip())
-            if hm or cm:
-                out.append({"title": (hm.group(2) if hm else cm.group(1))[:180],
-                            "page": page, "level": len(hm.group(1)) if hm else 1})
+            s = line.strip()
+            if not s:
+                continue
+            hm = re.match(r"^(#{1,3})\s+(.+)", s)
+            cm = re.match(r"^(第[一二三四五六七八九十百\d]+章(?:\s+.*)?)$", s)
+            en = re.match(r"^(Chapter\s+\d+)\s*$", s)
+            if hm or cm or en:
+                title = hm.group(2) if hm else (cm.group(1) if cm else en.group(1))
+                out.append({"title": title[:180], "page": page,
+                            "level": len(hm.group(1)) if hm else 1})
                 if len(out) >= 512:
                     break
     return clean_toc(out)

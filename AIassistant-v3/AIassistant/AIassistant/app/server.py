@@ -806,6 +806,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/references/download" or re.fullmatch(
+                r"/api/references/[\w-]+/toc", path) or re.fullmatch(
                 r"/api/materials/[\w-]+/reference(?:/chapters)?", path):
             try:
                 self._reference_post(path, body)
@@ -1573,6 +1574,22 @@ class Handler(BaseHTTPRequestHandler):
                 TUTOR_JOBS.discard(job)
 
     def _reference_post(self, path: str, body: dict) -> None:
+        m_toc = re.fullmatch(r"/api/references/([\w-]+)/toc", path)
+        if m_toc:
+            material = STORE.material(m_toc.group(1))
+            if not material or not material.get("is_reference"):
+                raise ValueError("这份资料不是主要参考文献")
+            original = STORE.material_original(material["id"])
+            raw = b""
+            if original and original.suffix.lower() == ".pdf":
+                raw = original.read_bytes()
+            toc = references.detect_toc(STORE.get_material_text(material["id"]), raw)
+            if not toc:
+                raise ValueError("没有识别到目录，请用「目录与生成章节」手动填写")
+            bib = json.loads(material.get("bibliography") or "{}")
+            STORE.set_reference(material["id"], True, toc, bib)
+            self._json({"material": STORE.material(material["id"]), "toc": len(toc)})
+            return
         if path == "/api/references/download":
             folder_id = body.get("folder_id") or ""
             owner = STORE._store
