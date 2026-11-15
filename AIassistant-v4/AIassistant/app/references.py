@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import threading
 import time
@@ -14,7 +15,7 @@ import pdftext
 import rag
 
 APP = Path(__file__).resolve().parent
-LIBRARY = APP / "reference_library"
+LIBRARY = Path(os.environ.get("CSLA_REFERENCE_DIR", str(APP / "reference_library")))
 CATALOG = json.loads((APP / "reference_catalog.json").read_text(encoding="utf-8"))
 CACHE_LOCK = threading.Lock()
 MAX_BYTES = 32 * 1024 * 1024

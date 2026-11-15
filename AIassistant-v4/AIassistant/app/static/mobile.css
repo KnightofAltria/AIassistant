@@ -1,0 +1,32 @@
+/* Android-only overrides; desktop layout continues using style.css. */
+.csla-mobile, .csla-mobile body { height: 100%; overflow-x: hidden; }
+.csla-mobile #sidebar {
+  position: fixed; inset: 0 auto 0 0; width: min(82vw, 300px);
+  z-index: 90; transform: translateX(-110%); transition: transform .18s;
+  overflow-y: auto; box-shadow: 8px 0 40px #0003; display: flex;
+}
+.csla-mobile .sidebar-foot, .csla-mobile .brand-text { display: flex; }
+.csla-mobile .profile-meta { display: block; }
+.csla-mobile .nav-item { justify-content: flex-start; padding: 10px 12px; }
+.csla-mobile .nav-item > span { display: inline; }
+.csla-mobile .brand, .csla-mobile .profile-card { justify-content: flex-start; }
+.csla-mobile #sidebar.mobile-open { transform: translateX(0); }
+.csla-mobile #sidebar.collapsed { margin-left: 0; }
+.csla-mobile .expand-btn { display: none; }
+.csla-mobile #app { grid-template-columns: minmax(0, 1fr); }
+.csla-mobile .main { width: 100%; min-width: 0; margin-left: 0; }
+.csla-mobile .modal { padding: 12px; align-items: center; z-index: 200; }
+.csla-mobile .modal-card { width: 100%; max-height: 85dvh; overflow-y: auto; }
+.csla-mobile input, .csla-mobile textarea, .csla-mobile select { font-size: 16px; }
+.csla-mobile .btn, .csla-mobile button, .csla-mobile summary { min-height: 44px; }
+.csla-mobile .card-actions, .csla-mobile .head-actions { flex-wrap: wrap; gap: 8px; }
+.csla-mobile pre, .csla-mobile .katex-display { overflow-x: auto; max-width: 100%; }
+.csla-mobile .composer.floating { position: sticky; bottom: 0; width: 100%; margin: 0; }
+.csla-mobile .doc-body.pdf { min-height: 180px; height: auto; padding: 20px; }
+.csla-mobile .lesson-inner { padding: 12px; }
+.csla-mobile .gate-card { width: min(100%, 420px); }
+@media (max-width: 600px) {
+  .csla-mobile .main, .csla-mobile .view { padding-left: 12px; padding-right: 12px; }
+  .csla-mobile .reference-modal, .csla-mobile .profile-layout { display: block; }
+  .csla-mobile .material-grid, .csla-mobile .subject-grid { grid-template-columns: minmax(0, 1fr); }
+}

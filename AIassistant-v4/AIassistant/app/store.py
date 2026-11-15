@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -23,7 +24,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
-DATA_DIR = APP_DIR / "data"
+DATA_DIR = Path(os.environ.get("CSLA_DATA_DIR", str(APP_DIR / "data")))
 MATERIAL_DIR = DATA_DIR / "materials"
 ORIGINAL_EXT = ".docx"      # 上传的 Word 原文件与抽出的文本同名，只换扩展名
 DB_PATH = DATA_DIR / "csla.db"

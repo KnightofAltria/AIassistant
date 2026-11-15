@@ -267,6 +267,7 @@ async function streamSSE(path, payload, handlers) {
 /* ---------------------------------------------------------------- 启动 */
 async function boot() {
   const st = await api('/api/state');
+  if (window.CSLA_MOBILE) entryChosen = true;
   if (!entryChosen) {
     const justLoggedIn = sessionStorage.getItem('csla.loginJustCompleted');
     sessionStorage.removeItem('csla.loginJustCompleted');
@@ -277,7 +278,7 @@ async function boot() {
   if (st.auth && st.auth.enabled && !st.auth.logged_in) { showAuth(st.auth); return; }
   $('#auth').classList.add('hidden');
   renderAccount(st.auth);
-  if (!st.configured) {
+  if (!st.configured && !window.CSLA_MOBILE) {
     $('#gate').classList.remove('hidden');
     $('#app').classList.add('hidden');
     if (st.mock) { $('#gate-msg').textContent = '当前服务以 --mock 离线演示模式启动，可直接进入。'; $('#gate-msg').classList.add('ok'); }
@@ -292,6 +293,7 @@ function enterApp(st) {
   $('#gate').classList.add('hidden');
   $('#app').classList.remove('hidden');
   $('#brand-sub').textContent = st.mock ? '离线演示模式' : (st.model || 'deepseek-chat');
+  if (window.CSLA_MOBILE) $('#brand-sub').textContent = st.configured ? '手机本地库 · DeepSeek 已配置' : '手机本地库 · 可离线阅读';
   renderIdentity((st.user && st.user.name) || '本机用户', st.avatar || '');
   renderStats(st.stats);
   loadProfile();
@@ -413,6 +415,7 @@ $('#set-save').addEventListener('click', async () => {
   if (!key) { $('#set-msg').textContent = '请填写新的 Key'; return; }
   try {
     await api('/api/config', { method: 'POST', body: JSON.stringify({ api_key: key, model: $('#set-model').value }) });
+    $('#set-key').value = '';
     $('#set-msg').textContent = '已保存';
     toast('API Key 已更新');
     setTimeout(() => { closeModal('#modal-settings'); boot(); }, 500);
@@ -832,11 +835,25 @@ function renderLecture(chapter) {
   $('#tutor-status').textContent = `${meta.mock ? '演示模式 · ' : ''}${saved.length}/${sections.length} 节已保存 · 章节文件夹中包含 outline.md 和独立小节 Markdown 文件`;
   $('#lecture-export').classList.toggle('hidden', !saved.length);
   $('#btn-tutor').disabled = !!chapter.generating || saved.length === sections.length;
+  if (window.CSLA_MOBILE) {
+    $('#btn-tutor').textContent = '生成下一节';
+    $('#tutor-status').textContent = `${saved.length}/${sections.length} 节已保存到此手机 · 每次生成一节，请保持前台`;
+    api('/api/mobile/status').then(data => {
+      const task = data.jobs.find(j => j.chapter_id === chapter.id);
+      if (state.chapter === chapter && !chapter.generating && task?.status === 'interrupted') {
+        $('#tutor-status').textContent += ' · 上次未完成，可重试未保存小节';
+      }
+    }).catch(() => {});
+  }
   $('#btn-outline').disabled = !!chapter.generating;
 }
 
 async function generateTutor(chapter, request = {}) {
   if (chapter.generating) return;
+  if (window.CSLA_MOBILE && !request.action && !request.section_id) {
+    const next = (lessonMeta(chapter).sections || []).find(s => !s.content);
+    if (next) request = {...request, section_id: next.id};
+  }
   chapter.generating = true;
   renderLecture(chapter);
   const visible = () => state.chapter === chapter && !!$('#tutor-body');
@@ -1119,6 +1136,10 @@ function nudgeMaterial(m, step) {
 const IS_LOCAL_PAGE = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
 
 function openSourceInBrowser(id) {
+  if (window.CSLA_MOBILE) {
+    location.href = `/api/materials/${encodeURIComponent(id)}/source`;
+    return;
+  }
   window.open(`/api/materials/${encodeURIComponent(id)}/source`, '_blank', 'noopener');
 }
 
@@ -1131,6 +1152,7 @@ function openSourceFile(m) {
 async function openSourceLocally(id) {
   try {
     const res = await api(`/api/materials/${encodeURIComponent(id)}/open`, { method: 'POST', body: '{}' });
+    if (res.mobile) { location.href = res.reader; return; }
     toast(`已用电脑上的默认程序打开 ${res.name}`);
   } catch (err) { toast(err.message, true); }
 }
@@ -1652,7 +1674,9 @@ function renderReader() {
   const source = READER.mode === 'source' || d.format === 'text';
   body.className = 'doc-body' + (source ? ' source' : '') + (pdf && !source ? ' pdf' : '');
   if (pdf && !source) {
-    body.innerHTML = `<iframe class="pdf-frame" title="${esc(d.material.title)}"
+    body.innerHTML = window.CSLA_MOBILE
+      ? `<p>原版 PDF 可在手机内离线阅读，支持引用页码跳转。</p><a class="btn primary" href="/api/mobile/pdf/${encodeURIComponent(d.material.id)}">打开 PDF 阅读器</a>`
+      : `<iframe class="pdf-frame" title="${esc(d.material.title)}"
       src="/api/materials/${encodeURIComponent(d.material.id)}/source"></iframe>`;
   } else if (source) body.textContent = d.content || '';
   else if (d.format === 'docx' && d.html) body.innerHTML = d.html;
