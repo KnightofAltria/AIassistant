@@ -38,7 +38,10 @@ class MobileIntegration(unittest.TestCase):
         before.conn.execute("""CREATE TABLE mobile_jobs (
             chapter_id TEXT PRIMARY KEY, section_id TEXT, status TEXT,
             updated_at TEXT, message TEXT)""")
-        before.conn.execute("INSERT INTO mobile_jobs VALUES ('old','one','running','','')")
+        subject = before.add_subject("重启恢复测试", is_builtin=False)
+        cls.recovered_id = before.add_chapter(subject["id"], "实际存在的章节")["id"]
+        before.conn.execute("INSERT INTO mobile_jobs VALUES (?,'one','running','','')", (cls.recovered_id,))
+        before.conn.execute("INSERT INTO mobile_jobs VALUES ('deleted-before-restart','one','running','','')")
         before.conn.commit()
         before.conn.close()
         cls.vault = FakeVault()
@@ -53,6 +56,7 @@ class MobileIntegration(unittest.TestCase):
     def tearDownClass(cls):
         mobile_runtime._server.shutdown()
         mobile_runtime._server.server_close()
+        mobile_runtime._server = None
         cls.store._store.conn.close()
         cls.temp.cleanup()
 
@@ -108,7 +112,88 @@ class MobileIntegration(unittest.TestCase):
 
     def test_running_job_recovered_as_interrupted(self):
         jobs = json.loads(self.request("/api/mobile/status")[1])["jobs"]
-        self.assertEqual(next(j for j in jobs if j["chapter_id"] == "old")["status"], "interrupted")
+        self.assertEqual(next(j for j in jobs if j["chapter_id"] == self.recovered_id)["status"], "interrupted")
+        self.assertFalse(any(j["chapter_id"] == "deleted-before-restart" for j in jobs))
+
+    def test_outline_parser_cancellation_preserves_saved_outline_and_retry(self):
+        """Use the real SSE parser, including cancellation at DONE/exhaustion."""
+        import lessons
+        sid = self.store.add_subject("后台大纲隔离测试", is_builtin=False)["id"]
+        cid = self.store.add_chapter(sid, "旧目录", outline="- 已保存小节")["id"]
+        meta = lessons.plan(self.store.chapter(cid))
+        meta["sections"][0].update(content="已保存讲义" * 100, revision="old")
+        lessons.publish(self.store, cid, meta)
+        self.store.set_config("api_key", "sk-test-in-memory")
+        original = self.store.chapter(cid)
+        text = json.dumps([{"title": "新小节", "query": "新小节"}], ensure_ascii=False)
+        content_line = ("data: " + json.dumps({"choices": [
+            {"delta": {"content": text}, "finish_reason": "stop"}]}, ensure_ascii=False) + "\n").encode()
+
+        class Response:
+            closed = False
+            def __init__(self, cancel, tail):
+                self.cancel, self.tail = cancel, tail
+            def __iter__(self):
+                yield content_line
+                if self.cancel:
+                    mobile_runtime.set_foreground(False)
+                    mobile_runtime.set_foreground(True)
+                if self.tail:
+                    yield b"data: [DONE]\n"
+            def close(self):
+                self.closed = True
+
+        try:
+            for tail in (True, False):
+                with self.subTest(done_line=tail):
+                    response = Response(True, tail)
+                    with patch.object(self.server.deepseek.DeepSeekClient, "_request", return_value=response), \
+                         patch.object(self.server.references, "evidence", return_value=("", [])):
+                        code, data, _ = self.request(f"/api/chapters/{cid}/tutor", "POST", {"action": "outline"})
+                    self.assertEqual(code, 200)
+                    self.assertNotIn(b"event: completed", data)
+                    self.assertTrue(response.closed)
+                    current = self.store.chapter(cid)
+                    for field in ("outline", "lecture", "lecture_meta"):
+                        self.assertEqual(current[field], original[field])
+                    jobs = json.loads(self.request("/api/mobile/status")[1])["jobs"]
+                    self.assertEqual(next(j for j in jobs if j["chapter_id"] == cid)["status"], "interrupted")
+            response = Response(False, True)
+            with patch.object(self.server.deepseek.DeepSeekClient, "_request", return_value=response), \
+                 patch.object(self.server.references, "evidence", return_value=("", [])):
+                _, data, _ = self.request(f"/api/chapters/{cid}/tutor", "POST", {"action": "outline"})
+            self.assertIn(b"event: completed", data)
+            self.assertEqual(lessons.plan(self.store.chapter(cid))["sections"][0]["title"], "新小节")
+        finally:
+            mobile_runtime.set_foreground(True)
+            self.store.set_config("api_key", "")
+            self.request(f"/api/subjects/{sid}", "DELETE")
+
+    def test_deleted_chapter_and_subject_jobs_cannot_return_from_late_callback(self):
+        sid = self.store.add_subject("任务清理隔离测试", is_builtin=False)["id"]
+        cid = self.store.add_chapter(sid, "删除中的章节", outline="- 小节")["id"]
+        other = self.store.add_chapter(sid, "随科目删除")["id"]
+        self.store.set_config("api_key", "sk-test-in-memory")
+        conn = self.store._store.conn
+        conn.execute("INSERT INTO mobile_jobs VALUES (?,'','running','','')", (other,))
+        conn.commit()
+
+        def deleted_stream(client, messages, **kwargs):
+            self.assertEqual(self.request(f"/api/chapters/{cid}", "DELETE")[0], 200)
+            yield "尚未完成"
+        try:
+            with patch.object(self.server.deepseek.DeepSeekClient, "stream_chat", deleted_stream):
+                self.request(f"/api/chapters/{cid}/tutor", "POST", {})
+            jobs = json.loads(self.request("/api/mobile/status")[1])["jobs"]
+            self.assertFalse(any(j["chapter_id"] == cid for j in jobs))
+            self.assertTrue(any(j["chapter_id"] == other for j in jobs))
+            self.assertEqual(self.request(f"/api/subjects/{sid}", "DELETE")[0], 200)
+            jobs = json.loads(self.request("/api/mobile/status")[1])["jobs"]
+            self.assertFalse(any(j["chapter_id"] == other for j in jobs))
+        finally:
+            self.store.set_config("api_key", "")
+            if self.store.subject(sid):
+                self.request(f"/api/subjects/{sid}", "DELETE")
 
     def test_import_read_download_and_path_escape_rejection(self):
         content = "# 手机测试资料\n\n补码是模运算中的有符号表示。\n" * 30

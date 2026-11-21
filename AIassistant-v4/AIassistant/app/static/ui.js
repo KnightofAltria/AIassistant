@@ -1,10 +1,10 @@
 /* 轻量的视觉偏好与首页氛围；不读取或上传用户资料。 */
 (() => {
   const key = 'csla.interface.preferences.v1';
-  const defaults = {tooltips:true,motion:true,pointer:true,mascot:true,math:true,
+  const defaults = {tooltips:true,motion:!window.CSLA_MOBILE,pointer:!window.CSLA_MOBILE,mascot:true,math:true,
     largeText:false,wrapCode:true,outlineExpanded:false,confirmDelete:true};
   let prefs = {...defaults};
-  try { const saved = JSON.parse(localStorage.getItem(key) || '{}');
+  try { const saved = window.CSLA_MOBILE_PREFERENCES || JSON.parse(localStorage.getItem(key) || '{}');
     for (const k of Object.keys(defaults)) if (typeof saved[k] === 'boolean') prefs[k] = saved[k];
   } catch (e) { /* 默认偏好 */ }
   const descriptions = {

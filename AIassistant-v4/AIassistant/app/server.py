@@ -463,9 +463,13 @@ class Handler(BaseHTTPRequestHandler):
         self._error("请先登录", 401, code="auth_required")
         return True
 
+    def _can_edit_core(self) -> bool:
+        """资料编辑能力独立于账号管理权限，手机端可由本地所有者提供。"""
+        return is_admin()
+
     def _core_denied(self, folder_ids=(), material_ids=()) -> bool:
         """非管理员要改核心资料时回 403，返回 True 表示已拦截。"""
-        if is_admin():
+        if self._can_edit_core():
             return False
         if any(is_core_folder(f) for f in folder_ids if f) \
                 or any(is_core_material(m) for m in material_ids if m):
@@ -577,7 +581,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._error("文件夹不存在", 404)
                 return
             self._json({"references": STORE.reference_materials(folder["id"]),
-                        "editable": is_admin() or not folder.get("is_shared")})
+                        "editable": self._can_edit_core() or not folder.get("is_shared")})
             return
         m = re.fullmatch(r"/api/chapters/([\w-]+)/lecture", path)
         if m:
@@ -750,12 +754,13 @@ class Handler(BaseHTTPRequestHandler):
                 f["renamable"] = not f.get("slug") and f["name"] not in subject_names
             fmap = {f["id"]: f for f in folders}
             for f in folders:
-                f["editable"] = is_admin() or not f.get("is_shared")
+                f["editable"] = self._can_edit_core() or not f.get("is_shared")
             for mat in materials:
                 f = fmap.get(mat.get("folder_id", ""), {})
                 mat["folder_name"] = f.get("name", "")
                 mat["folder_shared"] = bool(f.get("is_shared"))
-            self._json({"materials": materials, "folders": folders, "is_admin": is_admin()})
+            self._json({"materials": materials, "folders": folders, "is_admin": is_admin(),
+                        "can_edit_core": self._can_edit_core()})
             return
 
         if path == "/api/rag/search":
@@ -1087,7 +1092,7 @@ class Handler(BaseHTTPRequestHandler):
             if STORE.folder_by_name(name):
                 self._error("同名文件夹已存在", 409)
                 return
-            if body.get("is_shared") and not is_admin():
+            if body.get("is_shared") and not self._can_edit_core():
                 self._error("只有管理员可以新建核心资料文件夹", 403, code="forbidden")
                 return
             folder = STORE.add_folder(name, is_shared=bool(body.get("is_shared")))
@@ -1414,14 +1419,14 @@ class Handler(BaseHTTPRequestHandler):
         if not text:
             self._error("消息不能为空", 400)
             return
+        if not STORE.has_api_key() and not deepseek.MOCK:
+            self._error("尚未配置 DeepSeek API Key", 401)
+            return
         cid = body.get("conversation_id") or ""
         ephemeral = bool(body.get("ephemeral"))     # 章节内随手提问：不落会话记录
         if not ephemeral and not cid:
             conv = STORE.create_conversation(text[:20] or "新对话")
             cid = conv["id"]
-        if not STORE.has_api_key() and not deepseek.MOCK:
-            self._error("尚未配置 DeepSeek API Key", 401)
-            return
 
         history = [{"role": m["role"], "content": m["content"]}
                    for m in STORE.messages(cid)][-8:] if cid else []
@@ -2006,7 +2011,7 @@ class Handler(BaseHTTPRequestHandler):
         system = (prompts.AGENT_MATERIALS_SYSTEM if scope == "materials"
                   else prompts.AGENT_STUDY_SYSTEM)
         ctx = tools.ToolContext(store=STORE, retriever_factory=get_retriever,
-                                is_admin=is_admin())
+                                is_admin=self._can_edit_core())
         specs = tools.tools_for_scope(scope)
         messages = [{"role": "system", "content": system},
                     {"role": "user", "content": text}]
@@ -2236,7 +2241,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _import_upload(self, body: dict) -> None:
+    def _import_upload(self, body: dict, raw_upload: bytes | None = None) -> None:
         """上传导入：支持 .docx / .pdf / .txt / .md / .csv / .json；其余类型明确拒绝。
 
         原文件一律保留，阅读页"打开源文件"打开的就是它。
@@ -2253,14 +2258,14 @@ class Handler(BaseHTTPRequestHandler):
             self._error("主要参考文献需放到文件夹中并审核通过", 400)
             return
         # 上传了文件就保存原件；.txt/.md 等文本类若同时带了 text（导入框里可能改过），正文以 text 为准
-        if body.get("content"):
+        if raw_upload is not None or body.get("content"):
             if ext not in IMPORT_TYPES:
                 hint = "老式 .doc 无法直接解析，请先在 Word 里另存为 .docx" if ext == ".doc" \
                     else f"不支持导入 {ext or '无扩展名'} 文件，只支持 {' / '.join(IMPORT_TYPES)}"
                 self._error(hint, 400)
                 return
             try:
-                raw = extras.b64decode(body["content"])
+                raw = raw_upload if raw_upload is not None else extras.b64decode(body["content"])
             except Exception:                          # noqa: BLE001
                 self._error("上传内容不是合法的 base64", 400)
                 return

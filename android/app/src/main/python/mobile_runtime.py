@@ -11,6 +11,8 @@ import os
 import re
 import secrets
 import threading
+import time
+import urllib.parse
 from http.cookies import SimpleCookie
 from pathlib import Path
 
@@ -47,6 +49,14 @@ def start(root, vault):
         import deepseek
         deepseek.MOCK = False
         deepseek.BASE_URL = "https://api.deepseek.com"
+        def cancellation_check():
+            epoch = _cancel_epoch
+            def check():
+                if not _foreground.is_set() or epoch != _cancel_epoch:
+                    raise deepseek.DeepSeekError(
+                        "应用曾进入后台；本次生成已中断，请回到前台重试", 409, retryable=True)
+            return check
+        deepseek.CANCELLATION_CHECK_FACTORY = cancellation_check
 
         class VaultStore(store.Store):
             def get_config(self):
@@ -64,11 +74,26 @@ def start(root, vault):
                 else:
                     super().set_config(key, value)
 
+            def delete_chapter(self, chapter_id):
+                with server.STORE._lock:
+                    result = super().delete_chapter(chapter_id)
+                    self.conn.execute("DELETE FROM mobile_jobs WHERE chapter_id=?", (chapter_id,))
+                    self.conn.commit()
+                    return result
+
+            def delete_subject(self, subject_id):
+                with server.STORE._lock:
+                    result = super().delete_subject(subject_id)
+                    self.conn.execute("DELETE FROM mobile_jobs WHERE chapter_id NOT IN (SELECT id FROM chapters)")
+                    self.conn.commit()
+                    return result
+
         owner = VaultStore(root / "csla.db", data_dir=root)
         owner.conn.execute("DELETE FROM config WHERE key='api_key'")
         owner.conn.execute("""CREATE TABLE IF NOT EXISTS mobile_jobs (
             chapter_id TEXT PRIMARY KEY, section_id TEXT, status TEXT,
             updated_at TEXT, message TEXT)""")
+        owner.conn.execute("DELETE FROM mobile_jobs WHERE chapter_id NOT IN (SELECT id FROM chapters)")
         owner.conn.execute("""UPDATE mobile_jobs SET status='interrupted',
             message='应用曾退出；已保存小节可离线阅读，请重试未完成小节'
             WHERE status='running'""")
@@ -89,9 +114,35 @@ def start(root, vault):
         server.is_admin = lambda: False
         server.reset_caches()
         tutor_lock = threading.Lock()
+        uploads = {}
+        upload_lock = threading.Lock()
+        preference_keys = ("tooltips", "motion", "pointer", "mascot", "math",
+                           "largeText", "wrapCode", "outlineExpanded", "confirmDelete")
+
+        def saved_json(key):
+            try:
+                value = json.loads(owner.get_config().get(key) or "{}")
+                return value if isinstance(value, dict) else {}
+            except (ValueError, TypeError):
+                return {}
+
+        def clean_session(body):
+            views = ("home", "chat", "study", "materials", "reader", "lesson",
+                     "dashboard", "summary", "mistakes", "review", "usage",
+                     "search", "profile", "preferences")
+            result = {"view": body.get("view") if body.get("view") in views else "home"}
+            for key in ("subject_id", "chapter_id", "folder_id", "conversation_id", "material_id"):
+                value = body.get(key, "")
+                if isinstance(value, str) and re.fullmatch(r"[\w-]{0,80}", value):
+                    result[key] = value
+            draft = body.get("chat_draft", "")
+            result["chat_draft"] = draft[:12000] if isinstance(draft, str) else ""
+            return result
 
         def job(chapter_id, section_id, status, message=""):
             with server.STORE._lock:
+                if not owner.chapter(chapter_id):
+                    return
                 owner.conn.execute(
                     "INSERT OR REPLACE INTO mobile_jobs VALUES (?,?,?,?,?)",
                     (chapter_id, section_id, status, store.now(), message))
@@ -99,12 +150,20 @@ def start(root, vault):
 
         class MobileHandler(server.Handler):
             def _static(self, path):
-                if path in ("/", ""):
-                    body = (server.STATIC_DIR / "index.html").read_text(encoding="utf-8")
-                    body = body.replace('<html lang="zh-CN">', '<html lang="zh-CN" data-platform="android">')
+                if path in ("/", "", "/ui.js"):
+                    if path == "/ui.js":
+                        prefs = {k: v for k, v in saved_json("mobile_preferences_v1").items()
+                                 if k in preference_keys and isinstance(v, bool)}
+                        body = "window.CSLA_MOBILE_PREFERENCES=" + json.dumps(prefs) + ";\n"
+                        body += (server.STATIC_DIR / "ui.js").read_text(encoding="utf-8")
+                        mime = "application/javascript"
+                    else:
+                        body = (server.STATIC_DIR / "index.html").read_text(encoding="utf-8")
+                        body = body.replace('<html lang="zh-CN">', '<html lang="zh-CN" data-platform="android">')
+                        mime = "text/html"
                     raw = body.encode("utf-8")
                     self.send_response(200)
-                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Type", mime + "; charset=utf-8")
                     self.send_header("Content-Length", str(len(raw)))
                     self.send_header("Cache-Control", "no-store")
                     self.end_headers()
@@ -151,19 +210,132 @@ def start(root, vault):
                     return True
                 return False
 
-            def _core_denied(self, folder_ids=(), material_ids=()):
-                return False
+            def _can_edit_core(self):
+                return True
+
+            def do_POST(self):
+                if urllib.parse.urlparse(self.path).path != "/api/mobile/import":
+                    return super().do_POST()
+                if self._need_login("/api/mobile/import"):
+                    return
+                token, claimed = "", False
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < length <= server.IMPORT_MAX:
+                        self._error("文件不能为空且不能超过 32 MB", 413)
+                        self.close_connection = True
+                        return
+                    token = self.headers.get("X-CSLA-Upload", "")
+                    with upload_lock:
+                        entry = uploads.get(token)
+                        available = entry and not entry.get("running")
+                        if available:
+                            entry["running"] = True
+                            claimed = True
+                    if not available or entry["expires"] < time.monotonic():
+                        self._error("导入已取消或过期，请重新选择文件", 409)
+                        self.close_connection = True
+                        return
+                    if length != entry["size"] or self.headers.get("Content-Type") != "application/octet-stream":
+                        self._error("上传大小或类型不匹配", 400)
+                        self.close_connection = True
+                        return
+                    self.connection.settimeout(60)
+                    raw = self.rfile.read(length)
+                    with upload_lock:
+                        current = uploads.pop(token, None)
+                    if not current or current.get("cancelled"):
+                        self._error("已取消导入", 409)
+                        return
+                    if len(raw) != length:
+                        self._error("文件传输未完成，请重新导入", 400)
+                        return
+                    self._import_upload(entry["metadata"], raw_upload=raw)
+                except (OSError, TimeoutError):
+                    self.close_connection = True
+                except Exception as exc:
+                    self._error(f"导入失败：{exc}", 400)
+                finally:
+                    if claimed:
+                        with upload_lock:
+                            uploads.pop(token, None)
 
             def _api_get(self, path, query):
                 if path == "/api/mobile/status":
                     with server.STORE._lock:
                         jobs = [dict(r) for r in owner.conn.execute(
                             "SELECT * FROM mobile_jobs ORDER BY updated_at DESC")]
-                    self._json({"local_only": True, "jobs": jobs})
+                    self._json({"local_only": True, "can_edit_core": True, "jobs": jobs})
+                    return
+                if path == "/api/mobile/session":
+                    self._json(clean_session(saved_json("mobile_session_v1")))
+                    return
+                if path == "/api/mobile/preferences":
+                    self._json(saved_json("mobile_preferences_v1"))
                     return
                 super()._api_get(path, query)
 
             def _api_post(self, path, body):
+                if path == "/api/mobile/preferences":
+                    if not isinstance(body, dict):
+                        self._error("偏好参数无效", 400)
+                        return
+                    prefs = {k: v for k, v in body.items()
+                             if k in preference_keys and isinstance(v, bool)}
+                    owner.set_config("mobile_preferences_v1", json.dumps(prefs))
+                    self._json({"ok": True})
+                    return
+                if path == "/api/mobile/session":
+                    if not isinstance(body, dict):
+                        self._error("会话参数无效", 400)
+                        return
+                    owner.set_config("mobile_session_v1", json.dumps(clean_session(body)))
+                    self._json({"ok": True})
+                    return
+                if path == "/api/mobile/import/prepare":
+                    if not isinstance(body, dict):
+                        self._error("导入参数无效", 400)
+                        return
+                    size = body.get("size")
+                    filename = body.get("filename")
+                    if (not isinstance(size, int) or isinstance(size, bool)
+                        or not 0 < size <= server.IMPORT_MAX
+                        or not isinstance(filename, str) or len(filename) > 240
+                        or Path(filename.lower()).suffix not in server.IMPORT_TYPES):
+                        self._error("请选择不超过 32 MB 的 PDF、DOCX 或文本文件", 400)
+                        return
+                    metadata = {}
+                    for key, limit in (("filename", 240), ("title", 120), ("text", 2 * 1024 * 1024),
+                                       ("subject", 120), ("folder_id", 80)):
+                        value = body.get(key, "")
+                        if not isinstance(value, str) or len(value) > limit:
+                            self._error("导入参数过长或类型无效", 400)
+                            return
+                        metadata[key] = value
+                    for key in ("review", "is_reference"):
+                        metadata[key] = body.get(key) is True
+                    with upload_lock:
+                        now = time.monotonic()
+                        for old in list(uploads):
+                            if uploads[old]["expires"] < now:
+                                del uploads[old]
+                        if len(uploads) >= 8:
+                            self._error("待导入文件过多，请稍后重试", 429)
+                            return
+                        token = secrets.token_urlsafe(24)
+                        uploads[token] = {"metadata": metadata, "size": size, "expires": now + 600}
+                    self._json({"upload_id": token}, 201)
+                    return
+                if path == "/api/mobile/import/cancel":
+                    with upload_lock:
+                        token = body.get("upload_id", "")
+                        current = uploads.get(token)
+                        if current and current.get("running"):
+                            current["cancelled"] = True
+                        else:
+                            uploads.pop(token, None)
+                    self._json({"ok": True})
+                    return
                 if path == "/api/mobile/key/clear":
                     owner.set_config("api_key", "")
                     self._json({"ok": True})
@@ -200,7 +372,8 @@ def start(root, vault):
                     if not chapter or not _foreground.is_set():
                         self._error("请在前台打开章节再生成", 409)
                         return
-                    if not body.get("section_id") and body.get("action") != "outline":
+                    if (not body.get("section_id") and body.get("action") != "outline"
+                        and body.get("all_sections") is not True):
                         meta = server.lessons.plan(chapter)
                         server.lessons.publish(owner, chapter_id, meta)
                         target = next((u for u in meta["sections"] if not u.get("content")), None)

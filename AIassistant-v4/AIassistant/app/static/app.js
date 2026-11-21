@@ -309,6 +309,7 @@ function enterApp(st) {
     switchView('home', { replace: true });
   }
   loadConversations();
+  window.restoreMobileSession?.(want);
 }
 
 function renderStats(stats) {
@@ -385,7 +386,7 @@ function renderIdentity(name, avatar) {
 }
 
 async function editDisplayName() {
-  const name = prompt('显示名（1–20 个字，会同步为账号昵称）', $('#profile-name').textContent);
+  const name = prompt(window.CSLA_MOBILE ? '手机本地显示名（1–20 个字）' : '显示名（1–20 个字，会同步为账号昵称）', $('#profile-name').textContent);
   if (name == null || !name.trim()) return;
   try {
     const res = await api('/api/profile/name', { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
@@ -440,9 +441,18 @@ async function loadConversations() {
   conversations.forEach((c) => {
     const el = document.createElement('div');
     el.className = 'conv-item' + (c.id === state.conversationId ? ' active' : '');
-    el.innerHTML = `<span>${esc(c.title)}</span><b class="conv-del" title="删除">×</b>`;
+    el.innerHTML = `<span>${esc(c.title)}</span>${window.CSLA_MOBILE
+      ? '<button class="conv-rename mini-btn" title="重命名对话">改名</button><button class="conv-del mini-btn" title="删除对话">×</button>'
+      : '<b class="conv-del" title="删除">×</b>'}`;
     el.addEventListener('click', (ev) => {
       if (ev.target.classList.contains('conv-del')) { delConversation(c.id); return; }
+      if (ev.target.classList.contains('conv-rename')) {
+        const title = prompt('对话名称', c.title);
+        if (title?.trim()) api(`/api/conversations/${c.id}/rename`,
+          {method: 'POST', body: JSON.stringify({title: title.trim()})})
+          .then(loadConversations).catch(error => toast(error.message, true));
+        return;
+      }
       openConversation(c.id);
     });
     box.appendChild(el);
@@ -576,7 +586,9 @@ chatInput.addEventListener('input', () => {
   chatInput.style.height = Math.min(chatInput.scrollHeight, 160) + 'px';
 });
 chatInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#chat-form').requestSubmit(); }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
+    e.preventDefault(); $('#chat-form').requestSubmit();
+  }
 });
 
 $('#btn-summarize').addEventListener('click', async () => {
@@ -708,6 +720,14 @@ function openSubject(subject) {
     });
     list.appendChild(el);
   });
+  if (window.CSLA_MOBILE) {
+    const add = document.createElement('button');
+    add.id = 'btn-add-chapter';
+    add.className = 'btn primary';
+    add.textContent = '添加章节';
+    add.onclick = () => window.openMobileChapterEditor(subject);
+    list.appendChild(add);
+  }
   $('#btn-study-back').classList.remove('hidden');
   $('#study-title').textContent = subject.name;
   $('#study-sub').textContent = '选择一个章节开始';
@@ -733,7 +753,8 @@ async function openChapter(chapter) {
       <button id="btn-outline-expand" class="btn small hidden" aria-controls="outline-list" aria-expanded="false">展开全部大纲</button>
       <div class="card-actions">
         <button id="btn-outline" class="btn">AI 重新规划大纲</button>
-        <button id="btn-tutor" class="btn primary">生成未完成小节</button>
+        <button id="btn-tutor" class="btn primary">${window.CSLA_MOBILE ? '生成下一节' : '生成未完成小节'}</button>
+        ${window.CSLA_MOBILE ? '<button id="btn-tutor-all" class="btn">生成全部未完成小节</button>' : ''}
         <a id="lecture-export" class="btn hidden" href="/api/chapters/${chapter.id}/lecture" download>下载整章讲义</a>
         <button id="btn-chap-summary" class="btn">本章小结</button>
         <button id="btn-videos" class="btn">推荐学习视频</button>
@@ -765,6 +786,7 @@ async function openChapter(chapter) {
     renderOutlineVisibility(chapter);
   };
   $('#btn-tutor').onclick = () => generateTutor(chapter);
+  if ($('#btn-tutor-all')) $('#btn-tutor-all').onclick = () => generateTutor(chapter, {all_sections: true});
   $('#btn-chap-summary').onclick = () => generateChapterSummary(chapter.id);
   $('#question-count').onchange = () => { $('#btn-gen-q').textContent = `生成 ${$('#question-count').value} 道题`; window.showQuestionTimingAverage?.(); };
   window.showQuestionTimingAverage?.();
@@ -835,6 +857,7 @@ function renderLecture(chapter) {
   $('#tutor-status').textContent = `${meta.mock ? '演示模式 · ' : ''}${saved.length}/${sections.length} 节已保存 · 章节文件夹中包含 outline.md 和独立小节 Markdown 文件`;
   $('#lecture-export').classList.toggle('hidden', !saved.length);
   $('#btn-tutor').disabled = !!chapter.generating || saved.length === sections.length;
+  if ($('#btn-tutor-all')) $('#btn-tutor-all').disabled = $('#btn-tutor').disabled;
   if (window.CSLA_MOBILE) {
     $('#btn-tutor').textContent = '生成下一节';
     $('#tutor-status').textContent = `${saved.length}/${sections.length} 节已保存到此手机 · 每次生成一节，请保持前台`;
@@ -850,7 +873,7 @@ function renderLecture(chapter) {
 
 async function generateTutor(chapter, request = {}) {
   if (chapter.generating) return;
-  if (window.CSLA_MOBILE && !request.action && !request.section_id) {
+  if (window.CSLA_MOBILE && !request.action && !request.section_id && request.all_sections !== true) {
     const next = (lessonMeta(chapter).sections || []).find(s => !s.content);
     if (next) request = {...request, section_id: next.id};
   }
@@ -1009,9 +1032,10 @@ let MATERIALS = [];            // 当前文件夹下的全部资料（搜索/筛
 const SELECTED = new Set();    // 勾选的资料 id，换文件夹后只保留仍在列表里的
 const DRAG_TYPE = 'text/csla-materials';
 let IS_ADMIN = false;          // 核心资料只有管理员能改；学生端隐藏相应按钮（后端同样会拦）
+let CAN_EDIT_CORE = false;
 
 /* 当前账号能不能改这份资料 / 这个文件夹 */
-const canEditMaterial = (m) => IS_ADMIN || !m.folder_shared;
+const canEditMaterial = (m) => CAN_EDIT_CORE || !m.folder_shared;
 const canEditFolder = (f) => f.editable !== false;
 
 async function loadMaterials() {
@@ -1020,6 +1044,7 @@ async function loadMaterials() {
   MATERIALS = data.materials || [];
   FOLDERS = data.folders || [];
   IS_ADMIN = !!data.is_admin;
+  CAN_EDIT_CORE = data.can_edit_core === undefined ? IS_ADMIN : !!data.can_edit_core;
   CUR_FOLDER = FOLDERS.find((f) => f.id === state.folderId) || null;
   const ids = new Set(MATERIALS.map((m) => m.id));
   [...SELECTED].forEach((id) => { if (!ids.has(id)) SELECTED.delete(id); });
@@ -1238,7 +1263,9 @@ function renderSharedWarning() {
   const bar = $('#shared-warning');
   if (CUR_FOLDER && CUR_FOLDER.is_shared) {
     bar.className = 'banner warn';
-    bar.innerHTML = IS_ADMIN
+    bar.innerHTML = window.CSLA_MOBILE && CAN_EDIT_CORE
+      ? '<b>手机核心资料</b>：所有科目都可检索。你可管理此手机上的资料，改动会影响本地回答。'
+      : IS_ADMIN
       ? `<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#lock"></use></svg> <b>核心资料 core</b>：计算机核心知识，会被所有科目的提问检索到。
         你是管理员，可以修改；改动会影响全部科目的回答，请谨慎。`
       : `<svg class="line-icon" aria-hidden="true"><use href="/icons.svg#lock"></use></svg> <b>核心资料 core</b>：计算机核心知识，会被所有科目的提问检索到。
@@ -1394,7 +1421,8 @@ function renderMaterialList(materials) {
         <button class="mini-btn" data-act="copy">复制路径</button></div>
       <div class="card-actions">
         <button class="btn primary small" data-act="open">阅读</button>
-        <button class="btn small" data-act="source" title="${ext === 'docx' ? (IS_LOCAL_PAGE ? '用电脑上的 Word 打开' : 'Word 文件浏览器打不开，会下载到本地') : '在浏览器新标签页打开源文件'}">打开源文件</button>
+        <button class="btn small" data-act="source" title="${window.CSLA_MOBILE ? '在手机阅读源文件' : ext === 'docx' ? (IS_LOCAL_PAGE ? '用电脑上的 Word 打开' : 'Word 文件浏览器打不开，会下载到本地') : '在浏览器新标签页打开源文件'}">打开源文件</button>
+        ${window.CSLA_MOBILE ? `<a class="btn small" href="/api/materials/${m.id}/source?download=1">保存原文件</a>` : ''}
         ${editable ? `<button class="btn small" data-act="edit">编辑</button>
         <button class="btn small" data-act="reference">${m.is_reference ? '目录与章节' : '设为主要参考文献'}</button>
         <button class="btn small" data-act="move">移动到…</button>
@@ -1485,6 +1513,7 @@ $('#btn-import').addEventListener('click', async () => {
   const data = await api('/api/materials');
   FOLDERS = data.folders || [];
   IS_ADMIN = !!data.is_admin;
+  CAN_EDIT_CORE = data.can_edit_core === undefined ? IS_ADMIN : !!data.can_edit_core;
   // 学生不能往核心资料里导入
   const targets = FOLDERS.filter(canEditFolder);
   const cur = targets.some((f) => f.id === state.folderId) ? state.folderId : '';
@@ -1496,7 +1525,10 @@ $('#btn-import').addEventListener('click', async () => {
   $('#imp-reference').checked = false;
   openModal('#modal-import');
 });
-$('#imp-cancel').addEventListener('click', () => closeModal('#modal-import'));
+$('#imp-cancel').addEventListener('click', () => {
+  window.cancelMobileImport?.();
+  closeModal('#modal-import');
+});
 $('#imp-pick').addEventListener('click', () => $('#imp-file').click());
 
 const IMPORT_MAX_MB = 32;
@@ -1532,6 +1564,12 @@ $('#imp-file').addEventListener('change', async (e) => {
         : '导入时在服务端解析正文（保留标题、列表、表格）。') + '原文件会一并保存，可随时打开。';
     return;
   }
+  if (window.CSLA_MOBILE && file.size > 2 * 1024 * 1024) {
+    $('#imp-text').value = '';
+    $('#imp-text').disabled = true;
+    msg.textContent = '已选择较大的文本文件，将直接在手机本地解析并保留原件。导入后可在阅读页查看。';
+    return;
+  }
   const text = await file.text();
   $('#imp-text').value = text;
   msg.textContent = '';
@@ -1539,7 +1577,7 @@ $('#imp-file').addEventListener('change', async (e) => {
 $('#imp-save').addEventListener('click', async () => {
   const title = $('#imp-title').value.trim();
   const text = $('#imp-text').value;
-  const binary = PICKED_FILE && isBinaryImport(PICKED_FILE.name);
+  const binary = PICKED_FILE && (isBinaryImport(PICKED_FILE.name) || (window.CSLA_MOBILE && $('#imp-text').disabled));
   if (!binary && (!title || !text.trim())) { $('#imp-msg').textContent = '标题和内容都不能为空'; return; }
   $('#imp-msg').textContent = binary && /\.pdf$/i.test(PICKED_FILE.name) ? '正在提取 PDF 文字…' : '导入中…';
   const folderId = $('#imp-folder').value;
@@ -1553,11 +1591,16 @@ $('#imp-save').addEventListener('click', async () => {
       is_reference: $('#imp-reference').checked,
     };
     // 选了文本类文件：内容框里的文字（可能被改过）作为正文，原文件仍一并上传保存
-    if (PICKED_FILE) payload.content = await readFileBase64(PICKED_FILE);
     if (!binary) payload.text = text;
-    const res = await api('/api/materials/import', {
-      method: 'POST', body: JSON.stringify(payload),
-    });
+    let res;
+    if (window.CSLA_MOBILE && PICKED_FILE) {
+      res = await window.uploadMobileFile(PICKED_FILE, payload, message => {
+        $('#imp-msg').textContent = message;
+      });
+    } else {
+      if (PICKED_FILE) payload.content = await readFileBase64(PICKED_FILE);
+      res = await api('/api/materials/import', {method: 'POST', body: JSON.stringify(payload)});
+    }
     const pages = res.pages ? `共 ${res.pages} 页，` : '';
     toast(`已导入，${pages}切分为 ${res.chunks} 段${res.status === 'pending' ? '（待审核）' : ''}`);
     closeModal('#modal-import');
@@ -1633,11 +1676,11 @@ async function loadReader() {
     const type = (d.source_type || '').toUpperCase();
     if (d.source_type) {
       // Word 浏览器打不开：本机用 Word 打开 + 下载；PDF / 文本在浏览器新标签页打开
-      const viewable = d.source_type !== 'docx';
+      const viewable = window.CSLA_MOBILE ? d.source_type === 'pdf' : d.source_type !== 'docx';
       $('#reader-source').classList.toggle('hidden', !viewable);
       $('#reader-source').href = src;
-      $('#reader-source').textContent = `在浏览器中打开源文件（${type}）`;
-      $('#reader-open-local').classList.toggle('hidden', !d.can_open_local);
+      $('#reader-source').textContent = window.CSLA_MOBILE ? '在手机打开 PDF 原件' : `在浏览器中打开源文件（${type}）`;
+      $('#reader-open-local').classList.toggle('hidden', window.CSLA_MOBILE || !d.can_open_local);
       $('#reader-open-local').textContent = d.source_type === 'docx' ? '用 Word 打开源文件' : '用电脑上的程序打开';
       const dl = $('#reader-download');
       dl.classList.remove('hidden');

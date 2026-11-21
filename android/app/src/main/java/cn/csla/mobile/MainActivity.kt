@@ -6,15 +6,16 @@ import android.content.Intent
 import android.content.ClipData
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
 import android.webkit.*
 import android.widget.*
+import android.window.OnBackInvokedDispatcher
 import com.chaquo.python.Python
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
-import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
@@ -27,10 +28,15 @@ class MainActivity : Activity() {
     private var chooser: ValueCallback<Array<Uri>>? = null
     private var pendingDownload: String? = null
     private var downloadMime = "application/octet-stream"
+    private var restorePath = "/"
     private val runtime get() = Python.getInstance().getModule("mobile_runtime")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        restorePath = savedInstanceState?.getString("view_path")?.takeIf { it.startsWith("/?") || it == "/" } ?: "/"
+        pendingDownload = savedInstanceState?.getString("pending_download")
+            ?.takeIf { it.startsWith("/api/") && !it.contains("\r") && !it.contains("\n") }
+        downloadMime = savedInstanceState?.getString("download_mime") ?: "application/octet-stream"
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         column.setOnApplyWindowInsetsListener { view, insets ->
@@ -60,7 +66,11 @@ class MainActivity : Activity() {
         column.addView(status)
         column.addView(web, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(column)
-        WebView.setWebContentsDebuggingEnabled(false)
+        if (Build.VERSION.SDK_INT >= 33) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT) { goBack() }
+        }
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -103,11 +113,10 @@ class MainActivity : Activity() {
                 chooser = callback
                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "*/*"
+                    val types = acceptedMimeTypes(params.acceptTypes)
+                    type = if (types.size == 1) types[0] else "*/*"
                     putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.mode == FileChooserParams.MODE_OPEN_MULTIPLE)
-                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/pdf",
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        "text/*", "application/json", "image/*"))
+                    if (types.size > 1) putExtra(Intent.EXTRA_MIME_TYPES, types)
                 }
                 return try { startActivityForResult(intent, 100); true }
                 catch (_: Exception) { chooser = null; callback.onReceiveValue(null); false }
@@ -121,6 +130,24 @@ class MainActivity : Activity() {
             override fun onJsConfirm(view: WebView, url: String, message: String, result: JsResult): Boolean {
                 AlertDialog.Builder(this@MainActivity).setMessage(message)
                     .setPositiveButton("确定") { _, _ -> result.confirm() }
+                    .setNegativeButton("取消") { _, _ -> result.cancel() }
+                    .setOnCancelListener { result.cancel() }.show()
+                return true
+            }
+            override fun onJsPrompt(view: WebView, url: String, message: String,
+                defaultValue: String?, result: JsPromptResult): Boolean {
+                if (!isLocal(Uri.parse(url))) { result.cancel(); return true }
+                val input = EditText(this@MainActivity).apply {
+                    setText(defaultValue ?: "")
+                    inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                        android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                        android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                    minLines = if (message.contains("大纲")) 4 else 1
+                    maxLines = 10
+                    setPadding(24, 16, 24, 16)
+                }
+                AlertDialog.Builder(this@MainActivity).setMessage(message).setView(input)
+                    .setPositiveButton("保存") { _, _ -> result.confirm(input.text.toString()) }
                     .setNegativeButton("取消") { _, _ -> result.cancel() }
                     .setOnCancelListener { result.cancel() }.show()
                 return true
@@ -141,13 +168,12 @@ class MainActivity : Activity() {
     private fun launchLocal() {
         worker.execute {
             try {
-                val info = JSONObject(runtime.callAttr("start",
-                    File(noBackupFilesDir, "learning").absolutePath, KeyVault(this)).toString())
+                val info = (application as LocalApplication).startLearning()
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     base = info.getString("url")
                     CookieManager.getInstance().setCookie(base, info.getString("cookie")) {
-                        web.loadUrl("$base/?view=materials")
+                        web.loadUrl(base + restorePath)
                     }
                 }
             } catch (_: Exception) {
@@ -165,8 +191,25 @@ class MainActivity : Activity() {
         return uri.scheme == "http" && uri.host == "127.0.0.1" && uri.port == origin.port
     }
 
+    private fun acceptedMimeTypes(accept: Array<String>): Array<String> {
+        val extensions = mapOf(".pdf" to "application/pdf",
+            ".docx" to "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".txt" to "text/plain", ".md" to "text/plain", ".markdown" to "text/plain",
+            ".csv" to "text/csv", ".json" to "application/json",
+            ".png" to "image/png", ".jpg" to "image/jpeg", ".jpeg" to "image/jpeg")
+        return accept.flatMap { it.split(",") }.mapNotNull {
+            val value = it.trim().lowercase()
+            extensions[value] ?: value.takeIf { item -> item.contains("/") }
+        }.distinct().ifEmpty { listOf("*/*") }.toTypedArray()
+    }
+
     private fun navigate(uri: Uri): Boolean {
         if (isLocal(uri)) {
+            if (uri.path == "/api/export/report") {
+                saveDocument(uri.toString(), "CSLA-学习报告.docx",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                return true
+            }
             val match = Regex("^/api/(?:mobile/pdf|materials)/([\\w-]+)(?:/source)?$").matchEntire(uri.path ?: "")
             if (match != null && (uri.path!!.contains("/mobile/pdf/") || uri.path!!.endsWith("/source"))) {
                 if (uri.getQueryParameter("download") == "1") {
@@ -210,7 +253,7 @@ class MainActivity : Activity() {
     private fun saveDocument(url: String, filename: String, mime: String) {
         if (!isLocal(Uri.parse(url))) { message("仅支持导出本地学习文件"); return }
         if (pendingDownload != null) { message("请先完成当前导出"); return }
-        pendingDownload = url
+        pendingDownload = Uri.parse(url).encodedPath + (Uri.parse(url).encodedQuery?.let { "?$it" } ?: "")
         downloadMime = mime
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -233,16 +276,16 @@ class MainActivity : Activity() {
             pendingDownload = null
             val destination = data?.data
             if (resultCode != RESULT_OK || destination == null || url == null) return
-            val cookie = CookieManager.getInstance().getCookie(base)
             val mime = downloadMime
             worker.execute {
                 var connection: HttpURLConnection? = null
                 try {
-                    connection = URL(url).openConnection() as HttpURLConnection
+                    val info = (application as LocalApplication).startLearning()
+                    connection = URL(info.getString("url") + url).openConnection() as HttpURLConnection
                     connection.instanceFollowRedirects = false
                     connection.connectTimeout = 15000
                     connection.readTimeout = 30000
-                    connection.setRequestProperty("Cookie", cookie)
+                    connection.setRequestProperty("Cookie", info.getString("cookie").substringBefore(';'))
                     require(connection.responseCode == 200)
                     connection.inputStream.use { input ->
                         contentResolver.openOutputStream(destination, "wt")!!.use { output ->
@@ -283,14 +326,26 @@ class MainActivity : Activity() {
 
     private fun goBack() {
         web.evaluateJavascript(
-            "(function(){var s=document.getElementById('sidebar');" +
-            "if(s&&s.classList.contains('mobile-open')){s.classList.remove('mobile-open');return true;}" +
-            "var m=document.querySelector('.modal:not(.hidden)');" +
-            "if(m){m.classList.add('hidden');return true;}return false;})()"
-        ) { handled -> if (handled != "true") { if (web.canGoBack()) web.goBack() else finish() } }
+            "typeof window.handleAndroidBack==='function' ? window.handleAndroidBack() : null"
+        ) { handled ->
+            when (handled) {
+                "true" -> Unit
+                "false" -> finish()
+                else -> if (web.canGoBack()) web.goBack() else finish()
+            }
+        }
     }
     @Deprecated("Android platform callback")
     override fun onBackPressed() { goBack() }
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (::web.isInitialized && isLocal(Uri.parse(web.url ?: ""))) {
+            val uri = Uri.parse(web.url)
+            outState.putString("view_path", uri.encodedPath + (uri.encodedQuery?.let { "?$it" } ?: ""))
+        }
+        outState.putString("pending_download", pendingDownload)
+        outState.putString("download_mime", downloadMime)
+        super.onSaveInstanceState(outState)
+    }
     override fun onStart() {
         super.onStart()
         runtime.callAttr("set_foreground", true)

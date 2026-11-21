@@ -25,6 +25,29 @@
 .csla-mobile .doc-body.pdf { min-height: 180px; height: auto; padding: 20px; }
 .csla-mobile .lesson-inner { padding: 12px; }
 .csla-mobile .gate-card { width: min(100%, 420px); }
+.csla-mobile .conv-list { display: block; width: 100%; max-height: 155px; flex: 0 0 auto; }
+.csla-mobile .conv-del, .csla-mobile .conv-rename { opacity: 1; min-width: 44px; }
+.csla-mobile .chat-layout { flex-direction: column; min-height: 0; }
+.csla-mobile .chat-wrap { flex-direction: column; min-height: 0; }
+.csla-mobile .chat-main, .csla-mobile .chat-layout > * { min-width: 0; }
+.csla-mobile .messages { min-height: 160px; }
+.csla-mobile #view-chat.active { max-height: var(--mobile-viewport-height, 100dvh); }
+.csla-mobile .pill-edit, .csla-mobile .pill-del { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
+.csla-mobile .folder-pill { flex-wrap: wrap; max-width: 100%; }
+.csla-mobile .view-head, .csla-mobile .material-toolbar, .csla-mobile .reference-plan-row { flex-wrap: wrap; }
+.csla-mobile .dash-board { grid-template-columns: minmax(0, 1fr); }
+.csla-mobile .dash-board > .dash-cell { grid-column: auto; }
+.csla-mobile .reference-modal textarea, .csla-mobile .reference-modal select { width: 100%; max-width: 100%; }
+.csla-mobile .toolbar input, .csla-mobile .toolbar select { min-width: 0; max-width: 100%; }
+.csla-mobile .path-line { display: none; }
+.csla-mobile .mobile-graph-node { display: block; width: 100%; margin: 5px 0; text-align: left; white-space: normal; }
+.csla-mobile #mobile-graph-list { max-height: 360px; overflow-y: auto; margin-top: 12px; }
+.csla-mobile #modal-mobile-chapter label { display: grid; gap: 8px; margin: 12px 0; }
+.csla-mobile #modal-mobile-chapter input, .csla-mobile #modal-mobile-chapter textarea { width: 100%; }
+.csla-mobile .graph-full { padding: 12px; overflow: auto; }
+.csla-mobile .profile-layout, .csla-mobile .meta-grid { grid-template-columns: minmax(0, 1fr); }
+.csla-mobile .conv-item { flex-wrap: wrap; }
+.csla-mobile .conv-title { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 600px) {
   .csla-mobile .main, .csla-mobile .view { padding-left: 12px; padding-right: 12px; }
   .csla-mobile .reference-modal, .csla-mobile .profile-layout { display: block; }

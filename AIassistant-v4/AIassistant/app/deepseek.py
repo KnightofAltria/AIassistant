@@ -23,6 +23,8 @@ BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstri
 DEFAULT_MODEL = "deepseek-chat"
 REASONER_MODEL = "deepseek-reasoner"
 MOCK = os.environ.get("CSLA_MOCK", "") in ("1", "true", "yes")
+# The Android adapter installs a per-client lifecycle check. Desktop has none.
+CANCELLATION_CHECK_FACTORY = None
 
 
 class DeepSeekError(RuntimeError):
@@ -37,9 +39,15 @@ class DeepSeekClient:
         self.api_key = (api_key or "").strip()
         self.model = model or DEFAULT_MODEL
         self.timeout = timeout
+        self._cancel_check = CANCELLATION_CHECK_FACTORY() if CANCELLATION_CHECK_FACTORY else None
+
+    def _check_cancelled(self):
+        if self._cancel_check:
+            self._cancel_check()
 
     # ---------------------------------------------------------------- 基础请求
     def _request(self, path: str, payload: dict | None = None, stream: bool = False):
+        self._check_cancelled()
         url = f"{BASE_URL}{path}"
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
         req = urllib.request.Request(url, data=data, method="POST" if payload is not None else "GET")
@@ -48,7 +56,13 @@ class DeepSeekClient:
         if self.api_key:
             req.add_header("Authorization", f"Bearer {self.api_key}")
         try:
-            return urllib.request.urlopen(req, timeout=self.timeout)
+            resp = urllib.request.urlopen(req, timeout=self.timeout)
+            try:
+                self._check_cancelled()
+            except Exception:
+                resp.close()
+                raise
+            return resp
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", "replace")[:400]
             hint = {401: "API Key 无效或已过期", 402: "账户余额不足",
@@ -66,6 +80,7 @@ class DeepSeekClient:
             raise DeepSeekError("未填写 API Key", 401)
         with self._request("/models") as resp:
             payload = json.loads(resp.read().decode("utf-8", "replace"))
+            self._check_cancelled()
         models = [m.get("id") for m in payload.get("data", [])]
         return {"ok": True, "models": models}
 
@@ -82,8 +97,9 @@ class DeepSeekClient:
             "model": self.model, "messages": messages, "stream": True,
             "temperature": temperature, "max_tokens": max_tokens,
         }
+        self._check_cancelled()
         resp = self._request("/chat/completions", payload, stream=True)
-        return _iter_sse(resp, on_finish)
+        return _iter_sse(resp, on_finish, self._cancel_check)
 
     # ---------------------------------------------------------------- 带工具的对话
     def chat_with_tools(self, messages: list[dict], tools: list[dict],
@@ -97,6 +113,7 @@ class DeepSeekClient:
                    "tool_choice": "auto", "temperature": temperature, "stream": False}
         with self._request("/chat/completions", payload) as resp:
             data = json.loads(resp.read().decode("utf-8", "replace"))
+            self._check_cancelled()
         try:
             return data["choices"][0]["message"]
         except (KeyError, IndexError) as exc:
@@ -111,16 +128,28 @@ class DeepSeekClient:
                    "temperature": temperature, "max_tokens": max_tokens, "stream": False}
         with self._request("/chat/completions", payload) as resp:
             data = json.loads(resp.read().decode("utf-8", "replace"))
+            self._check_cancelled()
         try:
             return data["choices"][0]["message"]["content"]
         except (KeyError, IndexError) as exc:
             raise DeepSeekError(f"返回格式异常：{str(data)[:300]}") from exc
 
 
-def _iter_sse(resp, on_finish=None):
+def _iter_sse(resp, on_finish=None, cancel_check=None):
     """解析 SSE：逐行读 data: {...}，抽取 delta.content。"""
     try:
-        for raw in resp:
+        lines = iter(resp)
+        while True:
+            if cancel_check:
+                cancel_check()
+            try:
+                raw = next(lines)
+            except StopIteration:
+                if cancel_check:
+                    cancel_check()
+                break
+            if cancel_check:
+                cancel_check()
             line = raw.decode("utf-8", "replace").strip()
             if not line or not line.startswith("data:"):
                 continue

@@ -7,6 +7,18 @@ plugins {
 // Only tracked application sources and distributable seed assets enter the APK.
 // Never point Chaquopy at the workspace root or any data/ directory.
 def sharedApp = file("../../AIassistant-v4/AIassistant/app")
+// Migrate before clean can remove the old build-directory signing identity.
+def keyOverride = providers.gradleProperty("cslaDebugKeystore").orNull ?:
+        System.getenv("CSLA_DEBUG_KEYSTORE")
+def persistentDebugKey = keyOverride ? file(keyOverride) : file("../.signing/debug.keystore")
+if (keyOverride && !persistentDebugKey.isFile()) {
+    throw new GradleException("指定的调试签名文件不存在：${persistentDebugKey}")
+}
+def legacyDebugKey = file("${buildDir}/debug.keystore")
+if (!keyOverride && !persistentDebugKey.exists() && legacyDebugKey.isFile()) {
+    persistentDebugKey.parentFile.mkdirs()
+    java.nio.file.Files.copy(legacyDebugKey.toPath(), persistentDebugKey.toPath())
+}
 def stagePython = tasks.register('stagePython', Sync) {
     from(sharedApp) {
         include "*.py", "static/**", "samples/**", "study_guides/**", "reference_catalog.json"
@@ -25,8 +37,8 @@ android {
         applicationId 'cn.csla.mobile'
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName '0.1.0'
+        versionCode 3
+        versionName '0.2.0'
         ndk { abiFilters 'arm64-v8a', 'x86_64' }
     }
     buildTypes {
@@ -35,7 +47,7 @@ android {
     }
     signingConfigs {
         debug {
-            storeFile file("${buildDir}/debug.keystore")
+            storeFile persistentDebugKey
             storePassword "android"
             keyAlias "androiddebugkey"
             keyPassword "android"
@@ -46,6 +58,7 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = '17' }
+    buildFeatures { buildConfig true }
 }
 
 chaquopy {
@@ -59,7 +72,7 @@ chaquopy {
 }
 tasks.named("preBuild").configure { dependsOn(stagePython) }
 def debugKey = tasks.register("createDebugKey", Exec) {
-    def target = file("${buildDir}/debug.keystore")
+    def target = persistentDebugKey
     outputs.file(target)
     onlyIf { !target.exists() }
     doFirst { target.parentFile.mkdirs() }

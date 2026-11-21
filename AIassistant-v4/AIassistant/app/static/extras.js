@@ -635,6 +635,7 @@ async function renderGraph() {
   if (!cv) return;
   try {
     const data = await graphFetch(true);
+    window.renderMobileGraphList?.(data);
     const legend = $('#graph-legend');
     if (legend) legend.innerHTML = graphLegendHtml(data);
     const { ctx, w, h } = graphSize(cv, false);
@@ -1120,7 +1121,10 @@ async function submitFeynman() {
 }
 
 /* ---------------------------------------------------------------- 报告导出 */
-function exportReport() { window.open('/api/export/report', '_blank'); }
+function exportReport() {
+  if (window.CSLA_MOBILE) location.assign('/api/export/report');
+  else window.open('/api/export/report', '_blank');
+}
 
 /* ---------------------------------------------------------------- 事件绑定 */
 const btnExport = $('#btn-export-report');

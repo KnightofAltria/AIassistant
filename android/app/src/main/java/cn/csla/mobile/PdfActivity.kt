@@ -23,10 +23,18 @@ class PdfActivity : Activity() {
     private lateinit var image: ImageView
     private lateinit var label: TextView
     private lateinit var pageInput: EditText
+    private lateinit var scroll: ScrollView
     private var pageIndex = 0
+    private var materialId = ""
+    private var restoredScroll: Int? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        materialId = savedInstanceState?.getString("material_id")
+            ?: intent.getStringExtra("material_id") ?: ""
+        pageIndex = savedInstanceState?.getInt("page_index")
+            ?: (intent.getIntExtra("page", 1) - 1)
+        restoredScroll = savedInstanceState?.getInt("scroll_y")
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.setOnApplyWindowInsetsListener { view, insets ->
@@ -51,20 +59,21 @@ class PdfActivity : Activity() {
         button("跳转") { render((pageInput.text.toString().toIntOrNull() ?: 1) - 1) }
         label = TextView(this).apply { setPadding(16, 12, 16, 12); text = "正在读取本地 PDF…" }
         image = ImageView(this).apply { adjustViewBounds = true }
-        val scroll = ScrollView(this).apply { addView(image) }
+        scroll = ScrollView(this).apply { addView(image) }
         root.addView(bar); root.addView(label)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
         worker.execute {
             try {
+                (application as LocalApplication).startLearning()
                 val info = JSONObject(Python.getInstance().getModule("mobile_runtime")
-                    .callAttr("source_info", intent.getStringExtra("material_id") ?: "").toString())
+                    .callAttr("source_info", materialId).toString())
                 require(info.getBoolean("pdf"))
                 descriptor = ParcelFileDescriptor.open(File(info.getString("path")),
                     ParcelFileDescriptor.MODE_READ_ONLY)
                 renderer = PdfRenderer(descriptor!!)
                 runOnUiThread {
-                    if (!isFinishing && !isDestroyed) render(intent.getIntExtra("page", 1) - 1)
+                    if (!isFinishing && !isDestroyed) render(pageIndex)
                 }
             } catch (_: Exception) {
                 runOnUiThread { label.text = "PDF 不能打开；扫描件仍可查看，异常或加密文件请换一份后导入。" }
@@ -93,9 +102,19 @@ class PdfActivity : Activity() {
                     pageIndex = index
                     label.text = "PDF 第 ${index + 1} / ${pdf.pageCount} 页 · 文件保存在手机"
                     pageInput.setText((index + 1).toString())
+                    val position = restoredScroll ?: 0
+                    restoredScroll = null
+                    scroll.post { scroll.scrollTo(0, position) }
                 }
             } catch (_: Exception) { runOnUiThread { label.text = "此页无法渲染，请尝试其他页" } }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("material_id", materialId)
+        outState.putInt("page_index", pageIndex)
+        outState.putInt("scroll_y", scroll.scrollY)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() {

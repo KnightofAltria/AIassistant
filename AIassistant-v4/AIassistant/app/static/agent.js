@@ -89,7 +89,7 @@ document.querySelectorAll('[data-agent-preset]').forEach((btn) => {
 function openCreateSubject() {
   $('#subj-name').value = '';
   $('#subj-videos').value = '';
-  if ($('#subj-refs')) $('#subj-refs').checked = true;
+  if ($('#subj-refs')) $('#subj-refs').checked = !window.CSLA_MOBILE;
   $('#subj-msg').textContent = '';
   $('#modal-subject').classList.remove('hidden');
   setTimeout(() => $('#subj-name').focus(), 60);
@@ -113,18 +113,24 @@ async function submitCreateSubject() {
     const got = (res.references || []).filter((r) => r.ok && !r.skipped).length;
     const refNote = got ? `，已下载 ${got} 本开放教材`
       : (res.reference_error ? `（${res.reference_error}）` : '');
-    toast(`科目「${name}」已创建${refNote}${res.videos ? `，已收录 ${res.videos} 个视频链接` : ''}，正在生成章节…`);
+    const configured = !window.CSLA_MOBILE || (await api('/api/state')).configured;
+    toast(`科目「${name}」已创建${refNote}${res.videos ? `，已收录 ${res.videos} 个视频链接` : ''}`
+      + (configured ? '，正在生成章节…' : '，可手动添加章节'));
     // 关掉弹窗后交给 AI 生成章节与例题
-    await sendAgent('study',
+    if (configured) await sendAgent('study',
       `我刚创建了科目「${name}」（资料文件夹也已建好）。请调用 list_subjects 确认，`
       + '然后为它添加 4~5 个章节，每个章节给一段 3~5 条的大纲。只加章节，不要新增别的科目。', null);
-    loadSubjects();
+    if (!configured) {
+      const {subjects} = await api('/api/subjects');
+      const subject = subjects.find(s => s.id === res.subject?.id || s.name === name);
+      if (subject) { switchView('study', {restore: true}); openSubject(subject); }
+    } else loadSubjects();
     loadMaterials();
   } catch (err) {
     $('#subj-msg').textContent = err.message;
     toast(err.message, true);
   } finally {
-    btn.disabled = false; btn.textContent = '创建并生成章节';
+    btn.disabled = false; btn.textContent = window.CSLA_MOBILE ? '创建科目' : '创建并生成章节';
   }
 }
 
