@@ -1,0 +1,4 @@
+# Build machine only; not required by users of the portable app.
+Pillow==13.0.0
+packaging==26.3
+ziglang==0.17.1

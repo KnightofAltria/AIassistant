@@ -1,0 +1,9 @@
+pyinstaller==6.22.3
+pywebview==6.2.1
+pyobjc-core==13.0
+pyobjc-framework-Cocoa==13.0
+pyobjc-framework-Quartz==13.0
+pyobjc-framework-WebKit==13.0
+pyobjc-framework-Security==13.0
+pyobjc-framework-UniformTypeIdentifiers==13.0
+certifi==2026.11.20

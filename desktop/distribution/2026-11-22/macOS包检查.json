@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "bundle_identifier": "cn.csla.desktop",
+  "version": "0.2.0",
+  "architecture": "arm64",
+  "minimum_system_declared": "12.0",
+  "tested_system": "26.6.2",
+  "signing": "ad hoc signature verified; Developer ID and notarization not performed",
+  "bundled_bytes": 34173800,
+  "mach_o_files_checked": 11,
+  "personal_databases_sessions_keys": "excluded",
+  "model_network_requests": "not executed"
+}
