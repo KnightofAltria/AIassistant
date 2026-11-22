@@ -1,0 +1,10 @@
+{
+  "passed": true,
+  "file_count": 563,
+  "zip_bytes": 458365880,
+  "uncompressed_bytes": 1026067508,
+  "sha256": "768fbd083dd07e5f39c4dad35fab30e2badfeca87b6bdc5ca6b750f55b273a36",
+  "zip_crc": "passed",
+  "every_file_sha256": "passed",
+  "native_windows_tested": false
+}

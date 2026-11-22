@@ -1,0 +1,2 @@
+768fbd083dd07e5f39c4dad35fab30e2badfeca87b6bdc5ca6b750f55b273a36  CSLA-Windows-x64.zip
+23c569039a9194effa34b4ee9fc6182cf6f94ebf0637ac3dd0a181506cbd0f33  macOS/CSLA学习助手-macOS-arm64.dmg

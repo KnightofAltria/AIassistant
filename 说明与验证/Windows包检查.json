@@ -1,0 +1,27 @@
+{
+  "passed": true,
+  "checks": [
+    "Native AMD64 Windows GUI EXE; icon, Unicode version, asInvoker manifest; system DLLs only",
+    "Selected Python, CFFI, CLR loader, WebView2 loader and browser binaries are AMD64",
+    "WebView2 managed .NET interop assemblies present",
+    "Embedded Python isolated path file and certificates resolve within the software folder",
+    "Production module whitelist, syntax and all shipped web/sample/study assets",
+    "No databases, user config, session, secrets, developer cache or private reference library",
+    "Copied production source starts local auth/learning services on macOS using temporary data"
+  ],
+  "exe_imports": [
+    "USER32.dll",
+    "api-ms-win-crt-heap-l1-1-0.dll",
+    "api-ms-win-crt-locale-l1-1-0.dll",
+    "api-ms-win-crt-private-l1-1-0.dll",
+    "api-ms-win-crt-runtime-l1-1-0.dll",
+    "api-ms-win-crt-stdio-l1-1-0.dll",
+    "api-ms-win-crt-string-l1-1-0.dll",
+    "KERNEL32.dll",
+    "api-ms-win-crt-math-l1-1-0.dll",
+    "api-ms-win-crt-environment-l1-1-0.dll"
+  ],
+  "native_windows_tested": false,
+  "real_model_tested": false,
+  "source_execution_host": "macOS arm64"
+}

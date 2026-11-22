@@ -1,0 +1,8 @@
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.json text eol=lf
+*.md text eol=lf
+*.part* binary
+*.dmg binary
+*.docx binary
+*.pdf binary

@@ -1,0 +1,57 @@
+{
+  "output": "CSLA-Windows-x64.zip",
+  "bytes": 458365880,
+  "sha256": "768fbd083dd07e5f39c4dad35fab30e2badfeca87b6bdc5ca6b750f55b273a36",
+  "parts": [
+    {
+      "name": "Windows-x64.zip.part01",
+      "bytes": 47185920,
+      "sha256": "36bcbab764c9eced7db96276c65adfe04b98dfc0c850e52f4ea82f49282b81c6"
+    },
+    {
+      "name": "Windows-x64.zip.part02",
+      "bytes": 47185920,
+      "sha256": "c8b0226ecf06189e7442d1bcba9299af94b6fbdfd482f7108e003c92ca34ca50"
+    },
+    {
+      "name": "Windows-x64.zip.part03",
+      "bytes": 47185920,
+      "sha256": "12a282713d8e07200047148787b218284330000d17c00217d205dad8db5800eb"
+    },
+    {
+      "name": "Windows-x64.zip.part04",
+      "bytes": 47185920,
+      "sha256": "a827a46527516e1a360c14b1c9e97d82c8ae4fe2f116083cac7e6fdbab162d07"
+    },
+    {
+      "name": "Windows-x64.zip.part05",
+      "bytes": 47185920,
+      "sha256": "eef4ff1f84e3effad16303fbf8be970281a6b72ffe5ecbd843f4bb629280ec43"
+    },
+    {
+      "name": "Windows-x64.zip.part06",
+      "bytes": 47185920,
+      "sha256": "d82154a89637d7cbadbb360082b7427f6fe50961dd216dac3f64f92e95886fbd"
+    },
+    {
+      "name": "Windows-x64.zip.part07",
+      "bytes": 47185920,
+      "sha256": "e0d3b49827c0cf746b2e5e11346faca3eae1d09e32eb6546a9840f56a0ac3e92"
+    },
+    {
+      "name": "Windows-x64.zip.part08",
+      "bytes": 47185920,
+      "sha256": "9f9476a8229aa7d2822d055979c7f3e2c09aba8f8a04846fa60ed97385627daf"
+    },
+    {
+      "name": "Windows-x64.zip.part09",
+      "bytes": 47185920,
+      "sha256": "c78283b927e04b3d12f58550599a469f46456ece4effc8d432261ac20949f01b"
+    },
+    {
+      "name": "Windows-x64.zip.part10",
+      "bytes": 33692600,
+      "sha256": "5a21821127382b4be1a38b81c8fb2a0e829e0c4a3628c8035d6f8034d23ad4aa"
+    }
+  ]
+}
