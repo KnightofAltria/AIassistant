@@ -2,6 +2,8 @@
 
 将 `AIassistant-v4/AIassistant` 的完整桌面界面封装为 macOS Cocoa / WKWebView 应用，以及 Windows WinForms / WebView2 应用。双击 `.app` 或 `CSLA.exe` 自动启动内置学习服务和本地账号服务，退出窗口时一起停止。不需要用户安装 Python、Node 或手工启动服务器。
 
+安装包下载入口：[desktop-packages-20261122 分支](https://github.com/KnightofAltria/AIassistant/tree/desktop-packages-20261122)。在该页面选择 **Code → Download ZIP** 并完整解压；Windows 双击 `Restore-Windows.cmd` 合并 10 个分片、校验 SHA256 并解压软件，再双击恢复目录中的 `CSLA.exe`；Mac 打开 `macOS/` 中的 DMG。安装包分支独立保存本次交付文件，无需合并到 main。
+
 ## 使用
 
 - macOS 目标架构：Apple Silicon（arm64）；声明最低 macOS 12，实测环境为 macOS 26.6.2。未构建 Intel Mac 版本，未在旧版 macOS 实机验证。
